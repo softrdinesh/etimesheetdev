@@ -1,0 +1,47 @@
+# Local DEVELOPMENT database only.
+#
+# This is the SQL Server you run the API against while working locally.
+# The integration tests do NOT use it - they start their own throwaway
+# container per test run via Testcontainers and destroy it afterwards, so the
+# suite can never read or write anything you have here.
+#
+#   docker compose up -d          start it
+#   docker compose down           stop it, keeping the data
+#   docker compose down -v        stop it and delete the data
+#
+services:
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-CU14-ubuntu-22.04
+    container_name: etimesheet-sqlserver
+    # The image is published for amd64 only. On Apple Silicon this runs under
+    # Rosetta, which Docker Desktop must have enabled
+    # (Settings > General > "Use Rosetta for x86/amd64 emulation").
+    platform: linux/amd64
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_PID: Developer
+      # Local development credential. It is not a secret, it never leaves this
+      # machine, and nothing deployed ever uses it.
+      MSSQL_SA_PASSWORD: "${MSSQL_SA_PASSWORD:-Local_Dev_Password_123}"
+    ports:
+      - "${MSSQL_PORT:-1433}:1433"
+    volumes:
+      - etimesheet-sqlserver-data:/var/opt/mssql
+    healthcheck:
+      # Compose reports the container healthy only once SQL Server actually
+      # answers a query, not merely when the process has started.
+      # sqlcmd moved to /opt/mssql-tools18 in newer images and requires -C
+      # there, so probe for whichever this image ships.
+      test:
+        [
+          "CMD-SHELL",
+          "if [ -x /opt/mssql-tools18/bin/sqlcmd ]; then /opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P \"$$MSSQL_SA_PASSWORD\" -Q 'SELECT 1' -b -o /dev/null; else /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P \"$$MSSQL_SA_PASSWORD\" -Q 'SELECT 1' -b -o /dev/null; fi"
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    restart: unless-stopped
+
+volumes:
+  etimesheet-sqlserver-data:

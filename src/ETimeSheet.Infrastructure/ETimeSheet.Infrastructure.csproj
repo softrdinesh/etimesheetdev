@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Infrastructure layer: EF Core, repositories and technical service
+    implementations for the abstractions declared in the Application layer.
+    The framework reference gives access to IHttpContextAccessor without
+    pulling in the legacy Microsoft.AspNetCore.Http.Abstractions package.
+  -->
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ETimeSheet.Shared\ETimeSheet.Shared.csproj" />
+    <ProjectReference Include="..\ETimeSheet.Application\ETimeSheet.Application.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="7.0.20" />
+    <PackageReference Include="Microsoft.Extensions.Caching.Memory" Version="7.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" Version="7.0.0" />
+    <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="6.35.0" />
+  </ItemGroup>
+
+</Project>

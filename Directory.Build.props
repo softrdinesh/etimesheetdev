@@ -1,0 +1,28 @@
+<Project>
+
+  <!--
+    Solution-wide build settings.
+    The target framework is pinned here so no individual project can drift:
+    the hosting infrastructure only supports .NET 7.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net7.0</TargetFramework>
+    <LangVersion>11.0</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <!--
+      Must stay false. Microsoft.Data.SqlClient calls
+      CultureInfo.GetCultureInfo("en-us") inside SqlConnection.TryOpen, which
+      throws CultureNotFoundException under globalization-invariant mode - so
+      with this set to true the application cannot open a SQL Server connection
+      at all, database present or not.
+    -->
+    <InvariantGlobalization>false</InvariantGlobalization>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <AnalysisLevel>latest</AnalysisLevel>
+    <!-- Nullability mistakes must not be shipped as "just a warning". -->
+    <WarningsAsErrors>$(WarningsAsErrors);CS8600;CS8602;CS8603;CS8604;CS8618;CS8625</WarningsAsErrors>
+  </PropertyGroup>
+
+</Project>

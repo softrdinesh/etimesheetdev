@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Truly shared, dependency-free building blocks: constants, enums, exceptions,
+    response envelopes, strongly typed settings and small utilities.
+    This project must never reference another project in the solution.
+  -->
+
+</Project>

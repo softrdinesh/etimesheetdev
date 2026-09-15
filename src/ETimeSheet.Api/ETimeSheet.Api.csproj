@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <!-- HTTP layer: controllers, middleware, composition root. -->
+
+  <PropertyGroup Condition=" '$(RunConfiguration)' == 'ETimeSheet.Api (http only)' " />
+  <ItemGroup>
+    <ProjectReference Include="..\ETimeSheet.Shared\ETimeSheet.Shared.csproj">
+      <ReferenceSourceTarget></ReferenceSourceTarget>
+      <GlobalPropertiesToRemove></GlobalPropertiesToRemove>
+    </ProjectReference>
+    <ProjectReference Include="..\ETimeSheet.Application\ETimeSheet.Application.csproj">
+      <ReferenceSourceTarget></ReferenceSourceTarget>
+      <GlobalPropertiesToRemove></GlobalPropertiesToRemove>
+    </ProjectReference>
+    <ProjectReference Include="..\ETimeSheet.Infrastructure\ETimeSheet.Infrastructure.csproj">
+      <ReferenceSourceTarget></ReferenceSourceTarget>
+      <GlobalPropertiesToRemove></GlobalPropertiesToRemove>
+    </ProjectReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="FluentValidation.AspNetCore" Version="11.3.0" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="7.0.20" />
+    <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks.EntityFrameworkCore" Version="7.0.20" />
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="6.5.0" />
+    <!--
+      Microsoft.EntityFrameworkCore.Design is deliberately NOT referenced. It is
+      the package that enables `dotnet ef migrations` / `dotnet ef database
+      update`. This project is database-first and must never generate or apply
+      schema, so the tooling is kept out of the build entirely.
+    -->
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="ETimeSheet.Tests" />
+  </ItemGroup>
+
+</Project>
