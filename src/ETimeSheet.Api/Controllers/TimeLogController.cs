@@ -69,4 +69,34 @@ public class TimeLogController : ControllerBase
         var result = await _timeLogService.GetTimesheetMasterSetupByUserIdAsync(userId, cancellationToken);
         return Ok(ApiResponse.Ok(result));
     }
+
+    /// <summary>
+    /// Logs one block of time for an employee.
+    /// <para>
+    /// The entry is checked against that user's timesheet setup before it is
+    /// stored - their working week, whether they may still back-date, their
+    /// daily maximum - and against the entries they already have that day, so
+    /// two blocks cannot cover the same hour. A user with no setup cannot log
+    /// time at all.
+    /// </para>
+    /// <para>
+    /// Insert only: this creates an entry and returns it with its generated
+    /// <c>sheetId</c>. Correcting an existing entry is a separate operation and
+    /// is not built yet.
+    /// </para>
+    /// </summary>
+    /// <response code="200">The entry as it was stored.</response>
+    /// <response code="400">The payload failed validation, or the entry breaks one of the setup's rules.</response>
+    /// <response code="409">The entry overlaps one the user already has that day.</response>
+    [HttpPost("save-employee-time-log")]
+    [ProducesResponseType(typeof(ApiResponse<TimeLogResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> SaveEmployeeTimeLog(
+        [FromBody] TimeLogSaveRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await _timeLogService.SaveTimeLogAsync(request, cancellationToken);
+        return Ok(ApiResponse.Ok(result, "Time logged."));
+    }
 }

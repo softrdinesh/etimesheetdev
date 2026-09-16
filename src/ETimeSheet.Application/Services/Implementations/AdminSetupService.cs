@@ -12,10 +12,11 @@ namespace ETimeSheet.Application.Services.Implementations;
 /// <summary>
 /// Business logic for the AdminSetup module.
 /// <para>
-/// It owns the four rules that matter here: whether a save is an insert or an
-/// update, that a user may hold only one setup, what a soft delete actually
-/// means, and who gets stamped into the audit columns. It reaches the database
-/// only through <see cref="IAdminSetupRepository"/> and never sees
+/// It owns the four rules that matter here: that a user holds exactly one setup
+/// and a save therefore updates, revives or inserts rather than duplicating;
+/// what a soft delete actually means; that a deleted setup comes back rather
+/// than being replaced; and who gets stamped into the audit columns. It reaches
+/// the database only through <see cref="IAdminSetupRepository"/> and never sees
 /// <c>Context</c>.
 /// </para>
 /// <para>
@@ -46,14 +47,25 @@ public class AdminSetupService : IAdminSetupService
         CancellationToken cancellationToken = default)
     {
         // The whole point of the shared endpoint: the client sends the same
-        // payload either way and does not have to know which operation it is
-        // performing. An id that is present and positive means "edit that row";
-        // anything else means "add". The validator has already rejected a
-        // present-but-non-positive id, so this cannot silently insert after a
-        // client sent a broken id.
-        return request.SetupId is > 0
-            ? await UpdateExistingAsync(request.SetupId.Value, request, cancellationToken)
-            : await AddNewAsync(request, cancellationToken);
+        // payload every time and never has to know which operation it is
+        // performing. The user - not a setup id - decides, because a user holds
+        // exactly one setup. Three cases, in this order:
+        //
+        //   live row     -> update it
+        //   deleted row  -> overwrite it and bring it back
+        //   nothing      -> insert
+        //
+        // The middle case is why the lookup ignores query filters. If it did
+        // not, a user whose setup was deleted would look like a new user and get
+        // a second row, and the table would end up with two setups for them -
+        // the exact thing this endpoint exists to prevent.
+        var existing = await _adminSetupRepository.FindForSaveByUserIdAsync(
+            request.UserId,
+            cancellationToken);
+
+        return existing is null
+            ? await AddNewAsync(request, cancellationToken)
+            : await UpdateExistingAsync(existing, request, cancellationToken);
     }
 
     public async Task<AdminSetupResponse> GetByUserIdAsync(
@@ -93,8 +105,6 @@ public class AdminSetupService : IAdminSetupService
         AdminSetupSaveRequest request,
         CancellationToken cancellationToken)
     {
-        await RequireSingleSetupPerUserAsync(request.UserId, null, cancellationToken);
-
         var setup = new TimesheetMasterSetup();
         request.ApplyTo(setup);
 
@@ -105,77 +115,66 @@ public class AdminSetupService : IAdminSetupService
         // interceptor therefore never sees this entity.
         setup.IsDelete = false;
         setup.CreateDate = _dateTimeProvider.UtcNow;
-        setup.CreatedBy = request.PerformedBy;
+        setup.CreatedBy = request.CreatedBy;
 
         var saved = await _adminSetupRepository.AddAsync(setup, cancellationToken);
 
         _logger.LogInformation(
-            "Timesheet setup {SetupId} created for user {UserId} by user {PerformedBy}.",
+            "Timesheet setup {SetupId} created for user {UserId} by user {CreatedBy}.",
             saved.SetupId,
             request.UserId,
-            request.PerformedBy);
+            request.CreatedBy);
 
         return saved.ToResponse();
     }
 
+    /// <summary>
+    /// Overwrites the user's existing setup with the payload, reviving it first
+    /// if it had been deleted.
+    /// </summary>
     private async Task<AdminSetupResponse> UpdateExistingAsync(
-        int setupId,
+        TimesheetMasterSetup setup,
         AdminSetupSaveRequest request,
         CancellationToken cancellationToken)
     {
-        var setup = await _adminSetupRepository.GetForUpdateAsync(setupId, cancellationToken)
-            ?? throw NotFoundException.For("Timesheet setup", setupId);
-
-        // Checked on the edit path too, not just the insert: an edit can move a
-        // setup to a different UserId, and that user may already have one.
-        await RequireSingleSetupPerUserAsync(request.UserId, setupId, cancellationToken);
+        var wasDeleted = setup.IsDelete == true;
 
         request.ApplyTo(setup);
 
+        if (wasDeleted)
+        {
+            // Brought back rather than left deleted-but-updated: the caller
+            // asked for this user to have this setup, and a row that is still
+            // flagged deleted would be invisible to every read in the API.
+            //
+            // The delete stamps are cleared with it. They record a delete that
+            // has been undone, and leaving them on a live row would have the
+            // next reader believe the setup is gone. CreatedBy and CreateDate
+            // are untouched - this is still the row that was originally created,
+            // and who created it has not changed.
+            setup.IsDelete = false;
+            setup.DeleteDate = null;
+            setup.DeletedBy = null;
+        }
+
         setup.UpdateDate = _dateTimeProvider.UtcNow;
-        setup.UpdatedBy = request.PerformedBy;
+        // request.CreatedBy, into UpdatedBy: the payload names whoever is saving,
+        // and on this path that is the person changing the row, not the one who
+        // first created it. The row's own CreatedBy is left as it was.
+        setup.UpdatedBy = request.CreatedBy;
 
         await _adminSetupRepository.UpdateAsync(setup, cancellationToken);
 
+        // One constant template with the outcome as a value, rather than two
+        // templates chosen at runtime: structured logging groups by template, and
+        // a template that changes shape splits one event into two.
         _logger.LogInformation(
-            "Timesheet setup {SetupId} updated by user {PerformedBy}.",
-            setupId,
-            request.PerformedBy);
+            "Timesheet setup {SetupId} for user {UserId} {SaveOutcome} by user {CreatedBy}.",
+            setup.SetupId,
+            request.UserId,
+            wasDeleted ? "restored and updated" : "updated",
+            request.CreatedBy);
 
         return setup.ToResponse();
-    }
-
-    /// <summary>
-    /// Enforces one live setup per user.
-    /// <para>
-    /// Nothing in the database enforces this - there is no unique index on
-    /// <c>UserID</c> - so it is enforced here, on the only path that writes the
-    /// table. It matters because the timesheet screen reads its limits through
-    /// <c>spc_GetTimesheetMasterSetupByUserID</c>, which does not guarantee
-    /// uniqueness and simply takes the first row it gets: a second row would
-    /// silently decide which limits apply.
-    /// </para>
-    /// <para>
-    /// A conflict rather than a validation error, because the payload is fine -
-    /// it is the current state of the data that makes the operation impossible.
-    /// Editing the user's existing setup is the way to change it.
-    /// </para>
-    /// </summary>
-    private async Task RequireSingleSetupPerUserAsync(
-        int userId,
-        int? excludingSetupId,
-        CancellationToken cancellationToken)
-    {
-        var existing = await _adminSetupRepository.CountForUserAsync(
-            userId,
-            excludingSetupId,
-            cancellationToken);
-
-        if (existing > 0)
-        {
-            throw new ConflictException(
-                $"User '{userId}' already has a timesheet setup. " +
-                "A user can have only one, so edit the existing setup instead of adding another.");
-        }
     }
 }

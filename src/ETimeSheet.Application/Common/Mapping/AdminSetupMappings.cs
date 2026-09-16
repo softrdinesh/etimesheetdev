@@ -43,8 +43,9 @@ internal static class AdminSetupMappings
     /// <para>
     /// It deliberately touches <b>only</b> those columns. The key, the
     /// soft-delete flag and every audit column are left alone, so a payload can
-    /// never rewrite who created a row, resurrect a deleted one, or move a
-    /// setup to a different id.
+    /// never rewrite who created a row or move a setup to a different id.
+    /// Reviving a deleted row is a decision, not a side effect of copying
+    /// fields, so <c>AdminSetupService</c> makes it after calling this.
     /// </para>
     /// <para>
     /// Used for both the insert and the update path, which is what guarantees

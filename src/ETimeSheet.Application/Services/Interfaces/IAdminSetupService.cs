@@ -7,9 +7,9 @@ namespace ETimeSheet.Application.Services.Interfaces;
 /// <c>dbo.TimesheetMasterSetup</c>. Every public method of
 /// <c>AdminSetupService</c> is declared here; its private helpers are not.
 /// <para>
-/// <b>A user has at most one setup.</b> That rule shapes this whole contract:
-/// the read is by user id and returns a single setup, and a save that would
-/// give a user a second one is rejected.
+/// <b>A user has exactly one setup.</b> That rule shapes this whole contract:
+/// the read is by user id and returns a single setup, and the save takes no
+/// setup id at all - there is only ever one row it could mean.
 /// </para>
 /// <para>
 /// This is the only surface <c>AdminSetupController</c> is allowed to touch.
@@ -18,16 +18,15 @@ namespace ETimeSheet.Application.Services.Interfaces;
 public interface IAdminSetupService
 {
     /// <summary>
-    /// Adds or edits a user's timesheet setup. <b>One method for both</b>: the
-    /// request's <c>SetupId</c> decides which - absent means insert, present
-    /// means update of that row.
+    /// Saves a user's timesheet setup. <b>One method for insert and update</b>,
+    /// and the caller does not choose between them: the user's live setup is
+    /// updated if they have one, their deleted setup is overwritten and revived
+    /// if they have one of those, and only a user with neither gets a new row.
+    /// <para>
+    /// It follows that this never fails for "not found" or "already exists" -
+    /// every user is savable, and none of them can end up with two setups.
+    /// </para>
     /// </summary>
-    /// <exception cref="ETimeSheet.Shared.Exceptions.NotFoundException">
-    /// A <c>SetupId</c> was supplied but no live row has it, which surfaces as a 404.
-    /// </exception>
-    /// <exception cref="ETimeSheet.Shared.Exceptions.ConflictException">
-    /// The save would leave the user with more than one setup, which surfaces as a 409.
-    /// </exception>
     Task<AdminSetupResponse> SaveAsync(
         AdminSetupSaveRequest request,
         CancellationToken cancellationToken = default);
