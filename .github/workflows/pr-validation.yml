@@ -1,0 +1,241 @@
+# Validates every pull request: build first, then the tests.
+#
+# Nothing here touches a real database. The unit tests need no database at all,
+# and the integration tests stand up their own throwaway SQL Server container
+# through Testcontainers - ETimeSheetApiFactory overrides
+# Database:ConnectionString with that container's, so the live PPMUAT database
+# is unreachable from a test run.
+#
+# IMPORTANT: this file alone does NOT stop a failing pull request from being
+# merged. GitHub Actions only reports a result; it is branch protection that
+# refuses the merge. See .github/workflows/README.md for the one-time setting -
+# without it, a red build is merge-able.
+
+name: PR validation
+
+on:
+  pull_request:
+    branches:
+      - main
+  # Lets you run the whole thing by hand from the Actions tab, which is useful
+  # the first time, before any pull request exists.
+  workflow_dispatch:
+
+# Read-only. This workflow builds and tests; it never writes to the repository.
+permissions:
+  contents: read
+
+# A new push to the same pull request cancels the run still in flight, so the
+# result you see always belongs to the newest commit.
+concurrency:
+  group: pr-validation-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: true
+  # Warnings are errors in Directory.Build.props, so Release is built the same
+  # way locally and here - a warning fails the build in both.
+  BUILD_CONFIGURATION: Release
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # 1. Build. Runs first and on its own, so a compile error is reported as a
+  #    compile error rather than as a confusing pile of test failures.
+  # ---------------------------------------------------------------------------
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out the pull request
+        uses: actions/checkout@v4
+
+      - name: Install the pinned .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          # Takes the version from global.json (7.0.317) rather than repeating
+          # it here, so the SDK can never drift from what the repository pins.
+          global-json-file: global.json
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          # Keyed on the project files because this solution has no lock file;
+          # a changed PackageReference therefore invalidates the cache.
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', 'Directory.Build.props') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-
+
+      - name: Restore
+        run: dotnet restore ETimeSheet.sln
+
+      - name: Build
+        run: dotnet build ETimeSheet.sln --configuration $BUILD_CONFIGURATION --no-restore
+
+  # ---------------------------------------------------------------------------
+  # 2. Unit and architecture tests. No Docker, no database, no network.
+  # ---------------------------------------------------------------------------
+  unit-tests:
+    name: Unit tests
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out the pull request
+        uses: actions/checkout@v4
+
+      - name: Install the pinned .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', 'Directory.Build.props') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-
+
+      - name: Restore
+        run: dotnet restore ETimeSheet.sln
+
+      - name: Build
+        run: dotnet build ETimeSheet.sln --configuration $BUILD_CONFIGURATION --no-restore
+
+      # Selected by xUnit trait, exactly as ./scripts/run-unit-tests.sh does.
+      # A test class with no Category trait runs in neither job.
+      - name: Run unit and architecture tests
+        run: |
+          dotnet test ETimeSheet.sln \
+            --configuration $BUILD_CONFIGURATION \
+            --no-build \
+            --filter "Category=Unit" \
+            --logger "console;verbosity=normal" \
+            --logger "trx;LogFileName=unit-tests.trx" \
+            --results-directory artifacts/test-results
+
+      - name: Upload unit test results
+        # Uploaded on failure too - that is precisely when they are wanted.
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-results
+          path: artifacts/test-results
+          if-no-files-found: ignore
+
+  # ---------------------------------------------------------------------------
+  # 3. Integration tests, against a real SQL Server in Docker.
+  #
+  #    These cannot run on the development Mac (no Docker there), so CI is the
+  #    only place they execute. GitHub's Ubuntu runners ship with Docker, and
+  #    are amd64, so the SQL Server image runs natively rather than emulated.
+  # ---------------------------------------------------------------------------
+  integration-tests:
+    name: Integration tests
+    needs: build
+    runs-on: ubuntu-latest
+    # SQL Server takes a while to become healthy; the default 360 minutes is far
+    # too generous and 10 is too tight on a cold image pull.
+    timeout-minutes: 30
+
+    env:
+      # Must stay in step with SqlServerFixture.DefaultImage. The fixture reads
+      # this variable, so the tag lives in one place for the whole run.
+      ETIMESHEET_TEST_SQL_IMAGE: mcr.microsoft.com/mssql/server:2022-CU14-ubuntu-22.04
+
+    steps:
+      - name: Check out the pull request
+        uses: actions/checkout@v4
+
+      - name: Install the pinned .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', 'Directory.Build.props') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-
+
+      # Pulled explicitly so that a slow first pull shows up as its own step
+      # instead of looking like a hung test run.
+      - name: Pull the SQL Server image
+        run: docker pull "$ETIMESHEET_TEST_SQL_IMAGE"
+
+      - name: Restore
+        run: dotnet restore ETimeSheet.sln
+
+      - name: Build
+        run: dotnet build ETimeSheet.sln --configuration $BUILD_CONFIGURATION --no-restore
+
+      # dotnet test directly rather than ./scripts/run-integration-tests.sh:
+      # that script is written for a developer machine - it tries to start
+      # Docker Desktop and handles arm64 emulation, neither of which applies on
+      # a Linux runner that already has Docker running.
+      - name: Run integration tests
+        run: |
+          dotnet test ETimeSheet.sln \
+            --configuration $BUILD_CONFIGURATION \
+            --no-build \
+            --filter "Category=Integration" \
+            --logger "console;verbosity=normal" \
+            --logger "trx;LogFileName=integration-tests.trx" \
+            --results-directory artifacts/test-results
+
+      - name: Upload integration test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-test-results
+          path: artifacts/test-results
+          if-no-files-found: ignore
+
+  # ---------------------------------------------------------------------------
+  # 4. The gate.
+  #
+  #    One job that passes only when everything above passed. Make THIS the
+  #    required status check in branch protection and the other three are
+  #    covered by it - otherwise every new job has to be added to the branch
+  #    protection settings by hand, and a job nobody remembered to add is a job
+  #    that cannot block a merge.
+  # ---------------------------------------------------------------------------
+  pr-gate:
+    name: PR gate
+    # always(), so the gate still runs when something upstream failed - without
+    # it the gate would be skipped, and a skipped required check never reports.
+    if: always()
+    needs:
+      - build
+      - unit-tests
+      - integration-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Fail unless the build and every test job succeeded
+        # Cancelled and skipped are treated as failures on purpose: neither one
+        # means "the tests passed", and letting them through would make the gate
+        # green for a run that proved nothing.
+        if: >-
+          contains(needs.*.result, 'failure') ||
+          contains(needs.*.result, 'cancelled') ||
+          contains(needs.*.result, 'skipped')
+        run: |
+          echo "Build result:             ${{ needs.build.result }}"
+          echo "Unit test result:         ${{ needs.unit-tests.result }}"
+          echo "Integration test result:  ${{ needs.integration-tests.result }}"
+          echo ""
+          echo "This pull request is not mergeable until all of the above succeed."
+          exit 1
+
+      - name: Report success
+        run: echo "Build and all tests passed."
