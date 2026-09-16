@@ -52,9 +52,17 @@ public class AuditableEntityInterceptor : SaveChangesInterceptor
 
         var now = _dateTimeProvider.UtcNow;
 
-        // A null user id is expected for background work; it is never a silent
-        // fallback for a real caller, because every request path resolves the
-        // identity through GetRequiredUserId() before it reaches this point.
+        // A null user id is expected for background work, and is currently the
+        // only possible answer: authentication is switched off for this project,
+        // so nothing ever populates the principal.
+        //
+        // That is why the assignments below fall back to whatever the caller
+        // already put on the entity rather than overwriting it. The security
+        // property is unchanged - an AUTHENTICATED identity still wins, so a
+        // payload cannot forge the author once JWT is back on - but while there
+        // is no identity at all, a service that knows who is acting can say so
+        // instead of every row recording a null author. The fallback becomes
+        // dead code the day the principal is populated again.
         var userId = _currentUserService.UserId;
 
         foreach (var entry in context.ChangeTracker.Entries<AuditableEntity>())
@@ -63,12 +71,12 @@ public class AuditableEntityInterceptor : SaveChangesInterceptor
             {
                 case EntityState.Added:
                     entry.Entity.CreateDate = now;
-                    entry.Entity.CreatedBy = userId;
+                    entry.Entity.CreatedBy = userId ?? entry.Entity.CreatedBy;
                     break;
 
                 case EntityState.Modified:
                     entry.Entity.UpdateDate = now;
-                    entry.Entity.UpdatedBy = userId;
+                    entry.Entity.UpdatedBy = userId ?? entry.Entity.UpdatedBy;
                     ProtectCreationColumns(entry);
                     break;
             }

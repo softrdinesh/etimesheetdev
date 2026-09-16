@@ -10,6 +10,10 @@
       src/ETimeSheet.Application/Models/Entities/TimeLog.cs
       src/ETimeSheet.Infrastructure/Data/Configurations/TimeLogConfiguration.cs
 
+    Written by:
+      src/ETimeSheet.Infrastructure/Repositories/TimeLogRepository.cs
+      (insert only, via POST /api/v1/TimeLog/save-employee-time-log)
+
     Column meanings that are not obvious from the type:
       - Status    1 = Save, 2 = Draft. No other value is in use.
                   Mirrored in code by Constants.TimeLog.Status and the

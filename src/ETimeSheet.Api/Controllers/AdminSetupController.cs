@@ -34,33 +34,32 @@ public class AdminSetupController : ControllerBase
     }
 
     /// <summary>
-    /// Adds or edits a user's timesheet setup.
+    /// Saves a user's timesheet setup - adding or updating, whichever applies.
     /// <para>
-    /// <b>One endpoint for both.</b> Send <c>setupId</c> and the row is updated;
-    /// leave it out and a new one is added. The response is the saved row either
-    /// way, so the caller learns the new <c>setupId</c> without a second call.
+    /// <b>There is no setup id in the payload.</b> A user holds exactly one
+    /// setup, so <c>userId</c> is what names the row: send the same payload
+    /// every time and the service updates their setup, or revives and overwrites
+    /// a deleted one, or adds the first. The response carries the saved row with
+    /// its <c>setupId</c>, so the caller never needs a second call to find out
+    /// which happened.
     /// </para>
     /// </summary>
     /// <response code="200">The setup as it now stands.</response>
     /// <response code="400">The payload failed validation.</response>
-    /// <response code="404">A setupId was supplied but no live setup has it.</response>
-    /// <response code="409">The user already has a setup; a user can have only one.</response>
     [HttpPost("save-user-timesheet-setup")]
     [ProducesResponseType(typeof(ApiResponse<AdminSetupResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
-    [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> SaveUserTimesheetSetup(
         [FromBody] AdminSetupSaveRequest request,
         CancellationToken cancellationToken)
     {
         var result = await _adminSetupService.SaveAsync(request, cancellationToken);
 
-        var message = request.SetupId is > 0
-            ? "Timesheet setup updated."
-            : "Timesheet setup added.";
-
-        return Ok(ApiResponse.Ok(result, message));
+        // Deliberately not "added" or "updated": the controller no longer knows
+        // which one happened, and guessing from the payload is what the old
+        // setupId switch did. The saved row is in the response if the client
+        // cares.
+        return Ok(ApiResponse.Ok(result, "Timesheet setup saved."));
     }
 
     /// <summary>

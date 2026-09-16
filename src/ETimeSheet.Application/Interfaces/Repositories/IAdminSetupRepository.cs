@@ -7,9 +7,10 @@ namespace ETimeSheet.Application.Interfaces.Repositories;
 /// administrative CRUD surface over <c>dbo.TimesheetMasterSetup</c>. Every
 /// public operation of <c>AdminSetupRepository</c> is declared here.
 /// <para>
-/// Soft-deleted rows are invisible to every method here: the entity carries a
-/// global query filter on <c>IsDelete</c>, so "not found" and "deleted" are the
-/// same answer as far as this interface is concerned.
+/// Soft-deleted rows are invisible to every method here except
+/// <see cref="FindForSaveByUserIdAsync"/>, which exists precisely because the
+/// save path has to see them. Everywhere else the entity's global query filter
+/// on <c>IsDelete</c> makes "not found" and "deleted" the same answer.
 /// </para>
 /// <para>
 /// This interface answers only "what data" questions - never "is the caller
@@ -23,9 +24,9 @@ public interface IAdminSetupRepository
     /// user has none.
     /// <para>
     /// A user has at most one setup, so this returns a single row rather than a
-    /// list. Should the data ever hold more than one - this is enforced by the
-    /// service, not by a database constraint - the lowest <c>SetupID</c> wins,
-    /// so the answer is at least deterministic.
+    /// list. Should the data ever hold more than one - the save path makes that
+    /// impossible, but no database constraint does - the lowest <c>SetupID</c>
+    /// wins, so the answer is at least deterministic.
     /// </para>
     /// </summary>
     Task<TimesheetMasterSetup?> GetByUserIdAsync(
@@ -33,9 +34,24 @@ public interface IAdminSetupRepository
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Returns one setup row <b>tracked</b>, ready to be mutated and saved.
-    /// Keyed by <c>SetupID</c>, because an edit and a delete both name the exact
-    /// row they mean.
+    /// Returns the row a save should write to for one user, <b>tracked</b>,
+    /// including a soft-deleted one. Null only when the user has never had a
+    /// setup at all - which is the single case that means "insert".
+    /// <para>
+    /// <b>Query filters are ignored deliberately.</b> A user whose setup was
+    /// deleted must not get a second row on their next save; they get the old
+    /// one back, overwritten and undeleted. A live row always wins over a
+    /// deleted one, so the ordering here is what makes that precedence a
+    /// property of the data rather than of two separate round trips.
+    /// </para>
+    /// </summary>
+    Task<TimesheetMasterSetup?> FindForSaveByUserIdAsync(
+        int userId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns one live setup row <b>tracked</b>, ready to be mutated and saved.
+    /// Keyed by <c>SetupID</c>, because a delete names the exact row it means.
     /// <para>
     /// Separate from the read above so that read paths never pay for change
     /// tracking, and so a write path cannot silently get an untracked entity
@@ -44,19 +60,6 @@ public interface IAdminSetupRepository
     /// </summary>
     Task<TimesheetMasterSetup?> GetForUpdateAsync(
         int setupId,
-        CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// How many live setup rows one user already has, ignoring
-    /// <paramref name="excludingSetupId"/> when it is supplied.
-    /// <para>
-    /// This is what enforces one-setup-per-user. Counted in the database rather
-    /// than by loading the rows: the caller only needs the number.
-    /// </para>
-    /// </summary>
-    Task<int> CountForUserAsync(
-        int userId,
-        int? excludingSetupId = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -69,9 +72,10 @@ public interface IAdminSetupRepository
 
     /// <summary>
     /// Persists changes made to a tracked entity obtained from
-    /// <see cref="GetForUpdateAsync"/>. Used for both an edit and a soft delete -
-    /// a soft delete is an update, and deciding what makes a row "deleted" is
-    /// the service's rule, not this layer's.
+    /// <see cref="FindForSaveByUserIdAsync"/> or <see cref="GetForUpdateAsync"/>.
+    /// Used for an edit, a revival and a soft delete alike - all three are an
+    /// update, and deciding what makes a row "deleted" is the service's rule,
+    /// not this layer's.
     /// </summary>
     Task UpdateAsync(
         TimesheetMasterSetup setup,

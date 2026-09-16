@@ -6,9 +6,10 @@ namespace ETimeSheet.Application.Validators.AdminSetups;
 /// <summary>
 /// Shape-level validation for the timesheet setup save payload.
 /// <para>
-/// This answers "is the payload well formed?" only. Whether the row exists,
-/// whether the user already has a setup and what an update is allowed to change
-/// are database questions, and they belong to <c>AdminSetupService</c>.
+/// This answers "is the payload well formed?" only. Whether the user already
+/// has a setup, whether it was deleted and which of those makes this an insert
+/// or an update are database questions, and they belong to
+/// <c>AdminSetupService</c>.
 /// </para>
 /// </summary>
 public class AdminSetupSaveRequestValidator : AbstractValidator<AdminSetupSaveRequest>
@@ -21,33 +22,27 @@ public class AdminSetupSaveRequestValidator : AbstractValidator<AdminSetupSaveRe
 
     public AdminSetupSaveRequestValidator()
     {
-        // Null means "insert". Zero and negatives do not - they are a client
-        // that meant to send an id and got it wrong, and silently treating that
-        // as an insert would create a duplicate row instead of updating.
-        RuleFor(request => request.SetupId!.Value)
-            .GreaterThan(0)
-            .WithMessage("Omit SetupId to add a new setup; to edit one, it must be greater than 0.")
-            // Without this the client is told the field is called "SetupId.Value" -
-            // a C# detail, and not a field it ever sent. Every rule written
-            // against a nullable's .Value needs the same treatment.
-            // OverridePropertyName, not WithName: WithName only changes the
-            // {PropertyName} placeholder inside the message text, while the key
-            // the client actually reads comes from the property name.
-            .OverridePropertyName(nameof(AdminSetupSaveRequest.SetupId))
-            .When(request => request.SetupId.HasValue);
-
+        // There is no SetupId to validate: the payload does not carry one.
+        // UserId is the identity of the row, which makes it the one field the
+        // save cannot proceed without.
         RuleFor(request => request.UserId)
             .GreaterThan(0)
             .WithMessage("UserId is required: a setup must belong to a user.");
 
-        RuleFor(request => request.PerformedBy)
+        RuleFor(request => request.CreatedBy)
             .GreaterThan(0)
-            .WithMessage("PerformedBy is required: the row records who created or changed it.");
+            .WithMessage("CreatedBy is required: the row records who created or changed it.");
 
         // Optional foreign keys: absent is fine, present-but-nonsense is not.
         RuleFor(request => request.OrganizationId!.Value)
             .GreaterThan(0)
             .WithMessage("OrganizationId must be greater than 0 when it is supplied.")
+            // OverridePropertyName, not WithName: without it the client is told
+            // the field is called "OrganizationId.Value" - a C# detail, and not
+            // a field it ever sent. WithName only changes the {PropertyName}
+            // placeholder inside the message text, while the key the client
+            // actually reads comes from the property name. Every rule written
+            // against a nullable's .Value needs the same treatment.
             .OverridePropertyName(nameof(AdminSetupSaveRequest.OrganizationId))
             .When(request => request.OrganizationId.HasValue);
 

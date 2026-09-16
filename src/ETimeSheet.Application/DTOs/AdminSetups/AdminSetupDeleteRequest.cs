@@ -16,7 +16,7 @@ public class AdminSetupDeleteRequest
     /// <summary>
     /// The user performing the delete, written to the <c>Deletedby</c> column.
     /// <para>
-    /// <b>Temporary</b>, exactly as <c>AdminSetupSaveRequest.PerformedBy</c> is:
+    /// <b>Temporary</b>, exactly as <c>AdminSetupSaveRequest.CreatedBy</c> is:
     /// it comes from the token once authentication is on.
     /// </para>
     /// </summary>
