@@ -30,4 +30,25 @@ public interface ITimeLogService
     Task<TimesheetMasterSetupResponse> GetTimesheetMasterSetupByUserIdAsync(
         int userId,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Records one block of work for an employee, after checking it against the
+    /// timesheet setup that applies to them.
+    /// <para>
+    /// The setup drives four of the rules - the working week, whether
+    /// back-dating is still open, the cut-off time for it and the daily maximum -
+    /// so a user with no setup row cannot log time at all. The remaining rule,
+    /// that a new entry may not overlap one the user already has that day, comes
+    /// from the entries themselves.
+    /// </para>
+    /// </summary>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.BusinessException">
+    /// The entry breaks one of the setup's rules, which surfaces as a 400.
+    /// </exception>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.ConflictException">
+    /// The entry overlaps one the user already has that day, which surfaces as a 409.
+    /// </exception>
+    Task<TimeLogResponse> SaveTimeLogAsync(
+        TimeLogSaveRequest request,
+        CancellationToken cancellationToken = default);
 }

@@ -15,7 +15,9 @@ namespace ETimeSheet.Infrastructure.Repositories;
 /// <para>
 /// Every query below runs through the entity's global query filter, so
 /// soft-deleted rows are excluded without a single method mentioning
-/// <c>IsDelete</c>.
+/// <c>IsDelete</c> - with one deliberate exception,
+/// <see cref="FindForSaveByUserIdAsync"/>, which the save path needs in order to
+/// revive a deleted setup instead of duplicating it.
 /// </para>
 /// </summary>
 public class AdminSetupRepository : IAdminSetupRepository
@@ -39,23 +41,33 @@ public class AdminSetupRepository : IAdminSetupRepository
             .OrderBy(setup => setup.SetupId)
             .FirstOrDefaultAsync(cancellationToken);
 
+    public async Task<TimesheetMasterSetup?> FindForSaveByUserIdAsync(
+        int userId,
+        CancellationToken cancellationToken = default) =>
+        await _db.TimesheetMasterSetup
+            // The one query in this class that looks past the soft-delete
+            // filter. Without IgnoreQueryFilters a user whose setup was deleted
+            // would look like a user who never had one, and the save would
+            // insert a second row for them.
+            .IgnoreQueryFilters()
+            .Where(setup => setup.UserId == userId)
+            // Live rows first: false sorts before true, so a user who somehow
+            // has both a live and a deleted row gets the live one updated rather
+            // than the deleted one revived. Then by key, so the answer cannot
+            // change between two identical calls.
+            .OrderBy(setup => setup.IsDelete == true)
+            .ThenBy(setup => setup.SetupId)
+            .FirstOrDefaultAsync(cancellationToken);
+
     public async Task<TimesheetMasterSetup?> GetForUpdateAsync(
         int setupId,
         CancellationToken cancellationToken = default) =>
         // Tracked deliberately: the caller mutates this instance and the change
-        // tracker is what turns those mutations into an UPDATE statement.
+        // tracker is what turns those mutations into an UPDATE statement. The
+        // query filter still applies here, so an already-deleted row is not
+        // found - deleting one twice is a 404, not a silent success.
         await _db.TimesheetMasterSetup
             .FirstOrDefaultAsync(setup => setup.SetupId == setupId, cancellationToken);
-
-    public async Task<int> CountForUserAsync(
-        int userId,
-        int? excludingSetupId = null,
-        CancellationToken cancellationToken = default) =>
-        await _db.TimesheetMasterSetup
-            .AsNoTracking()
-            .Where(setup => setup.UserId == userId)
-            .Where(setup => excludingSetupId == null || setup.SetupId != excludingSetupId.Value)
-            .CountAsync(cancellationToken);
 
     public async Task<TimesheetMasterSetup> AddAsync(
         TimesheetMasterSetup setup,

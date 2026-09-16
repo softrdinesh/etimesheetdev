@@ -1,4 +1,5 @@
 using ETimeSheet.Application.DTOs.TimeLogs;
+using ETimeSheet.Application.Models.Entities;
 using ETimeSheet.Application.Models.Results;
 
 namespace ETimeSheet.Application.Common.Mapping;
@@ -43,5 +44,32 @@ internal static class TimeLogMappings
         StartDay = setup.StartDay,
         EndDay = setup.EndDay,
         CanUserLoggedPreDayTime = setup.CanUserLoggedPreDayTime
+    };
+
+    /// <summary>
+    /// Projects a saved entry back to the caller.
+    /// <para>
+    /// <paramref name="totalWorkingHours"/> is passed in rather than computed
+    /// here: how long an entry covers is a business calculation the service
+    /// already had to perform to check it against the daily maximum, and working
+    /// it out twice invites the two answers to disagree.
+    /// </para>
+    /// </summary>
+    internal static TimeLogResponse ToResponse(this TimeLog timeLog, decimal totalWorkingHours) => new()
+    {
+        SheetId = timeLog.SheetId,
+        SheetCode = timeLog.SheetCode,
+        TaskId = timeLog.TaskId,
+        Description = timeLog.Description,
+        UserId = timeLog.UserId,
+        StartDate = timeLog.StartDate,
+        StartTime = timeLog.StartTime,
+        EndDate = timeLog.EndDate,
+        EndTime = timeLog.EndTime,
+        Status = timeLog.Status,
+        StatusName = timeLog.Status?.ToString() ?? string.Empty,
+        TotalWorkingHours = totalWorkingHours,
+        CreatedBy = timeLog.CreatedBy,
+        CreateDate = timeLog.CreateDate
     };
 }

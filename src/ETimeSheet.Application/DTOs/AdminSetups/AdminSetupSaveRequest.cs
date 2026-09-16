@@ -4,26 +4,22 @@ namespace ETimeSheet.Application.DTOs.AdminSetups;
 /// Body of the timesheet setup save request - <b>one payload for both insert and
 /// update</b>.
 /// <para>
-/// <see cref="SetupId"/> is what decides which one happens: supply it and the
-/// existing row is updated, leave it out (or send null) and a new row is
-/// inserted. There is deliberately no separate "create" and "update" endpoint,
-/// because the client should not have to know which it is doing.
+/// There is deliberately no setup id here. A user holds exactly one setup, so
+/// <see cref="UserId"/> already identifies the row: the service looks the user
+/// up and updates their setup if they have one, revives and overwrites it if
+/// theirs was deleted, and inserts only when they have neither. The client never
+/// has to know which of the three happened, and cannot create a second row for a
+/// user by sending the wrong id.
 /// </para>
 /// <para>
-/// Every field except <see cref="UserId"/> and <see cref="PerformedBy"/> is
+/// Every field except <see cref="UserId"/> and <see cref="CreatedBy"/> is
 /// optional, mirroring the table: every column on
 /// <c>dbo.TimesheetMasterSetup</c> other than the key is nullable.
 /// </para>
 /// </summary>
 public class AdminSetupSaveRequest
 {
-    /// <summary>
-    /// The row to update. <b>Null (or absent) means insert.</b> When supplied it
-    /// must identify a live, non-deleted row, or the call is a 404.
-    /// </summary>
-    public int? SetupId { get; set; }
-
-    /// <summary>The user these settings belong to. Required - a setup with no owner cannot be applied to anyone.</summary>
+    /// <summary>The user these settings belong to. Required - it is what identifies the row to save.</summary>
     public int UserId { get; set; }
 
     /// <summary>
@@ -65,8 +61,13 @@ public class AdminSetupSaveRequest
     // spc_GetTimesheetMasterSetupByUserID. There is nothing here to store.
 
     /// <summary>
-    /// The user performing the save. Written to <c>CreatedBy</c> on an insert
-    /// and to <c>UpdatedBy</c> on an update.
+    /// The user performing the save.
+    /// <para>
+    /// Written to the row's <c>CreatedBy</c> when the save inserts, and to its
+    /// <c>UpdatedBy</c> when the save updates or revives - the payload carries
+    /// one "who is doing this", and which audit column it lands in follows from
+    /// what the save turned out to be.
+    /// </para>
     /// <para>
     /// <b>Temporary.</b> This belongs in the token, not in the payload - a
     /// caller can currently claim to be anyone. It moves to the authenticated
@@ -74,5 +75,5 @@ public class AdminSetupSaveRequest
     /// deleted from the contract.
     /// </para>
     /// </summary>
-    public int PerformedBy { get; set; }
+    public int CreatedBy { get; set; }
 }
