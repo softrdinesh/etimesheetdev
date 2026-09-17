@@ -1,5 +1,5 @@
 using ETimeSheet.Application.Common.Mapping;
-using ETimeSheet.Application.DTOs.AdminSetups;
+using ETimeSheet.Application.DTOs.Admins;
 using ETimeSheet.Application.Interfaces.Repositories;
 using ETimeSheet.Application.Interfaces.Services;
 using ETimeSheet.Application.Models.Entities;
@@ -10,13 +10,13 @@ using Microsoft.Extensions.Logging;
 namespace ETimeSheet.Application.Services.Implementations;
 
 /// <summary>
-/// Business logic for the AdminSetup module.
+/// Business logic for the Admin module.
 /// <para>
 /// It owns the four rules that matter here: that a user holds exactly one setup
 /// and a save therefore updates, revives or inserts rather than duplicating;
 /// what a soft delete actually means; that a deleted setup comes back rather
 /// than being replaced; and who gets stamped into the audit columns. It reaches
-/// the database only through <see cref="IAdminSetupRepository"/> and never sees
+/// the database only through <see cref="IAdminRepository"/> and never sees
 /// <c>Context</c>.
 /// </para>
 /// <para>
@@ -26,24 +26,24 @@ namespace ETimeSheet.Application.Services.Implementations;
 /// the payload. Both of those change together when JWT is turned back on.
 /// </para>
 /// </summary>
-public class AdminSetupService : IAdminSetupService
+public class AdminService : IAdminService
 {
-    private readonly IAdminSetupRepository _adminSetupRepository;
+    private readonly IAdminRepository _adminRepository;
     private readonly IDateTimeProvider _dateTimeProvider;
-    private readonly ILogger<AdminSetupService> _logger;
+    private readonly ILogger<AdminService> _logger;
 
-    public AdminSetupService(
-        IAdminSetupRepository adminSetupRepository,
+    public AdminService(
+        IAdminRepository adminRepository,
         IDateTimeProvider dateTimeProvider,
-        ILogger<AdminSetupService> logger)
+        ILogger<AdminService> logger)
     {
-        _adminSetupRepository = adminSetupRepository;
+        _adminRepository = adminRepository;
         _dateTimeProvider = dateTimeProvider;
         _logger = logger;
     }
 
-    public async Task<AdminSetupResponse> SaveAsync(
-        AdminSetupSaveRequest request,
+    public async Task<AdminResponse> SaveAsync(
+        AdminSaveRequest request,
         CancellationToken cancellationToken = default)
     {
         // The whole point of the shared endpoint: the client sends the same
@@ -59,7 +59,7 @@ public class AdminSetupService : IAdminSetupService
         // not, a user whose setup was deleted would look like a new user and get
         // a second row, and the table would end up with two setups for them -
         // the exact thing this endpoint exists to prevent.
-        var existing = await _adminSetupRepository.FindForSaveByUserIdAsync(
+        var existing = await _adminRepository.FindForSaveByUserIdAsync(
             request.UserId,
             cancellationToken);
 
@@ -68,21 +68,21 @@ public class AdminSetupService : IAdminSetupService
             : await UpdateExistingAsync(existing, request, cancellationToken);
     }
 
-    public async Task<AdminSetupResponse> GetByUserIdAsync(
+    public async Task<AdminResponse> GetByUserIdAsync(
         int userId,
         CancellationToken cancellationToken = default)
     {
-        var setup = await _adminSetupRepository.GetByUserIdAsync(userId, cancellationToken)
+        var setup = await _adminRepository.GetByUserIdAsync(userId, cancellationToken)
             ?? throw NotFoundException.For("Timesheet setup for user", userId);
 
         return setup.ToResponse();
     }
 
     public async Task DeleteAsync(
-        AdminSetupDeleteRequest request,
+        AdminDeleteRequest request,
         CancellationToken cancellationToken = default)
     {
-        var setup = await _adminSetupRepository.GetForUpdateAsync(request.SetupId, cancellationToken)
+        var setup = await _adminRepository.GetForUpdateAsync(request.SetupId, cancellationToken)
             ?? throw NotFoundException.For("Timesheet setup", request.SetupId);
 
         // A soft delete, never a DELETE statement: the row stays and is hidden
@@ -93,7 +93,7 @@ public class AdminSetupService : IAdminSetupService
         setup.DeleteDate = _dateTimeProvider.UtcNow;
         setup.DeletedBy = request.DeletedBy;
 
-        await _adminSetupRepository.UpdateAsync(setup, cancellationToken);
+        await _adminRepository.UpdateAsync(setup, cancellationToken);
 
         _logger.LogInformation(
             "Timesheet setup {SetupId} soft-deleted by user {DeletedBy}.",
@@ -101,8 +101,8 @@ public class AdminSetupService : IAdminSetupService
             request.DeletedBy);
     }
 
-    private async Task<AdminSetupResponse> AddNewAsync(
-        AdminSetupSaveRequest request,
+    private async Task<AdminResponse> AddNewAsync(
+        AdminSaveRequest request,
         CancellationToken cancellationToken)
     {
         var setup = new TimesheetMasterSetup();
@@ -117,7 +117,7 @@ public class AdminSetupService : IAdminSetupService
         setup.CreateDate = _dateTimeProvider.UtcNow;
         setup.CreatedBy = request.CreatedBy;
 
-        var saved = await _adminSetupRepository.AddAsync(setup, cancellationToken);
+        var saved = await _adminRepository.AddAsync(setup, cancellationToken);
 
         _logger.LogInformation(
             "Timesheet setup {SetupId} created for user {UserId} by user {CreatedBy}.",
@@ -132,9 +132,9 @@ public class AdminSetupService : IAdminSetupService
     /// Overwrites the user's existing setup with the payload, reviving it first
     /// if it had been deleted.
     /// </summary>
-    private async Task<AdminSetupResponse> UpdateExistingAsync(
+    private async Task<AdminResponse> UpdateExistingAsync(
         TimesheetMasterSetup setup,
-        AdminSetupSaveRequest request,
+        AdminSaveRequest request,
         CancellationToken cancellationToken)
     {
         var wasDeleted = setup.IsDelete == true;
@@ -163,7 +163,7 @@ public class AdminSetupService : IAdminSetupService
         // first created it. The row's own CreatedBy is left as it was.
         setup.UpdatedBy = request.CreatedBy;
 
-        await _adminSetupRepository.UpdateAsync(setup, cancellationToken);
+        await _adminRepository.UpdateAsync(setup, cancellationToken);
 
         // One constant template with the outcome as a value, rather than two
         // templates chosen at runtime: structured logging groups by template, and

@@ -48,7 +48,7 @@ No job connects to the live PPMUAT database.
 ## Things worth knowing
 
 **Current coverage is thin.** 40 unit tests, and only two integration classes
-(`HealthEndpointTests`, `AuthenticationTests`). Nothing covers the AdminSetup or
+(`HealthEndpointTests`, `AuthenticationTests`). Nothing covers the Admin or
 TimeLog endpoints yet, so a green tick means "it builds and nothing already
 covered broke" - not "the new endpoints work".
 

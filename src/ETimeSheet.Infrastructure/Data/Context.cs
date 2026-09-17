@@ -46,6 +46,13 @@ public class Context : DbContext
     /// <summary>The <c>dbo.TimesheetMasterSetup</c> table.</summary>
     public DbSet<TimesheetMasterSetup> TimesheetMasterSetup { get; set; } = null!;
 
+    /// <summary>
+    /// The <c>dbo.DayMaster</c> lookup table - the seven days of the week.
+    /// <b>Read-only:</b> its rows are fixed reference data, so nothing adds,
+    /// edits or deletes one through this context.
+    /// </summary>
+    public DbSet<DayMaster> DayMaster { get; set; } = null!;
+
     // =====================================================================
     // STORED PROCEDURES  -  property name == procedure name
     //

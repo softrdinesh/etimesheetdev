@@ -283,8 +283,21 @@ public class ETimeSheetApiFactory : WebApplicationFactory<Program>
     }
 
     /// <summary>
+    /// Lookup tables, whose rows are fixed reference data inserted by the schema
+    /// script rather than arranged by a test.
+    /// <para>
+    /// They are excluded from the reset below on purpose: emptying one would
+    /// delete seed data that nothing puts back, so the first test to run would
+    /// pass and every test after it would face an empty lookup.
+    /// </para>
+    /// </summary>
+    private static readonly IReadOnlySet<string> LookupTables =
+        new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "DayMaster" };
+
+    /// <summary>
     /// Builds the clean-up script from the EF model, so a new entity is covered
-    /// the moment it is mapped - nobody has to remember to update this.
+    /// the moment it is mapped - nobody has to remember to update this, except
+    /// to add a new lookup table to <see cref="LookupTables"/>.
     /// <para>
     /// Constraints are disabled around the deletes so that tables can be emptied
     /// without working out a topological order once foreign keys appear.
@@ -297,6 +310,7 @@ public class ETimeSheetApiFactory : WebApplicationFactory<Program>
         var tables = dbContext.Model
             .GetEntityTypes()
             .Where(entityType => entityType.GetTableName() is not null)
+            .Where(entityType => !LookupTables.Contains(entityType.GetTableName()!))
             .Select(entityType => $"[{entityType.GetSchema() ?? "dbo"}].[{entityType.GetTableName()}]")
             .Distinct(StringComparer.Ordinal)
             .ToArray();

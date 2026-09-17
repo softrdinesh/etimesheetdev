@@ -1,21 +1,21 @@
-using ETimeSheet.Application.DTOs.AdminSetups;
+using ETimeSheet.Application.DTOs.Admins;
 
 namespace ETimeSheet.Application.Services.Interfaces;
 
 /// <summary>
-/// Application contract for the AdminSetup module - administrative CRUD over
+/// Application contract for the Admin module - administrative CRUD over
 /// <c>dbo.TimesheetMasterSetup</c>. Every public method of
-/// <c>AdminSetupService</c> is declared here; its private helpers are not.
+/// <c>AdminService</c> is declared here; its private helpers are not.
 /// <para>
 /// <b>A user has exactly one setup.</b> That rule shapes this whole contract:
 /// the read is by user id and returns a single setup, and the save takes no
 /// setup id at all - there is only ever one row it could mean.
 /// </para>
 /// <para>
-/// This is the only surface <c>AdminSetupController</c> is allowed to touch.
+/// This is the only surface <c>AdminController</c> is allowed to touch.
 /// </para>
 /// </summary>
-public interface IAdminSetupService
+public interface IAdminService
 {
     /// <summary>
     /// Saves a user's timesheet setup. <b>One method for insert and update</b>,
@@ -27,15 +27,15 @@ public interface IAdminSetupService
     /// every user is savable, and none of them can end up with two setups.
     /// </para>
     /// </summary>
-    Task<AdminSetupResponse> SaveAsync(
-        AdminSetupSaveRequest request,
+    Task<AdminResponse> SaveAsync(
+        AdminSaveRequest request,
         CancellationToken cancellationToken = default);
 
     /// <summary>Returns the timesheet setup belonging to one user.</summary>
     /// <exception cref="ETimeSheet.Shared.Exceptions.NotFoundException">
     /// The user has no setup - including the case where theirs was soft-deleted.
     /// </exception>
-    Task<AdminSetupResponse> GetByUserIdAsync(
+    Task<AdminResponse> GetByUserIdAsync(
         int userId,
         CancellationToken cancellationToken = default);
 
@@ -48,6 +48,6 @@ public interface IAdminSetupService
     /// a silent success.
     /// </exception>
     Task DeleteAsync(
-        AdminSetupDeleteRequest request,
+        AdminDeleteRequest request,
         CancellationToken cancellationToken = default);
 }

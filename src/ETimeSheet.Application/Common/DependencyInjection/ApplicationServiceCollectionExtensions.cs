@@ -22,7 +22,7 @@ public static class ApplicationServiceCollectionExtensions
     {
         services.AddScoped<IAuthorizationService, AuthorizationService>();
         services.AddScoped<ITimeLogService, TimeLogService>();
-        services.AddScoped<IAdminSetupService, AdminSetupService>();
+        services.AddScoped<IAdminService, AdminService>();
 
         // Picks up every AbstractValidator in this assembly, so a new validator
         // is wired up by the act of creating it.

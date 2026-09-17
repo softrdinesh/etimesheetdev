@@ -1,20 +1,20 @@
-using ETimeSheet.Application.DTOs.AdminSetups;
+using ETimeSheet.Application.DTOs.Admins;
 using ETimeSheet.Application.Models.Entities;
 
 namespace ETimeSheet.Application.Common.Mapping;
 
 /// <summary>
 /// Hand-written projections between <see cref="TimesheetMasterSetup"/> and the
-/// AdminSetup DTOs.
+/// Admin DTOs.
 /// <para>
 /// Explicit and compile-time checked, for the same reason as
 /// <see cref="TimeLogMappings"/>: a convention-based mapper would silently drop
 /// a column the day one of these names changes.
 /// </para>
 /// </summary>
-internal static class AdminSetupMappings
+internal static class AdminMappings
 {
-    internal static AdminSetupResponse ToResponse(this TimesheetMasterSetup setup) => new()
+    internal static AdminResponse ToResponse(this TimesheetMasterSetup setup) => new()
     {
         SetupId = setup.SetupId,
         UserId = setup.UserId,
@@ -23,12 +23,12 @@ internal static class AdminSetupMappings
         OrganizationId = setup.OrganizationId,
         ContractType = setup.ContractType,
 
-        // StartDay/EndDay/ExceptionDay are fixed-width char columns, so a value
-        // shorter than the column comes back blank-padded. Trimming here means
-        // a client can compare the value without having to know that.
-        StartDay = setup.StartDay?.TrimEnd(),
-        EndDay = setup.EndDay?.TrimEnd(),
-        ExceptionDay = setup.ExceptionDay?.TrimEnd(),
+        // Day ids straight through - dbo.DayMaster.DayID, 1 = Monday ... 7 =
+        // Sunday. Not translated to names here: the response carries the stored
+        // value, and dbo.DayMaster is what turns it into a name.
+        StartDay = setup.StartDay,
+        EndDay = setup.EndDay,
+        ExceptionDay = setup.ExceptionDay,
 
         CountryId = setup.CountryId,
         TimeEntryLockAt = setup.TimeEntryLockAt,
@@ -45,33 +45,24 @@ internal static class AdminSetupMappings
     /// soft-delete flag and every audit column are left alone, so a payload can
     /// never rewrite who created a row or move a setup to a different id.
     /// Reviving a deleted row is a decision, not a side effect of copying
-    /// fields, so <c>AdminSetupService</c> makes it after calling this.
+    /// fields, so <c>AdminService</c> makes it after calling this.
     /// </para>
     /// <para>
     /// Used for both the insert and the update path, which is what guarantees
     /// the two cannot drift apart and start accepting different fields.
     /// </para>
     /// </summary>
-    internal static void ApplyTo(this AdminSetupSaveRequest request, TimesheetMasterSetup setup)
+    internal static void ApplyTo(this AdminSaveRequest request, TimesheetMasterSetup setup)
     {
         setup.UserId = request.UserId;
         setup.MaxTimeInHrs = request.MaxTimeInHrs;
         setup.MaxTimInMins = request.MaxTimInMins;
         setup.OrganizationId = request.OrganizationId;
         setup.ContractType = request.ContractType;
-        setup.StartDay = NormaliseDayCode(request.StartDay);
-        setup.EndDay = NormaliseDayCode(request.EndDay);
-        setup.ExceptionDay = NormaliseDayCode(request.ExceptionDay);
+        setup.StartDay = request.StartDay;
+        setup.EndDay = request.EndDay;
+        setup.ExceptionDay = request.ExceptionDay;
         setup.CountryId = request.CountryId;
         setup.TimeEntryLockAt = request.TimeEntryLockAt;
     }
-
-    /// <summary>
-    /// Stores day codes in one canonical form - trimmed and upper-case - so that
-    /// "mo", "MO " and "Mo" cannot end up as three different values in a
-    /// case-insensitive column that will compare them as equal anyway.
-    /// Whitespace-only becomes null rather than a row of blanks.
-    /// </summary>
-    private static string? NormaliseDayCode(string? value) =>
-        string.IsNullOrWhiteSpace(value) ? null : value.Trim().ToUpperInvariant();
 }

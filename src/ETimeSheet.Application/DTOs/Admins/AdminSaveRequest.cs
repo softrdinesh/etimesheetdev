@@ -1,4 +1,4 @@
-namespace ETimeSheet.Application.DTOs.AdminSetups;
+namespace ETimeSheet.Application.DTOs.Admins;
 
 /// <summary>
 /// Body of the timesheet setup save request - <b>one payload for both insert and
@@ -17,7 +17,7 @@ namespace ETimeSheet.Application.DTOs.AdminSetups;
 /// <c>dbo.TimesheetMasterSetup</c> other than the key is nullable.
 /// </para>
 /// </summary>
-public class AdminSetupSaveRequest
+public class AdminSaveRequest
 {
     /// <summary>The user these settings belong to. Required - it is what identifies the row to save.</summary>
     public int UserId { get; set; }
@@ -37,19 +37,20 @@ public class AdminSetupSaveRequest
     public int? ContractType { get; set; }
 
     /// <summary>
-    /// First day of the timesheet week - a two-character code such as
-    /// <c>"MO"</c>. Stored in a <c>char(2)</c>, so exactly two letters.
+    /// First day of the timesheet week - a <c>dbo.DayMaster.DayID</c>: 1 =
+    /// Monday, 2 = Tuesday ... 7 = Sunday. Send 1, not <c>"MO"</c>; the column
+    /// stopped being a two-letter code on 2026-09-17.
     /// </summary>
-    public string? StartDay { get; set; }
+    public int? StartDay { get; set; }
 
-    /// <summary>Last day of the timesheet week. Two letters, as <see cref="StartDay"/>.</summary>
-    public string? EndDay { get; set; }
+    /// <summary>Last day of the timesheet week. A day id, as <see cref="StartDay"/>. Send it with <see cref="StartDay"/> or not at all.</summary>
+    public int? EndDay { get; set; }
 
     /// <summary>
-    /// A day treated as an exception to the normal week - a three-character code
-    /// such as <c>"SUN"</c>. Stored in a <c>char(3)</c>.
+    /// A day worked in addition to the normal week - also a
+    /// <c>dbo.DayMaster.DayID</c>. Send 7 for Sunday, not <c>"SUN"</c>.
     /// </summary>
-    public string? ExceptionDay { get; set; }
+    public int? ExceptionDay { get; set; }
 
     public int? CountryId { get; set; }
 

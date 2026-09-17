@@ -1,4 +1,4 @@
-namespace ETimeSheet.Application.DTOs.AdminSetups;
+namespace ETimeSheet.Application.DTOs.Admins;
 
 /// <summary>
 /// Caller-facing view of one <c>dbo.TimesheetMasterSetup</c> row.
@@ -12,7 +12,7 @@ namespace ETimeSheet.Application.DTOs.AdminSetups;
 /// Two audiences, two contracts - deliberately not shared.
 /// </para>
 /// </summary>
-public class AdminSetupResponse
+public class AdminResponse
 {
     public int SetupId { get; init; }
 
@@ -28,14 +28,18 @@ public class AdminSetupResponse
 
     public int? ContractType { get; init; }
 
-    /// <summary>First day of the timesheet week. Trailing blanks from the <c>char(2)</c> column are trimmed off.</summary>
-    public string? StartDay { get; init; }
+    /// <summary>
+    /// First day of the timesheet week - a <c>dbo.DayMaster.DayID</c>: 1 =
+    /// Monday through 7 = Sunday. Look the name up in <c>dbo.DayMaster</c>, or
+    /// use <c>Constants.DayMaster</c>.
+    /// </summary>
+    public int? StartDay { get; init; }
 
-    /// <summary>Last day of the timesheet week.</summary>
-    public string? EndDay { get; init; }
+    /// <summary>Last day of the timesheet week. A day id, as <see cref="StartDay"/>.</summary>
+    public int? EndDay { get; init; }
 
-    /// <summary>A day treated as an exception to the normal week.</summary>
-    public string? ExceptionDay { get; init; }
+    /// <summary>A day worked in addition to the normal week. A day id, as <see cref="StartDay"/>.</summary>
+    public int? ExceptionDay { get; init; }
 
     public int? CountryId { get; init; }
 

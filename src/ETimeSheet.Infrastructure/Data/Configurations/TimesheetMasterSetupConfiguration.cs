@@ -39,29 +39,16 @@ public class TimesheetMasterSetupConfiguration : IEntityTypeConfiguration<Timesh
         builder.Property(setup => setup.ContractType).HasColumnName("ContractType");
         builder.Property(setup => setup.CountryId).HasColumnName("CountryID");
 
-        // char, not varchar or nvarchar: IsFixedLength keeps the blank padding
-        // the column really has, and IsUnicode(false) stops EF sending an
-        // N-prefixed parameter that would force a conversion on the column.
-        builder.Property(setup => setup.StartDay)
-            .HasColumnName("StartDay")
-            .HasColumnType("char(2)")
-            .IsFixedLength()
-            .IsUnicode(false)
-            .HasMaxLength(2);
+        // Day columns: plain int since 2026-09-17, holding dbo.DayMaster.DayID.
+        // No HasOne/WithMany to DayMaster and no foreign key is declared,
+        // because the database declares none - modelling a relationship the
+        // database does not enforce would have EF Core generate joins and
+        // fixup for a constraint that can be violated by any other writer.
+        builder.Property(setup => setup.StartDay).HasColumnName("StartDay");
+        builder.Property(setup => setup.EndDay).HasColumnName("EndDay");
 
-        builder.Property(setup => setup.EndDay)
-            .HasColumnName("EndDay")
-            .HasColumnType("char(2)")
-            .IsFixedLength()
-            .IsUnicode(false)
-            .HasMaxLength(2);
-
-        builder.Property(setup => setup.ExceptionDay)
-            .HasColumnName("Exceptionday")
-            .HasColumnType("char(3)")
-            .IsFixedLength()
-            .IsUnicode(false)
-            .HasMaxLength(3);
+        // Still the database's one-word, lower-case-d spelling.
+        builder.Property(setup => setup.ExceptionDay).HasColumnName("Exceptionday");
 
         builder.Property(setup => setup.TimeEntryLockAt)
             .HasColumnName("TimeEntryLockAt")

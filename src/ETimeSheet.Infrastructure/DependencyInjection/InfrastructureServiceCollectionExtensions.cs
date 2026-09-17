@@ -92,7 +92,7 @@ public static class InfrastructureServiceCollectionExtensions
         // One registration per feature repository. Scoped, to share the
         // request's DbContext and its change tracker.
         services.AddScoped<ITimeLogRepository, TimeLogRepository>();
-        services.AddScoped<IAdminSetupRepository, AdminSetupRepository>();
+        services.AddScoped<IAdminRepository, AdminRepository>();
 
         return services;
     }
