@@ -1,12 +1,12 @@
-using ETimeSheet.Application.DTOs.AdminSetups;
+using ETimeSheet.Application.DTOs.Admins;
 using FluentValidation;
 
-namespace ETimeSheet.Application.Validators.AdminSetups;
+namespace ETimeSheet.Application.Validators.Admins;
 
 /// <summary>Shape-level validation for the timesheet setup delete payload.</summary>
-public class AdminSetupDeleteRequestValidator : AbstractValidator<AdminSetupDeleteRequest>
+public class AdminDeleteRequestValidator : AbstractValidator<AdminDeleteRequest>
 {
-    public AdminSetupDeleteRequestValidator()
+    public AdminDeleteRequestValidator()
     {
         RuleFor(request => request.SetupId)
             .GreaterThan(0)

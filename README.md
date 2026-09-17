@@ -1,6 +1,6 @@
 # ETimeSheet API
 
-A production-ready ASP.NET Core Web API on **.NET 7**, using **Entity Framework
+A production-ready ASP.NET Core Web API on **.NET 6**, using **Entity Framework
 Core** against **SQL Server**, with JWT bearer authentication, centralised
 authorization, FluentValidation, Swagger, health checks and a full unit +
 integration test suite.
@@ -101,7 +101,7 @@ cannot touch `DbContext`" a compile error rather than a review comment.
 
 ```
 ETimeSheet.sln
-global.json                      SDK pinned to .NET 7
+global.json                      SDK pinned to .NET 6
 Directory.Build.props            TFM, nullable, implicit usings for all projects
 docker-compose.yml               local DEVELOPMENT SQL Server (not used by tests)
 docs/database/                   the recorded DB schema + changelog (source of truth)
@@ -182,9 +182,9 @@ tests/
 
 | Concern | Choice |
 |---|---|
-| Runtime | .NET 7 (`net7.0`, pinned in `global.json` and `Directory.Build.props`) |
+| Runtime | .NET 6 (`net6.0`, pinned in `global.json` and `Directory.Build.props`) |
 | API | ASP.NET Core Web API, controllers |
-| Data access | Entity Framework Core 7 + SQL Server (**no Dapper, no DbUp**) |
+| Data access | Entity Framework Core 6 + SQL Server (**no Dapper, no DbUp**) |
 | Auth | JWT bearer (`Microsoft.AspNetCore.Authentication.JwtBearer`) |
 | Validation | FluentValidation 11 with auto-validation |
 | Caching | `IMemoryCache` behind `ICacheService` (registered and tested; nothing is cached yet) |
@@ -202,7 +202,7 @@ nullability warnings are promoted to errors. Everything is `async`/`await` with
 
 | Tool | Needed for | Notes |
 |---|---|---|
-| **.NET 7 SDK** | everything | `global.json` pins it, so newer SDKs on the machine are ignored |
+| **.NET 6 SDK** | everything | `global.json` pins it, so newer SDKs on the machine are ignored |
 | **Docker** | the development database and the integration tests | not needed for building or for unit tests |
 
 Docker has to be installed once, by hand — it needs administrator rights and a
@@ -235,7 +235,7 @@ dotnet run --project src/ETimeSheet.Api
 Verify the SDK:
 
 ```bash
-dotnet --version     # expect 7.0.xxx
+dotnet --version     # expect 6.0.xxx
 ```
 
 ---
@@ -690,7 +690,7 @@ changing.
 ```yaml
 - uses: actions/setup-dotnet@v4
   with:
-    dotnet-version: '7.0.x'
+    dotnet-version: '6.0.x'
 - run: dotnet test --filter "Category=Unit"
 - run: dotnet test --filter "Category=Integration"   # needs a Docker daemon
 ```

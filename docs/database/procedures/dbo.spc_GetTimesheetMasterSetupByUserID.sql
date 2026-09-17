@@ -22,7 +22,7 @@
     deployed procedure must therefore derive it (the body recorded below is what
     was handed over, so the two have drifted). Because of that it is mapped only
     on this procedure's keyless result type and is absent from the table entity
-    and from the AdminSetup CRUD contract. It comes back as an int holding 0 or
+    and from the Admin CRUD contract. It comes back as an int holding 0 or
     1, not a bit, which is why the mapping needs .HasConversion<int>().
 
     The table itself is recorded at ../schema/dbo.TimesheetMasterSetup.sql.

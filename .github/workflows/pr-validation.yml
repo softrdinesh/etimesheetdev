@@ -56,7 +56,7 @@ jobs:
       - name: Install the pinned .NET SDK
         uses: actions/setup-dotnet@v4
         with:
-          # Takes the version from global.json (7.0.317) rather than repeating
+          # Takes the version from global.json (6.0.425) rather than repeating
           # it here, so the SDK can never drift from what the repository pins.
           global-json-file: global.json
 

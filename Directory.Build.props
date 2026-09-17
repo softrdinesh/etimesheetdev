@@ -3,11 +3,11 @@
   <!--
     Solution-wide build settings.
     The target framework is pinned here so no individual project can drift:
-    the hosting infrastructure only supports .NET 7.
+    the hosting infrastructure only supports .NET 6.
   -->
   <PropertyGroup>
-    <TargetFramework>net7.0</TargetFramework>
-    <LangVersion>11.0</LangVersion>
+    <TargetFramework>net6.0</TargetFramework>
+    <LangVersion>10.0</LangVersion>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <!--

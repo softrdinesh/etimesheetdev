@@ -66,7 +66,7 @@ public class TimeLogSaveRequest
     /// <see cref="UserId"/>, but not necessarily - a manager may log on someone's
     /// behalf, and the row should say who actually did it.
     /// <para>
-    /// <b>Temporary</b>, as on <c>AdminSetupSaveRequest.CreatedBy</c>: this
+    /// <b>Temporary</b>, as on <c>AdminSaveRequest.CreatedBy</c>: this
     /// belongs in the token, and it moves there the moment JWT is switched back
     /// on.
     /// </para>

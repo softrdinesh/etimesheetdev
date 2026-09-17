@@ -5,7 +5,7 @@ namespace ETimeSheet.Application.Interfaces.Repositories;
 /// <summary>
 /// Data access contract for <see cref="TimesheetMasterSetup"/> - the
 /// administrative CRUD surface over <c>dbo.TimesheetMasterSetup</c>. Every
-/// public operation of <c>AdminSetupRepository</c> is declared here.
+/// public operation of <c>AdminRepository</c> is declared here.
 /// <para>
 /// Soft-deleted rows are invisible to every method here except
 /// <see cref="FindForSaveByUserIdAsync"/>, which exists precisely because the
@@ -17,7 +17,7 @@ namespace ETimeSheet.Application.Interfaces.Repositories;
 /// allowed to", and never "should this be an insert or an update".
 /// </para>
 /// </summary>
-public interface IAdminSetupRepository
+public interface IAdminRepository
 {
     /// <summary>
     /// Returns the live setup belonging to one user, untracked. Null when the

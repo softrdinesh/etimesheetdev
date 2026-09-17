@@ -28,26 +28,26 @@ public class TimeLogService : ITimeLogService
     /// The write path validates against the whole setup row, and the stored
     /// procedure returns only seven of its columns - <c>Exceptionday</c> and
     /// <c>TimeEntryLockAt</c> are not among them. Reading the table through the
-    /// AdminSetup repository is what makes those two rules possible at all.
+    /// Admin repository is what makes those two rules possible at all.
     /// <para>
     /// A service combining several repositories is expected; what would not be
     /// is reaching for the other module's <b>service</b>, which would drag its
     /// rules in with it.
     /// </para>
     /// </summary>
-    private readonly IAdminSetupRepository _adminSetupRepository;
+    private readonly IAdminRepository _adminRepository;
 
     private readonly IDateTimeProvider _dateTimeProvider;
     private readonly ILogger<TimeLogService> _logger;
 
     public TimeLogService(
         ITimeLogRepository timeLogRepository,
-        IAdminSetupRepository adminSetupRepository,
+        IAdminRepository adminRepository,
         IDateTimeProvider dateTimeProvider,
         ILogger<TimeLogService> logger)
     {
         _timeLogRepository = timeLogRepository;
-        _adminSetupRepository = adminSetupRepository;
+        _adminRepository = adminRepository;
         _dateTimeProvider = dateTimeProvider;
         _logger = logger;
     }
@@ -137,10 +137,11 @@ public class TimeLogService : ITimeLogService
     /// <para>
     /// <b>This counts every calendar day in the range</b>, inclusive, multiplied
     /// by the daily maximum from <c>TimesheetMasterSetup.MaxTimeinhrs</c>. It
-    /// does NOT yet exclude non-working days: the setup's StartDay/EndDay are
-    /// <c>char(2)</c> codes whose vocabulary is not established, so honouring
-    /// them would be guesswork. Confirm the codes and this method becomes a
-    /// working-day count.
+    /// does NOT yet exclude non-working days. That is now possible - StartDay
+    /// and EndDay became <c>dbo.DayMaster.DayID</c> values on 2026-09-17, so the
+    /// week is unambiguous - but changing what "expected" means would silently
+    /// change every figure this endpoint has already reported. It is a decision
+    /// to take deliberately, not a side effect of a column type change.
     /// </para>
     /// <para>
     /// A user with no setup row expects zero, rather than the request failing -
@@ -180,7 +181,7 @@ public class TimeLogService : ITimeLogService
         // authentication is switched off for this project for now, so the entry
         // belongs to whoever the request names. When JWT is turned back on, the
         // user id must come from the token rather than the payload.
-        var setup = await _adminSetupRepository.GetByUserIdAsync(request.UserId, cancellationToken)
+        var setup = await _adminRepository.GetByUserIdAsync(request.UserId, cancellationToken)
             ?? throw new BusinessException(
                 $"User '{request.UserId}' has no timesheet setup, so there are no limits to check this " +
                 "entry against. An administrator has to create one before they can log time.");
@@ -292,11 +293,12 @@ public class TimeLogService : ITimeLogService
     /// The week runs from <c>StartDay</c> to <c>EndDay</c> and may wrap - a
     /// Sunday-to-Thursday week is normal in some of this data - and
     /// <c>Exceptionday</c> is allowed <b>in addition</b> to it, as a day this
-    /// contract works that the ordinary week does not cover.
+    /// contract works that the ordinary week does not cover. All three are
+    /// <c>dbo.DayMaster.DayID</c> values.
     /// </para>
     /// <para>
-    /// A week that is not configured, or is configured with codes this
-    /// application does not recognise, imposes no constraint. Refusing to log
+    /// A week that is not configured, or is configured with day ids outside the
+    /// seven in <c>dbo.DayMaster</c>, imposes no constraint. Refusing to log
     /// time because someone left the setup half-filled would block the employee
     /// for a mistake they cannot fix.
     /// </para>
@@ -319,7 +321,8 @@ public class TimeLogService : ITimeLogService
 
         throw new BusinessException(
             $"{loggedOn:yyyy-MM-dd} is a {loggedOn.DayOfWeek}, which is not a working day in this " +
-            $"user's timesheet week ({setup.StartDay?.TrimEnd()} to {setup.EndDay?.TrimEnd()}).");
+            $"user's timesheet week ({TimesheetWeek.Describe(setup.StartDay)} to " +
+            $"{TimesheetWeek.Describe(setup.EndDay)}).");
     }
 
     /// <summary>

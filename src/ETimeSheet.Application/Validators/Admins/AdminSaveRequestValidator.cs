@@ -1,7 +1,8 @@
-using ETimeSheet.Application.DTOs.AdminSetups;
+using ETimeSheet.Application.DTOs.Admins;
+using ETimeSheet.Shared.Utilities;
 using FluentValidation;
 
-namespace ETimeSheet.Application.Validators.AdminSetups;
+namespace ETimeSheet.Application.Validators.Admins;
 
 /// <summary>
 /// Shape-level validation for the timesheet setup save payload.
@@ -9,10 +10,10 @@ namespace ETimeSheet.Application.Validators.AdminSetups;
 /// This answers "is the payload well formed?" only. Whether the user already
 /// has a setup, whether it was deleted and which of those makes this an insert
 /// or an update are database questions, and they belong to
-/// <c>AdminSetupService</c>.
+/// <c>AdminService</c>.
 /// </para>
 /// </summary>
-public class AdminSetupSaveRequestValidator : AbstractValidator<AdminSetupSaveRequest>
+public class AdminSaveRequestValidator : AbstractValidator<AdminSaveRequest>
 {
     /// <summary>
     /// Exclusive upper bound for every <c>time(7)</c> column: the type holds a
@@ -20,7 +21,7 @@ public class AdminSetupSaveRequestValidator : AbstractValidator<AdminSetupSaveRe
     /// </summary>
     private static readonly TimeSpan OneDay = TimeSpan.FromDays(1);
 
-    public AdminSetupSaveRequestValidator()
+    public AdminSaveRequestValidator()
     {
         // There is no SetupId to validate: the payload does not carry one.
         // UserId is the identity of the row, which makes it the one field the
@@ -43,19 +44,19 @@ public class AdminSetupSaveRequestValidator : AbstractValidator<AdminSetupSaveRe
             // placeholder inside the message text, while the key the client
             // actually reads comes from the property name. Every rule written
             // against a nullable's .Value needs the same treatment.
-            .OverridePropertyName(nameof(AdminSetupSaveRequest.OrganizationId))
+            .OverridePropertyName(nameof(AdminSaveRequest.OrganizationId))
             .When(request => request.OrganizationId.HasValue);
 
         RuleFor(request => request.ContractType!.Value)
             .GreaterThan(0)
             .WithMessage("ContractType must be greater than 0 when it is supplied.")
-            .OverridePropertyName(nameof(AdminSetupSaveRequest.ContractType))
+            .OverridePropertyName(nameof(AdminSaveRequest.ContractType))
             .When(request => request.ContractType.HasValue);
 
         RuleFor(request => request.CountryId!.Value)
             .GreaterThan(0)
             .WithMessage("CountryId must be greater than 0 when it is supplied.")
-            .OverridePropertyName(nameof(AdminSetupSaveRequest.CountryId))
+            .OverridePropertyName(nameof(AdminSaveRequest.CountryId))
             .When(request => request.CountryId.HasValue);
 
         // time(7) columns. A negative or 24-hour-plus TimeSpan is perfectly
@@ -64,53 +65,65 @@ public class AdminSetupSaveRequestValidator : AbstractValidator<AdminSetupSaveRe
         RuleFor(request => request.MaxTimeInHrs!.Value)
             .Must(BeATimeOfDay)
             .WithMessage("MaxTimeInHrs must be between 00:00:00 and 23:59:59.")
-            .OverridePropertyName(nameof(AdminSetupSaveRequest.MaxTimeInHrs))
+            .OverridePropertyName(nameof(AdminSaveRequest.MaxTimeInHrs))
             .When(request => request.MaxTimeInHrs.HasValue);
 
         RuleFor(request => request.MaxTimInMins!.Value)
             .Must(BeATimeOfDay)
             .WithMessage("MaxTimInMins must be between 00:00:00 and 23:59:59.")
-            .OverridePropertyName(nameof(AdminSetupSaveRequest.MaxTimInMins))
+            .OverridePropertyName(nameof(AdminSaveRequest.MaxTimInMins))
             .When(request => request.MaxTimInMins.HasValue);
 
         RuleFor(request => request.TimeEntryLockAt!.Value)
             .Must(BeATimeOfDay)
             .WithMessage("TimeEntryLockAt must be between 00:00:00 and 23:59:59.")
-            .OverridePropertyName(nameof(AdminSetupSaveRequest.TimeEntryLockAt))
+            .OverridePropertyName(nameof(AdminSaveRequest.TimeEntryLockAt))
             .When(request => request.TimeEntryLockAt.HasValue);
 
-        // Day codes. The columns are fixed-width char, so anything longer is
-        // truncated by SQL Server rather than rejected - which would store a
-        // different value than the caller sent, silently. Length is enforced
-        // here instead.
+        // Day ids. These became dbo.DayMaster.DayID references on 2026-09-17,
+        // which is what makes an exact range checkable at all: the lookup holds
+        // exactly seven rows, so anything outside 1-7 names no day and the
+        // caller can be told so now rather than storing a value nothing can
+        // interpret. The previous letter-code rules only checked the shape,
+        // because the vocabulary was not established.
         //
-        // Only the SHAPE is checked, not membership of a fixed list: the code
-        // vocabulary ("MO"/"TU"/... and "SUN"/"MON"/...) has not been confirmed
-        // against the data, and rejecting a code that is actually in use would
-        // be worse than accepting one that is not. Tighten this to an explicit
-        // set once the vocabulary is agreed.
-        RuleFor(request => request.StartDay)
-            .Matches("^[A-Za-z]{2}$")
-            .WithMessage("StartDay must be a two-letter day code, for example 'MO'.")
-            .When(request => !string.IsNullOrWhiteSpace(request.StartDay));
+        // The check is a range, not a database lookup: a validator may not read
+        // the database (see CLAUDE.md §12), and the seven rows are fixed
+        // reference data that ships with the schema.
+        RuleFor(request => request.StartDay!.Value)
+            .InclusiveBetween(Constants.DayMaster.DayId.Monday, Constants.DayMaster.DayId.Sunday)
+            .WithMessage(DayIdMessage("StartDay"))
+            .OverridePropertyName(nameof(AdminSaveRequest.StartDay))
+            .When(request => request.StartDay.HasValue);
 
-        RuleFor(request => request.EndDay)
-            .Matches("^[A-Za-z]{2}$")
-            .WithMessage("EndDay must be a two-letter day code, for example 'FR'.")
-            .When(request => !string.IsNullOrWhiteSpace(request.EndDay));
+        RuleFor(request => request.EndDay!.Value)
+            .InclusiveBetween(Constants.DayMaster.DayId.Monday, Constants.DayMaster.DayId.Sunday)
+            .WithMessage(DayIdMessage("EndDay"))
+            .OverridePropertyName(nameof(AdminSaveRequest.EndDay))
+            .When(request => request.EndDay.HasValue);
 
-        RuleFor(request => request.ExceptionDay)
-            .Matches("^[A-Za-z]{3}$")
-            .WithMessage("ExceptionDay must be a three-letter day code, for example 'SUN'.")
-            .When(request => !string.IsNullOrWhiteSpace(request.ExceptionDay));
+        RuleFor(request => request.ExceptionDay!.Value)
+            .InclusiveBetween(Constants.DayMaster.DayId.Monday, Constants.DayMaster.DayId.Sunday)
+            .WithMessage(DayIdMessage("ExceptionDay"))
+            .OverridePropertyName(nameof(AdminSaveRequest.ExceptionDay))
+            .When(request => request.ExceptionDay.HasValue);
 
         // A week needs both ends or neither: one alone cannot be interpreted.
         RuleFor(request => request)
-            .Must(request =>
-                string.IsNullOrWhiteSpace(request.StartDay) == string.IsNullOrWhiteSpace(request.EndDay))
+            .Must(request => request.StartDay.HasValue == request.EndDay.HasValue)
             .WithMessage("StartDay and EndDay must be supplied together.")
             .WithName("StartDay");
     }
+
+    /// <summary>
+    /// One message for all three day fields, so they cannot describe the same
+    /// rule differently. It spells the range out, because "must be between 1 and
+    /// 7" alone does not tell a caller which end is Monday.
+    /// </summary>
+    private static string DayIdMessage(string field) =>
+        $"{field} must be a DayMaster day id between " +
+        $"{Constants.DayMaster.DayId.Monday} (Monday) and " +
+        $"{Constants.DayMaster.DayId.Sunday} (Sunday).";
 
     /// <summary>
     /// True when the value fits a SQL Server <c>time(7)</c>: at or after

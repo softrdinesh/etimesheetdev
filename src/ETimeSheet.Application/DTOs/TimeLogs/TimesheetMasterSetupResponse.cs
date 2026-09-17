@@ -19,11 +19,14 @@ public class TimesheetMasterSetupResponse
 
     public int? ContractType { get; init; }
 
-    /// <summary>First day of the timesheet week. A two-character code.</summary>
-    public string? StartDay { get; init; }
+    /// <summary>
+    /// First day of the timesheet week - a <c>DayMaster.DayID</c>: 1 = Monday
+    /// through 7 = Sunday. It was a two-character code until 2026-09-17.
+    /// </summary>
+    public int? StartDay { get; init; }
 
-    /// <summary>Last day of the timesheet week. A two-character code.</summary>
-    public string? EndDay { get; init; }
+    /// <summary>Last day of the timesheet week. A <c>DayMaster.DayID</c>, as <see cref="StartDay"/>.</summary>
+    public int? EndDay { get; init; }
 
     /// <summary>
     /// Whether the user may log time against a previous day. Held as 0 or 1 in

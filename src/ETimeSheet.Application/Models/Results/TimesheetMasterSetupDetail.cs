@@ -27,11 +27,15 @@ public class TimesheetMasterSetupDetail
 
     public int? ContractType { get; set; }
 
-    /// <summary>First day of the timesheet week. <c>char(2)</c>, so a two-character code.</summary>
-    public string? StartDay { get; set; }
+    /// <summary>
+    /// First day of the timesheet week - a <c>dbo.DayMaster.DayID</c> (1 = Monday
+    /// ... 7 = Sunday). The procedure selects the column straight through, so it
+    /// returns whatever type the column has: an <c>int</c> since 2026-09-17.
+    /// </summary>
+    public int? StartDay { get; set; }
 
-    /// <summary>Last day of the timesheet week. <c>char(2)</c>.</summary>
-    public string? EndDay { get; set; }
+    /// <summary>Last day of the timesheet week. A <c>DayMaster.DayID</c>, as <see cref="StartDay"/>.</summary>
+    public int? EndDay { get; set; }
 
     /// <summary>
     /// Whether the user may log time against a previous day. Stored as 0 or 1.

@@ -1,6 +1,9 @@
 /*
     Table: dbo.TimesheetMasterSetup
     Recorded: 2026-09-15 (column list confirmed against the live database 2026-09-15)
+    Revised:  2026-09-17 - StartDay, EndDay and Exceptionday changed from
+              char(2)/char(2)/char(3) to int, per the column list supplied by the
+              database owner. They now hold dbo.DayMaster.DayID values.
 
     Per-user timesheet limits and working-week settings.
 
@@ -11,8 +14,13 @@
     Column quirks worth knowing:
       - MaxTimeinhrs / MaxTiminmins are time(7), NOT numbers. "8 hours" is
         stored as 08:00:00.
-      - StartDay / EndDay are char(2) and Exceptionday is char(3) - fixed width,
-        so values come back blank-padded.
+      - StartDay / EndDay / Exceptionday are int and reference
+        dbo.DayMaster.DayID: 1 = Monday ... 7 = Sunday, the ISO-8601 numbering.
+        They are NOT System.DayOfWeek values, which number Sunday 0.
+        No FOREIGN KEY constraint is declared to dbo.DayMaster - the values are
+        a reference by convention, so a row can legally hold an id the lookup
+        does not contain. The API treats an unknown id as "no week configured"
+        rather than failing the request.
       - Soft delete is IsDelete, a NULLABLE bit. dbo.TimeLog spells the same idea
         IsDeleted and types it int NOT NULL. The two tables genuinely differ, so
         this entity does not share TimeLog's AuditableEntity base.
@@ -33,10 +41,13 @@
       - SetupID is assumed to be an IDENTITY column. Inserts through the API do
         get a generated id back, which is consistent with that.
       - The primary key is assumed to be SetupID, clustered.
+      - Whether the rows that held char day codes before the 2026-09-17 change
+        were converted to the matching DayMaster ids, or left as they were. The
+        API reads whatever is there and ignores an id outside 1-7.
 
     Written by:
-      src/ETimeSheet.Infrastructure/Repositories/AdminSetupRepository.cs
-      (add / edit / soft delete, via the AdminSetup module)
+      src/ETimeSheet.Infrastructure/Repositories/AdminRepository.cs
+      (add / edit / soft delete, via the Admin module)
 */
 
 IF OBJECT_ID(N'dbo.TimesheetMasterSetup', N'U') IS NOT NULL
@@ -53,15 +64,15 @@ CREATE TABLE dbo.TimesheetMasterSetup
     ContractType     int        NULL,
     CreateDate       datetime   NULL,
     CreatedBy        int        NULL,
-    StartDay         char(2)    NULL,
-    EndDay           char(2)    NULL,
+    StartDay         int        NULL,
+    EndDay           int        NULL,
     CountryID        int        NULL,
     IsDelete         bit        NULL,
     UpdateDate       datetime   NULL,
     UpdatedBy        int        NULL,
     DeleteDate       datetime   NULL,
     Deletedby        int        NULL,
-    Exceptionday     char(3)    NULL,
+    Exceptionday     int        NULL,
     TimeEntryLockAt  time(7)    NULL,
     CONSTRAINT PK_TimesheetMasterSetup PRIMARY KEY CLUSTERED (SetupID)
 );

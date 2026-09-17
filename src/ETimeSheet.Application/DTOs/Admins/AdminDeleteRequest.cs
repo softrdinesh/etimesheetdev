@@ -1,4 +1,4 @@
-namespace ETimeSheet.Application.DTOs.AdminSetups;
+namespace ETimeSheet.Application.DTOs.Admins;
 
 /// <summary>
 /// Body of the timesheet setup delete request.
@@ -8,7 +8,7 @@ namespace ETimeSheet.Application.DTOs.AdminSetups;
 /// survives and a global query filter simply stops returning it.
 /// </para>
 /// </summary>
-public class AdminSetupDeleteRequest
+public class AdminDeleteRequest
 {
     /// <summary>The row to delete. Must identify a live, non-deleted row.</summary>
     public int SetupId { get; set; }
@@ -16,7 +16,7 @@ public class AdminSetupDeleteRequest
     /// <summary>
     /// The user performing the delete, written to the <c>Deletedby</c> column.
     /// <para>
-    /// <b>Temporary</b>, exactly as <c>AdminSetupSaveRequest.CreatedBy</c> is:
+    /// <b>Temporary</b>, exactly as <c>AdminSaveRequest.CreatedBy</c> is:
     /// it comes from the token once authentication is on.
     /// </para>
     /// </summary>

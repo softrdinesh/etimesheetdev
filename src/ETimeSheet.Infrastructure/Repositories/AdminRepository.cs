@@ -6,11 +6,11 @@ using Microsoft.EntityFrameworkCore;
 namespace ETimeSheet.Infrastructure.Repositories;
 
 /// <summary>
-/// Entity Framework Core data access for the AdminSetup module, over the
+/// Entity Framework Core data access for the Admin module, over the
 /// existing <c>dbo.TimesheetMasterSetup</c> table.
 /// <para>
 /// Queries, filters and saves only. No permission checks, no insert-or-update
-/// decision, no audit stamping - those are <c>AdminSetupService</c>'s.
+/// decision, no audit stamping - those are <c>AdminService</c>'s.
 /// </para>
 /// <para>
 /// Every query below runs through the entity's global query filter, so
@@ -20,11 +20,11 @@ namespace ETimeSheet.Infrastructure.Repositories;
 /// revive a deleted setup instead of duplicating it.
 /// </para>
 /// </summary>
-public class AdminSetupRepository : IAdminSetupRepository
+public class AdminRepository : IAdminRepository
 {
     private readonly Context _db;
 
-    public AdminSetupRepository(Context db)
+    public AdminRepository(Context db)
     {
         _db = db;
     }
