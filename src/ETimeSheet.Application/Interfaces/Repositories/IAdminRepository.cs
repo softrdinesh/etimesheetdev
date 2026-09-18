@@ -1,4 +1,5 @@
 using ETimeSheet.Application.Models.Entities;
+using ETimeSheet.Application.Models;
 
 namespace ETimeSheet.Application.Interfaces.Repositories;
 
@@ -79,5 +80,24 @@ public interface IAdminRepository
     /// </summary>
     Task UpdateAsync(
         TimesheetMasterSetup setup,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns every employee in one organisation, by executing
+    /// <c>dbo.spc_GetEmployeeListByPOrgID</c>.
+    /// <para>
+    /// The procedure decides what "employee" means - it filters
+    /// <c>dbo.Signup</c> on <c>RoleID = 2</c> - and computes the contracted and
+    /// logged weekly time itself. Nothing here re-derives any of that; the rows
+    /// come back as the procedure produced them.
+    /// </para>
+    /// <para>
+    /// An employee with no timesheet setup is <b>included</b>, with a null
+    /// <c>SetupID</c>: the procedure LEFT JOINs the setup table. Counting those
+    /// is the service's job, not this one's.
+    /// </para>
+    /// </summary>
+    Task<IReadOnlyList<EmployeeListDetail>> GetEmployeeListByOrganizationIdAsync(
+        int organizationId,
         CancellationToken cancellationToken = default);
 }

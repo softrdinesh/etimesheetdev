@@ -1,4 +1,4 @@
-using ETimeSheet.Application.DTOs.Admins;
+using ETimeSheet.Application.Models;
 using FluentValidation;
 
 namespace ETimeSheet.Application.Validators.Admins;

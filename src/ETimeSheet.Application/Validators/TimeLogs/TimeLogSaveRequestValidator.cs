@@ -1,4 +1,4 @@
-using ETimeSheet.Application.DTOs.TimeLogs;
+using ETimeSheet.Application.Models;
 using FluentValidation;
 
 namespace ETimeSheet.Application.Validators.TimeLogs;
@@ -13,15 +13,17 @@ namespace ETimeSheet.Application.Validators.TimeLogs;
 /// slot is already taken - lives in <c>TimeLogService</c>, because a validator
 /// may not read the database.
 /// </para>
+/// <para>
+/// <b>StartTime and EndTime are deliberately absent.</b> They arrive as
+/// <c>hh:mm:ss</c> strings and are read by <c>TimeLogService</c> through
+/// <see cref="ETimeSheet.Shared.Utilities.TimeOfDay"/>, so that one parser
+/// decides what a time of day is for the whole API. The rule that the entry
+/// runs forwards went with them: it cannot be stated without the parsed values,
+/// and parsing the same strings twice invites the two answers to disagree.
+/// </para>
 /// </summary>
 public class TimeLogSaveRequestValidator : AbstractValidator<TimeLogSaveRequest>
 {
-    /// <summary>
-    /// Exclusive upper bound for the <c>time(7)</c> columns: they hold a time of
-    /// day, so they cannot reach 24 hours.
-    /// </summary>
-    private static readonly TimeSpan OneDay = TimeSpan.FromDays(1);
-
     /// <summary>
     /// How far past the start date the end date may sit. One day covers a shift
     /// running past midnight, which is the only reason the table has two dates;
@@ -54,23 +56,12 @@ public class TimeLogSaveRequestValidator : AbstractValidator<TimeLogSaveRequest>
             .IsInEnum()
             .WithMessage("Status must be 1 (Save) or 2 (Draft).");
 
-        // varchar(15): a longer value is silently truncated by SQL Server rather
-        // than rejected, which stores something the caller never sent.
-        RuleFor(request => request.SheetCode)
-            .MaximumLength(15)
-            .WithMessage("SheetCode cannot be longer than 15 characters.")
-            .When(request => !string.IsNullOrWhiteSpace(request.SheetCode));
+        // There is no SheetCode rule, because there is no SheetCode field: the
+        // service generates it. Nothing arrives from the caller to validate.
 
-        // time(7) columns: .NET is happy with a negative or 25-hour TimeSpan and
-        // SQL Server is not, so it is caught here where the error can name the
-        // field rather than surfacing as a failed insert.
-        RuleFor(request => request.StartTime)
-            .Must(BeATimeOfDay)
-            .WithMessage("StartTime must be between 00:00:00 and 23:59:59.");
-
-        RuleFor(request => request.EndTime)
-            .Must(BeATimeOfDay)
-            .WithMessage("EndTime must be between 00:00:00 and 23:59:59.");
+        // StartTime and EndTime are not validated here, and neither is the
+        // ordering between them. See the class summary: TimeLogService reads
+        // both through TimeOfDay and checks the span it gets back.
 
         RuleFor(request => request.EndDate!.Value)
             .GreaterThanOrEqualTo(request => request.StartDate.Date)
@@ -82,26 +73,5 @@ public class TimeLogSaveRequestValidator : AbstractValidator<TimeLogSaveRequest>
             // something it sent.
             .OverridePropertyName(nameof(TimeLogSaveRequest.EndDate))
             .When(request => request.EndDate.HasValue);
-
-        // The entry has to cover some time, and it has to run forwards. Checked
-        // across both ends including their dates, so an overnight shift -
-        // 22:00 on Monday to 06:00 on Tuesday - passes, while 17:00 to 09:00 on
-        // a single day does not.
-        RuleFor(request => request)
-            .Must(HaveAPositiveDuration)
-            .WithMessage("EndTime must be after StartTime.")
-            .WithName(nameof(TimeLogSaveRequest.EndTime))
-            .When(request => BeATimeOfDay(request.StartTime) && BeATimeOfDay(request.EndTime));
-    }
-
-    private static bool BeATimeOfDay(TimeSpan value) =>
-        value >= TimeSpan.Zero && value < OneDay;
-
-    private static bool HaveAPositiveDuration(TimeLogSaveRequest request)
-    {
-        var startsAt = request.StartDate.Date + request.StartTime;
-        var endsAt = (request.EndDate?.Date ?? request.StartDate.Date) + request.EndTime;
-
-        return endsAt > startsAt;
     }
 }

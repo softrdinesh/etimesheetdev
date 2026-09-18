@@ -1,6 +1,5 @@
-using ETimeSheet.Application.DTOs.TimeLogs;
 using ETimeSheet.Application.Models.Entities;
-using ETimeSheet.Application.Models.Results;
+using ETimeSheet.Application.Models;
 
 namespace ETimeSheet.Application.Common.Mapping;
 

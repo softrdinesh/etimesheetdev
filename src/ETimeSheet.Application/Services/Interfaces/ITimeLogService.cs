@@ -1,4 +1,4 @@
-using ETimeSheet.Application.DTOs.TimeLogs;
+using ETimeSheet.Application.Models;
 
 namespace ETimeSheet.Application.Services.Interfaces;
 

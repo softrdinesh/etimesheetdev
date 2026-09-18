@@ -15,7 +15,7 @@
     Called by:
       src/ETimeSheet.Infrastructure/Repositories/TimeLogRepository.cs
     Result set mapped by:
-      src/ETimeSheet.Application/Models/Results/TimeLoggedDetail.cs
+      src/ETimeSheet.Application/Models/TimeLog.cs (TimeLoggedDetail)
       src/ETimeSheet.Infrastructure/Data/Configurations/TimeLoggedDetailConfiguration.cs
 
     The SELECT list is a contract: the keyless result type binds by column name,

@@ -257,6 +257,95 @@ public class ETimeSheetApiFactory : WebApplicationFactory<Program>
     }
 
     /// <summary>
+    /// Inserts <c>dbo.Signup</c> rows directly, to arrange the people an
+    /// organisation contains.
+    /// <para>
+    /// Raw SQL rather than EF Core, because <c>dbo.Signup</c> deliberately has
+    /// no entity: the API never reads or writes it, and it is reached only
+    /// through <c>dbo.spc_GetEmployeeListByPOrgID</c>. Adding an entity purely
+    /// so a test could seed one would put a table in the application model that
+    /// the application does not use.
+    /// </para>
+    /// <para>
+    /// <c>IDENTITY_INSERT</c> is on because the test picks the user ids: they
+    /// are the join key to <c>dbo.TimesheetMasterSetup</c> and <c>dbo.TimeLog</c>,
+    /// so a generated one would leave the arranged rows pointing at nobody.
+    /// </para>
+    /// </summary>
+    public async Task SeedEmployeesAsync(params EmployeeListTestData.SignupRow[] employees)
+    {
+        await using var scope = Services.CreateAsyncScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<Context>();
+
+        foreach (var employee in employees)
+        {
+            await dbContext.Database.ExecuteSqlInterpolatedAsync($@"
+                SET IDENTITY_INSERT dbo.Signup ON;
+                INSERT INTO dbo.Signup (UserID, Name, Email, RoleID, OrganizationID)
+                VALUES ({employee.UserId}, {employee.Name}, {employee.Email},
+                        {employee.RoleId}, {employee.OrganizationId});
+                SET IDENTITY_INSERT dbo.Signup OFF;");
+        }
+    }
+
+    /// <summary>
+    /// Monday of the current week <b>as SQL Server sees it</b>, worked out the
+    /// way <c>spc_GetEmployeeListByPOrgID</c> does.
+    /// <para>
+    /// Asked of the database rather than computed from <c>DateTime.Today</c> on
+    /// purpose. The procedure reads <c>GETDATE()</c>, which no substituted
+    /// <see cref="IDateTimeProvider"/> can reach, and the container's timezone
+    /// need not match the test machine's - so a host-side calculation would
+    /// disagree with the procedure by a day near midnight, and by a whole week
+    /// when that midnight is Sunday's. Arranging rows against the server's own
+    /// answer removes both.
+    /// </para>
+    /// </summary>
+    public async Task<DateTime> CurrentWeekStartAsync()
+    {
+        await using var scope = Services.CreateAsyncScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<Context>();
+
+        var connection = dbContext.Database.GetDbConnection();
+
+        if (connection.State != System.Data.ConnectionState.Open)
+        {
+            await connection.OpenAsync();
+        }
+
+        await using var command = connection.CreateCommand();
+
+        // The procedure's own expression, character for character, so the two
+        // cannot drift: '19000101' is a Monday, which is what makes the modulo
+        // land on Monday.
+        command.CommandText = @"
+            DECLARE @Today DATE = CAST(GETDATE() AS DATE);
+            SELECT DATEADD(DAY, -(DATEDIFF(DAY, '19000101', @Today) % 7), @Today);";
+
+        return (DateTime)(await command.ExecuteScalarAsync())!;
+    }
+
+    /// <summary>Inserts timesheet setups directly, bypassing the API, to arrange a test.</summary>
+    public async Task<IReadOnlyList<TimesheetMasterSetup>> SeedSetupsAsync(
+        params TimesheetMasterSetup[] setups)
+    {
+        await using var scope = Services.CreateAsyncScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<Context>();
+
+        foreach (var setup in setups)
+        {
+            // Let the database assign identity so arranged ids cannot collide.
+            setup.SetupId = 0;
+            setup.CreateDate ??= Clock.UtcNow;
+        }
+
+        dbContext.TimesheetMasterSetup.AddRange(setups);
+        await dbContext.SaveChangesAsync();
+
+        return setups;
+    }
+
+    /// <summary>
     /// Marks an entry deleted directly in the database.
     /// <para>
     /// The API is read-only, so there is no endpoint that can arrange this. The
@@ -295,6 +384,25 @@ public class ETimeSheetApiFactory : WebApplicationFactory<Program>
         new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "DayMaster" };
 
     /// <summary>
+    /// Tables a test can seed that are <b>not</b> in the EF model, and so cannot
+    /// be discovered from it.
+    /// <para>
+    /// <c>dbo.Signup</c> is here because the API reaches it only through
+    /// <c>dbo.spc_GetEmployeeListByPOrgID</c> and has no entity for it - see
+    /// <see cref="SeedEmployeesAsync"/>. Without this entry its rows would
+    /// survive <see cref="ResetDatabaseAsync"/> and leak into the next test.
+    /// </para>
+    /// <para>
+    /// This list is the exception, not the pattern: anything with an entity is
+    /// still discovered from the model, so a new mapped table needs no change
+    /// here. Add to it only when a test seeds a table the application does not
+    /// model.
+    /// </para>
+    /// </summary>
+    private static readonly IReadOnlyList<string> TablesOutsideTheModel =
+        new[] { "[dbo].[Signup]" };
+
+    /// <summary>
     /// Builds the clean-up script from the EF model, so a new entity is covered
     /// the moment it is mapped - nobody has to remember to update this, except
     /// to add a new lookup table to <see cref="LookupTables"/>.
@@ -312,6 +420,7 @@ public class ETimeSheetApiFactory : WebApplicationFactory<Program>
             .Where(entityType => entityType.GetTableName() is not null)
             .Where(entityType => !LookupTables.Contains(entityType.GetTableName()!))
             .Select(entityType => $"[{entityType.GetSchema() ?? "dbo"}].[{entityType.GetTableName()}]")
+            .Concat(TablesOutsideTheModel)
             .Distinct(StringComparer.Ordinal)
             .ToArray();
 

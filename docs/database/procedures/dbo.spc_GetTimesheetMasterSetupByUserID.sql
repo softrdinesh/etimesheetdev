@@ -8,7 +8,7 @@
     Called by:
       src/ETimeSheet.Infrastructure/Repositories/TimeLogRepository.cs
     Result set mapped by:
-      src/ETimeSheet.Application/Models/Results/TimesheetMasterSetupDetail.cs
+      src/ETimeSheet.Application/Models/TimeLog.cs (TimesheetMasterSetupDetail)
       src/ETimeSheet.Infrastructure/Data/Context.cs (ConfigureStoredProcedureResults)
 
     NOTE: two columns are returned under an alias. The keyless result type binds

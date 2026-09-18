@@ -33,7 +33,7 @@
         spc_GetTimesheetMasterSetupByUserID nonetheless RETURNS a column of that
         name, so the procedure derives it rather than reading it. It therefore
         belongs only on that procedure's keyless result type
-        (Models/Results/TimesheetMasterSetupDetail.cs) - never on the entity.
+        (TimesheetMasterSetupDetail, in Models/TimeLog.cs) - never on the entity.
       - Every column except SetupID is nullable, and real rows do leave most of
         them null.
 

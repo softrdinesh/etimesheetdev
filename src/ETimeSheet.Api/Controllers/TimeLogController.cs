@@ -1,4 +1,4 @@
-using ETimeSheet.Application.DTOs.TimeLogs;
+using ETimeSheet.Application.Models;
 using ETimeSheet.Application.Services.Interfaces;
 using ETimeSheet.Shared.Responses;
 using Microsoft.AspNetCore.Authorization;

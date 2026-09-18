@@ -1,4 +1,4 @@
-using ETimeSheet.Application.DTOs.Admins;
+using ETimeSheet.Application.Models;
 using ETimeSheet.Shared.Utilities;
 using FluentValidation;
 
@@ -12,15 +12,16 @@ namespace ETimeSheet.Application.Validators.Admins;
 /// or an update are database questions, and they belong to
 /// <c>AdminService</c>.
 /// </para>
+/// <para>
+/// <b>The three time fields are deliberately absent.</b> They arrive as
+/// <c>hh:mm:ss</c> strings and are read by <c>AdminService</c> through
+/// <see cref="ETimeSheet.Shared.Utilities.TimeOfDay"/>, so that one parser
+/// decides what a time of day is for the whole API. Re-checking the format here
+/// would be a second opinion that can drift from the first.
+/// </para>
 /// </summary>
 public class AdminSaveRequestValidator : AbstractValidator<AdminSaveRequest>
 {
-    /// <summary>
-    /// Exclusive upper bound for every <c>time(7)</c> column: the type holds a
-    /// time of day, so it cannot reach 24 hours.
-    /// </summary>
-    private static readonly TimeSpan OneDay = TimeSpan.FromDays(1);
-
     public AdminSaveRequestValidator()
     {
         // There is no SetupId to validate: the payload does not carry one.
@@ -59,26 +60,8 @@ public class AdminSaveRequestValidator : AbstractValidator<AdminSaveRequest>
             .OverridePropertyName(nameof(AdminSaveRequest.CountryId))
             .When(request => request.CountryId.HasValue);
 
-        // time(7) columns. A negative or 24-hour-plus TimeSpan is perfectly
-        // legal in .NET and would be rejected by SQL Server, so it is caught
-        // here where the error can name the field.
-        RuleFor(request => request.MaxTimeInHrs!.Value)
-            .Must(BeATimeOfDay)
-            .WithMessage("MaxTimeInHrs must be between 00:00:00 and 23:59:59.")
-            .OverridePropertyName(nameof(AdminSaveRequest.MaxTimeInHrs))
-            .When(request => request.MaxTimeInHrs.HasValue);
-
-        RuleFor(request => request.MaxTimInMins!.Value)
-            .Must(BeATimeOfDay)
-            .WithMessage("MaxTimInMins must be between 00:00:00 and 23:59:59.")
-            .OverridePropertyName(nameof(AdminSaveRequest.MaxTimInMins))
-            .When(request => request.MaxTimInMins.HasValue);
-
-        RuleFor(request => request.TimeEntryLockAt!.Value)
-            .Must(BeATimeOfDay)
-            .WithMessage("TimeEntryLockAt must be between 00:00:00 and 23:59:59.")
-            .OverridePropertyName(nameof(AdminSaveRequest.TimeEntryLockAt))
-            .When(request => request.TimeEntryLockAt.HasValue);
+        // MaxTimeInHrs, MaxTimInMins and TimeEntryLockAt are not validated here.
+        // See the class summary: AdminService reads all three through TimeOfDay.
 
         // Day ids. These became dbo.DayMaster.DayID references on 2026-09-17,
         // which is what makes an exact range checkable at all: the lookup holds
@@ -124,11 +107,4 @@ public class AdminSaveRequestValidator : AbstractValidator<AdminSaveRequest>
         $"{field} must be a DayMaster day id between " +
         $"{Constants.DayMaster.DayId.Monday} (Monday) and " +
         $"{Constants.DayMaster.DayId.Sunday} (Sunday).";
-
-    /// <summary>
-    /// True when the value fits a SQL Server <c>time(7)</c>: at or after
-    /// midnight and strictly before the next one.
-    /// </summary>
-    private static bool BeATimeOfDay(TimeSpan value) =>
-        value >= TimeSpan.Zero && value < OneDay;
 }

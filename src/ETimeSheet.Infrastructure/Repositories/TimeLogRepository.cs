@@ -1,6 +1,6 @@
 using ETimeSheet.Application.Interfaces.Repositories;
 using ETimeSheet.Application.Models.Entities;
-using ETimeSheet.Application.Models.Results;
+using ETimeSheet.Application.Models;
 using ETimeSheet.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 
@@ -64,6 +64,29 @@ public class TimeLogRepository : ITimeLogRepository
             .Where(timeLog => timeLog.StartDate == date.Date)
             .OrderBy(timeLog => timeLog.StartTime)
             .ToListAsync(cancellationToken);
+
+    public async Task<string?> GetLatestSheetCodeAsync(
+        CancellationToken cancellationToken = default) =>
+        await _db.TimeLog
+            .AsNoTracking()
+            // A soft-deleted entry has still spent its code, so the filter is
+            // ignored on purpose: skipping those rows would reissue a code that
+            // is already sitting in the table, invisible but present.
+            .IgnoreQueryFilters()
+            // "T followed by digits and nothing else", evaluated in SQL Server
+            // rather than in memory. The first pattern requires the T and at
+            // least one digit; the second rejects anything non-numeric after the
+            // T, which is what keeps hand-entered references like "TS-00121" out
+            // of the sequence.
+            .Where(timeLog => timeLog.SheetCode != null
+                && EF.Functions.Like(timeLog.SheetCode, "T[0-9]%")
+                && !EF.Functions.Like(timeLog.SheetCode.Substring(1), "%[^0-9]%"))
+            // Longest first, then greatest. LEN() before the text comparison is
+            // what makes T00001 outrank T9999 - see ITimeLogRepository.
+            .OrderByDescending(timeLog => timeLog.SheetCode!.Length)
+            .ThenByDescending(timeLog => timeLog.SheetCode)
+            .Select(timeLog => timeLog.SheetCode)
+            .FirstOrDefaultAsync(cancellationToken);
 
     public async Task<TimeLog> AddAsync(
         TimeLog timeLog,

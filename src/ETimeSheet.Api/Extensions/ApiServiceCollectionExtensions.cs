@@ -24,8 +24,26 @@ public static class ApiServiceCollectionExtensions
                 // Enums travel as their names, which keeps the contract readable
                 // and stable when new members are inserted.
                 options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
+
+                // EVERY property is written, every time - a null comes back as
+                // null rather than vanishing.
+                //
+                // This was WhenWritingNull, and that made the response shape
+                // depend on the data: two calls to the same endpoint returned
+                // different sets of keys, so an employee with no timesheet setup
+                // simply had no setupId, expectedHoursPerWeek or contractType at
+                // all. A client then cannot tell "the field is absent because
+                // this row has no value" from "the field is absent because I
+                // called the wrong version, or misspelled it, or it was
+                // removed" - and every consumer ends up writing defensive
+                // lookups for fields the contract says are always there.
+                //
+                // Never is the default, so this line only has to say so out
+                // loud. It is written explicitly to stop the old behaviour being
+                // reintroduced as a payload-size optimisation: the bytes saved
+                // are not worth an unstable contract.
                 options.JsonSerializerOptions.DefaultIgnoreCondition =
-                    JsonIgnoreCondition.WhenWritingNull;
+                    JsonIgnoreCondition.Never;
             });
 
         // Runs the FluentValidation validators registered by the Application

@@ -1,4 +1,4 @@
-using ETimeSheet.Application.DTOs.TimeLogs;
+using ETimeSheet.Application.Models;
 using FluentValidation;
 
 namespace ETimeSheet.Application.Validators.TimeLogs;
