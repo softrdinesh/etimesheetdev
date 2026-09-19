@@ -1,5 +1,5 @@
 using ETimeSheet.Application.Models.Entities;
-using ETimeSheet.Application.Models.Results;
+using ETimeSheet.Application.Models;
 
 namespace ETimeSheet.Application.Interfaces.Repositories;
 
@@ -62,6 +62,30 @@ public interface ITimeLogRepository
         int userId,
         DateTime date,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns the highest generated sheet code in the table, or
+    /// <see langword="null"/> when none has ever been generated.
+    /// <para>
+    /// "Highest" is <b>longest first, then greatest</b>, because the codes grow
+    /// a digit when a width runs out: <c>T9999</c> is followed by <c>T00001</c>,
+    /// and a plain string comparison would call <c>T9999</c> the larger of the
+    /// two forever. Within one width the codes are zero-padded, so ordering them
+    /// as text and as numbers is the same thing.
+    /// </para>
+    /// <para>
+    /// Only codes of the generated shape - <c>T</c> followed by digits and
+    /// nothing else - are considered. The table already holds hand-entered
+    /// references such as <c>TS-00121</c>, and those name no position in the
+    /// sequence.
+    /// </para>
+    /// <para>
+    /// <b>Soft-deleted rows are included deliberately.</b> A deleted entry has
+    /// still spent its code, and a caller who could not see it would hand the
+    /// same code to a second row.
+    /// </para>
+    /// </summary>
+    Task<string?> GetLatestSheetCodeAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Inserts a new entry and saves, returning the same instance with its

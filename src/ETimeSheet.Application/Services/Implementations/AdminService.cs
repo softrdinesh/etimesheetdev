@@ -1,10 +1,11 @@
 using ETimeSheet.Application.Common.Mapping;
-using ETimeSheet.Application.DTOs.Admins;
 using ETimeSheet.Application.Interfaces.Repositories;
 using ETimeSheet.Application.Interfaces.Services;
 using ETimeSheet.Application.Models.Entities;
+using ETimeSheet.Application.Models;
 using ETimeSheet.Application.Services.Interfaces;
 using ETimeSheet.Shared.Exceptions;
+using ETimeSheet.Shared.Utilities;
 using Microsoft.Extensions.Logging;
 
 namespace ETimeSheet.Application.Services.Implementations;
@@ -46,6 +47,13 @@ public class AdminService : IAdminService
         AdminSaveRequest request,
         CancellationToken cancellationToken = default)
     {
+        // Read before anything is looked up or written: all three time fields
+        // arrive as hh:mm:ss strings, and a malformed one should cost the caller
+        // a 400 rather than a round trip to the database first. Parsed once here
+        // and carried down, so the insert, the update and the revive branch all
+        // write the same values.
+        var times = ReadTimes(request);
+
         // The whole point of the shared endpoint: the client sends the same
         // payload every time and never has to know which operation it is
         // performing. The user - not a setup id - decides, because a user holds
@@ -64,9 +72,26 @@ public class AdminService : IAdminService
             cancellationToken);
 
         return existing is null
-            ? await AddNewAsync(request, cancellationToken)
-            : await UpdateExistingAsync(existing, request, cancellationToken);
+            ? await AddNewAsync(request, times, cancellationToken)
+            : await UpdateExistingAsync(existing, request, times, cancellationToken);
     }
+
+    /// <summary>
+    /// Reads the payload's three <c>hh:mm:ss</c> strings into the
+    /// <see cref="TimeSpan"/> values the <c>time(7)</c> columns hold.
+    /// <para>
+    /// Here rather than in <c>AdminSaveRequestValidator</c> because
+    /// <see cref="TimeOfDay"/> is the one place in the application that decides
+    /// what a time of day is; a second opinion in a validator can drift from it.
+    /// All three are optional, so an absent field stays null and only a field
+    /// that was actually sent can fail.
+    /// </para>
+    /// </summary>
+    /// <exception cref="ValidationException">A time field was sent and is not <c>hh:mm:ss</c>.</exception>
+    private static TimesheetSetupTimes ReadTimes(AdminSaveRequest request) => new(
+        TimeOfDay.ParseOptional(request.MaxTimeInHrs, nameof(AdminSaveRequest.MaxTimeInHrs)),
+        TimeOfDay.ParseOptional(request.MaxTimInMins, nameof(AdminSaveRequest.MaxTimInMins)),
+        TimeOfDay.ParseOptional(request.TimeEntryLockAt, nameof(AdminSaveRequest.TimeEntryLockAt)));
 
     public async Task<AdminResponse> GetByUserIdAsync(
         int userId,
@@ -101,12 +126,83 @@ public class AdminService : IAdminService
             request.DeletedBy);
     }
 
+    public async Task<EmployeeListResponse> GetEmployeeListByOrganizationIdAsync(
+        int organizationId,
+        CancellationToken cancellationToken = default)
+    {
+        // Checked here rather than by a route constraint, so a caller who sends
+        // 0 is told what is wrong with it. A constraint would simply not match
+        // the route, and the deny-by-default fallback policy would answer 401 -
+        // which says nothing true about the request.
+        if (organizationId <= 0)
+        {
+            throw new ValidationException(
+                "orgID",
+                "orgID is required and must be greater than 0.");
+        }
+
+        var employees = await _adminRepository.GetEmployeeListByOrganizationIdAsync(
+            organizationId,
+            cancellationToken);
+
+        // No authorisation check: authentication is switched off for this
+        // project for now. This is a whole organisation's staff list, so it is
+        // the first endpoint that should gain a permission when JWT is turned
+        // back on - an employee has no business reading it.
+        return new EmployeeListResponse
+        {
+            Summary = Summarise(employees),
+            Employees = employees.ToResponses()
+        };
+    }
+
+    /// <summary>
+    /// Counts the head-count totals from the rows that are about to be
+    /// returned - never with a second query.
+    /// <para>
+    /// That is what keeps the summary and the grid consistent: they are two
+    /// views of one list, counted in one pass, so the totals cannot describe a
+    /// different moment than the rows beneath them.
+    /// </para>
+    /// <para>
+    /// <c>SetupID</c> is what decides "has a setup", rather than any of the
+    /// expected-time columns: those are also null when a setup exists but has no
+    /// working week or no daily maximum on it, and an employee who has been set
+    /// up badly is a different problem from one who has not been set up at all.
+    /// </para>
+    /// </summary>
+    private static EmployeeListSummaryResponse Summarise(
+        IReadOnlyList<EmployeeListDetail> employees)
+    {
+        var withSetup = employees.Count(employee => employee.SetupId.HasValue);
+
+        return new EmployeeListSummaryResponse
+        {
+            TotalEmployees = employees.Count,
+            TotalEmployeesWithSetup = withSetup,
+
+            // Subtracted rather than counted again, so the two can never fail to
+            // add up to the head count however the rows are shaped.
+            TotalEmployeesWithoutSetup = employees.Count - withSetup,
+
+            // Counted on the id, not on the text beside it: the text is there to
+            // be displayed and could be reworded in the procedure tomorrow,
+            // while the id is persisted and cannot move.
+            TotalFullTime = employees.Count(employee =>
+                employee.ContractTypeId == Constants.TimesheetMasterSetup.ContractType.FullTime),
+
+            TotalPartTime = employees.Count(employee =>
+                employee.ContractTypeId == Constants.TimesheetMasterSetup.ContractType.PartTime)
+        };
+    }
+
     private async Task<AdminResponse> AddNewAsync(
         AdminSaveRequest request,
+        TimesheetSetupTimes times,
         CancellationToken cancellationToken)
     {
         var setup = new TimesheetMasterSetup();
-        request.ApplyTo(setup);
+        request.ApplyTo(setup, times);
 
         // Written explicitly rather than by AuditableEntityInterceptor:
         // TimesheetMasterSetup does not derive from AuditableEntity, because
@@ -135,11 +231,12 @@ public class AdminService : IAdminService
     private async Task<AdminResponse> UpdateExistingAsync(
         TimesheetMasterSetup setup,
         AdminSaveRequest request,
+        TimesheetSetupTimes times,
         CancellationToken cancellationToken)
     {
         var wasDeleted = setup.IsDelete == true;
 
-        request.ApplyTo(setup);
+        request.ApplyTo(setup, times);
 
         if (wasDeleted)
         {

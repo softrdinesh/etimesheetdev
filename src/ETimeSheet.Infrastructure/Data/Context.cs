@@ -1,5 +1,5 @@
 using ETimeSheet.Application.Models.Entities;
-using ETimeSheet.Application.Models.Results;
+using ETimeSheet.Application.Models;
 using Microsoft.EntityFrameworkCore;
 
 namespace ETimeSheet.Infrastructure.Data;
@@ -80,6 +80,13 @@ public class Context : DbContext
     /// </summary>
     public DbSet<TimesheetMasterSetupDetail> spc_GetTimesheetMasterSetupByUserID { get; set; } = null!;
 
+    /// <summary>
+    /// Result set of <c>dbo.spc_GetEmployeeListByPOrgID</c> - every employee in
+    /// one organisation, with their contracted weekly time and what they have
+    /// logged in the current Monday-Sunday week.
+    /// </summary>
+    public DbSet<EmployeeListDetail> spc_GetEmployeeListByPOrgID { get; set; } = null!;
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
@@ -148,6 +155,38 @@ public class Context : DbContext
             setup.Property(row => row.CanUserLoggedPreDayTime)
                  .HasColumnName("CanUserLoggedPreDayTime")
                  .HasConversion<int>();
+        });
+
+        modelBuilder.Entity<EmployeeListDetail>(employee =>
+        {
+            employee.HasNoKey();
+            employee.ToView(null);
+
+            employee.Property(row => row.UserId).HasColumnName("UserID");
+            employee.Property(row => row.SetupId).HasColumnName("SetupID");
+            employee.Property(row => row.Name).HasColumnName("Name");
+            employee.Property(row => row.Email).HasColumnName("Email");
+
+            // Computed by the procedure from the setup's working week and daily
+            // maximum - none of these four is a column on any table.
+            employee.Property(row => row.ExpectedHoursPerWeek).HasColumnName("ExpectedHoursPerWeek");
+            employee.Property(row => row.ExpectedMinsPerWeek).HasColumnName("ExpectedMinsPerWeek");
+            employee.Property(row => row.ExpectedHoursPerWeekText).HasColumnName("ExpectedHoursPerWeekText");
+
+            employee.Property(row => row.TotalLoggedHoursCurrentWeek).HasColumnName("TotalLoggedHoursCurrentWeek");
+            employee.Property(row => row.TotalLoggedMinsCurrentWeek).HasColumnName("TotalLoggedMinsCurrentWeek");
+            employee.Property(row => row.TotalLoggedHoursCurrentWeekText).HasColumnName("TotalLoggedHoursCurrentWeekText");
+
+            // The procedure's CASE mixes int literals with a DECIMAL(10, 0)
+            // cast, and SQL type precedence makes the whole expression decimal -
+            // so the property is decimal too. Mapping it as int would throw on
+            // the first row.
+            employee.Property(row => row.ProgressOnThisWeek).HasColumnName("ProgressOnThisWeek");
+
+            // Aliased by the procedure: the raw column is ContractType, and the
+            // alias ContractType is the spelled-out text beside it.
+            employee.Property(row => row.ContractTypeId).HasColumnName("ContractTypeID");
+            employee.Property(row => row.ContractType).HasColumnName("ContractType");
         });
     }
 }

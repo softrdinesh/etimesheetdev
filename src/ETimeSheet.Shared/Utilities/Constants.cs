@@ -42,6 +42,33 @@ public static class Constants
         }
     }
 
+    /// <summary>Coded column values for the <c>dbo.TimesheetMasterSetup</c> table.</summary>
+    public static class TimesheetMasterSetup
+    {
+        /// <summary>
+        /// Values of the <c>dbo.TimesheetMasterSetup.ContractType</c> column.
+        /// <para>
+        /// <b>1 = Full Time, 2 = Part Time.</b> The meaning is fixed by
+        /// <c>dbo.spc_GetEmployeeListByPOrgID</c>, which spells these two ids out
+        /// in its SELECT and returns null for anything else - so a third id is
+        /// not an unnamed contract, it is a row nothing can interpret.
+        /// </para>
+        /// <para>
+        /// They are persisted, so they can never be renumbered: changing one here
+        /// without rewriting every existing row would silently move employees
+        /// between contracts.
+        /// </para>
+        /// </summary>
+        public static class ContractType
+        {
+            /// <summary>A full-time contract. Stored as <c>1</c>.</summary>
+            public const int FullTime = 1;
+
+            /// <summary>A part-time contract. Stored as <c>2</c>.</summary>
+            public const int PartTime = 2;
+        }
+    }
+
     /// <summary>
     /// The contents of the <c>dbo.DayMaster</c> lookup table.
     /// <para>

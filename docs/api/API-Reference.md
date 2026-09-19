@@ -24,6 +24,7 @@ controller, DTO or validator, change this file with it.
   - [POST /api/v1/Admin/save-user-timesheet-setup](#4-post-apiv1adminsave-user-timesheet-setup)
   - [GET /api/v1/Admin/get-user-timesheet-setup/{userID}](#5-get-apiv1adminget-user-timesheet-setupuserid)
   - [POST /api/v1/Admin/delete-timesheet-setup](#6-post-apiv1admindelete-timesheet-setup)
+  - [GET /api/v1/Admin/get-all-employees-by-orgid](#7-get-apiv1adminget-all-employees-by-orgid)
 - [Health endpoints](#health-endpoints)
 - [Enumerations](#enumerations)
 - [Endpoint summary table](#endpoint-summary-table)
@@ -80,9 +81,10 @@ Every endpoint — success or failure — returns the same envelope:
 | Rule | Effect |
 |---|---|
 | Property naming | **camelCase** (`sheetId`, `totalWorkingHours`) |
-| Nulls | **Omitted from responses** (`DefaultIgnoreCondition = WhenWritingNull`). A field documented as nullable simply will not appear when it is null. |
+| Nulls | **Always written** (`DefaultIgnoreCondition = Never`). Every field in the tables below is present in every response; a nullable one with no value comes back as `null`, never missing. The response shape does not depend on the data. |
 | Enums | Written as **names** (`"Save"`, `"Draft"`). On input both the name `"Save"` and the number `1` are accepted. |
-| `TimeSpan` | `"HH:mm:ss"` — e.g. `"08:00:00"`. **Not** a number. Must be `>= 00:00:00` and `< 24:00:00` (the columns are SQL `time(7)`). |
+| Times of day **in** | A JSON **string** in exactly `hh:mm:ss` — e.g. `"08:00:00"`. **Not** a number, and not a looser spelling: `"8:00:00"`, `"08:00"`, `"1.08:00:00"`, `"-08:00:00"` and `"08:00:00.0000000"` are all rejected. Must be `00:00:00`–`23:59:59` (the columns are SQL `time(7)`). |
+| Times of day **out** | The same `"hh:mm:ss"` string, so a value can be read from one endpoint and sent straight to another. |
 | `DateTime` | ISO-8601, e.g. `"2026-09-14T00:00:00"`. Date-only columns ignore any time part. |
 | Content type | `application/json` in and out. |
 | Cancellation | Every action honours client disconnect; an aborted request answers **499**. |
@@ -108,13 +110,15 @@ Every endpoint — success or failure — returns the same envelope:
   "data": null,
   "errors": [
     "UserId: UserId is required: an entry must belong to an employee.",
-    "EndTime: EndTime must be after StartTime."
+    "Status: Status must be 1 (Save) or 2 (Draft)."
   ]
 }
 ```
 
-Each entry is `"<FieldName>: <message>"`. Multiple failures are all reported at
-once.
+Each entry is `"<FieldName>: <message>"`. Failures found by a **validator** are
+all reported at once, as above. A `ValidationException` thrown by a **service** —
+every time-of-day format failure is one — carries a single entry, because the
+service stops at the first thing it cannot accept.
 
 **Business-rule failure (400)** — the payload was fine, the rule was not:
 
@@ -228,12 +232,12 @@ hours** (7½ hours is `7.5`, not `"07:30:00"`):
 | Field | Type | Meaning |
 |---|---|---|
 | `sheetId` | int | The entry's key |
-| `sheetCode` | string? | Optional caller-supplied reference |
+| `sheetCode` | string? | The entry's generated reference — `T0001`, `T0002`, … Null on rows created before generation existed, or holding a hand-entered reference |
 | `description` | string? | What was worked on |
 | `startDate` | date? | Day the work started |
-| `startTime` | TimeSpan? | Clock time it started |
+| `startTime` | string? | Clock time it started, `hh:mm:ss` |
 | `endDate` | date? | Day the work ended |
-| `endTime` | TimeSpan? | Clock time it ended |
+| `endTime` | string? | Clock time it ended, `hh:mm:ss` |
 | `status` | enum? | `"Save"` (1) or `"Draft"` (2) |
 | `statusName` | string | `"Save"` / `"Draft"`; `""` when the column is null |
 | `totalWorkingHours` | decimal? | This entry's duration in hours, 2 dp |
@@ -267,6 +271,7 @@ hours** (7½ hours is `7.5`, not `"07:30:00"`):
       },
       {
         "sheetId": 8815,
+        "sheetCode": null,
         "description": "Code review and follow-up fixes.",
         "startDate": "2026-09-15T00:00:00",
         "startTime": "10:00:00",
@@ -283,7 +288,9 @@ hours** (7½ hours is `7.5`, not `"07:30:00"`):
 }
 ```
 
-`sheetCode` is absent on the second entry because it is null — nulls are omitted.
+`sheetCode` is `null` on the second entry rather than missing: every field is
+written on every row, so a client can index into the response without checking
+whether a key exists.
 
 #### Empty result
 
@@ -356,8 +363,8 @@ GET /api/v1/TimeLog/get-timesheet-setup-by-user/101
 | Field | Type | Meaning |
 |---|---|---|
 | `setupId` | int | The setup row's key |
-| `maxTimeLoggedByUserInHours` | TimeSpan? | From `MaxTimeinhrs`. `"08:00:00"`, not a number |
-| `maxTimeLoggedByUserInMinutes` | TimeSpan? | From `MaxTiminmins` |
+| `maxTimeLoggedByUserInHours` | string? | From `MaxTimeinhrs`. `"08:00:00"` — `hh:mm:ss`, not a number |
+| `maxTimeLoggedByUserInMinutes` | string? | From `MaxTiminmins`, `hh:mm:ss` |
 | `contractType` | int? | Contract type id |
 | `startDay` | int? | First day of the timesheet week — a `dbo.DayMaster.DayID`, 1 = Monday … 7 = Sunday |
 | `endDay` | int? | Last day of the timesheet week — a `dbo.DayMaster.DayID` |
@@ -428,17 +435,54 @@ the entries they already have that day, so two blocks cannot cover the same hour
 | `userId` | int | yes | `> 0` | The employee the time belongs to; also selects the setup it is validated against. **Temporary** |
 | `taskId` | int | yes | `> 0` | Time is always logged against a task |
 | `description` | string? | no | unbounded (`nvarchar(max)`) | What was worked on |
-| `sheetCode` | string? | no | max 15 chars | Optional caller reference. Nothing generates one; left out, the column stays null. Trimmed; blank becomes null |
 | `startDate` | date | yes | not empty | Day the work started. Time part ignored |
 | `endDate` | date? | no | `>= startDate` and `<= startDate + 1 day` | Defaults to `startDate`. Exists only for a shift running past midnight |
-| `startTime` | TimeSpan | yes | `00:00:00`–`23:59:59` | Clock time it started |
-| `endTime` | TimeSpan | yes | `00:00:00`–`23:59:59`, and after `startTime` once both dates are counted | Clock time it ended |
+| `startTime` | string | yes | `hh:mm:ss`, `00:00:00`–`23:59:59` | Clock time it started — e.g. `"09:00:00"` |
+| `endTime` | string | yes | `hh:mm:ss`, `00:00:00`–`23:59:59`, and after `startTime` once both dates are counted | Clock time it ended |
 | `status` | enum | yes | `1`/`"Save"` or `2`/`"Draft"` | An entry with no status is neither saved nor drafted |
 | `createdBy` | int | yes | `> 0` | Who is recording the entry — not necessarily `userId`, since a manager may log on someone's behalf. **Temporary** |
+
+> **`sheetCode` is not in the payload.** The service generates it — see below.
+> Sending one is ignored: the property does not exist on the request.
 
 Duration is measured across **both ends including their dates**, so an overnight
 entry (22:00 Monday → 06:00 Tuesday) is valid, while 17:00 → 09:00 on a single
 day is not.
+
+#### The generated `sheetCode`
+
+Every saved entry gets a reference, and the caller neither sends one nor chooses
+one. It comes back on the response.
+
+```
+T0001  T0002  T0003  …  T9998  T9999
+                                 ↓  the width runs out
+T00001 T00002 T00003  …  T99998 T99999
+                                 ↓
+T000001 …
+```
+
+- The first entry ever generated is **`T0001`**. An empty table, or one holding
+  only hand-entered references such as `TS-00121`, both start there — a
+  reference that is not `T` followed by digits names no position in the sequence
+  and is skipped.
+- Each new entry takes the **next number after the highest generated code**, read
+  from the table at save time.
+- When a width runs out, the sequence **starts a new generation one digit wider,
+  back at 1**: `T9999` is followed by `T00001`, `T99999` by `T000001`.
+
+**The limit can never be reached.** Each generation holds nine times as many
+codes as the one before, and because the widths differ, a code from one
+generation can never equal a code from another — `T0001` and `T00001` are
+different strings. The width grows on demand up to the fourteen digits
+`varchar(15)` can hold, which is 10¹⁴ codes.
+
+Two details worth knowing:
+
+- **Soft-deleted entries still count.** A deleted row has spent its code, so the
+  next entry takes the number after it rather than reusing it.
+- **A rejected request consumes nothing.** The code is read after every rule has
+  passed, so a 400 or a 409 leaves no gap in the sequence.
 
 #### Example request — ordinary entry
 
@@ -447,7 +491,6 @@ day is not.
   "userId": 101,
   "taskId": 55,
   "description": "Implemented the save-employee-time-log endpoint.",
-  "sheetCode": "TS-00121",
   "startDate": "2026-09-16T00:00:00",
   "startTime": "09:00:00",
   "endTime": "12:30:00",
@@ -482,14 +525,14 @@ that has just logged time can display it back without a second request.
 | Field | Type | Meaning |
 |---|---|---|
 | `sheetId` | int | The generated key — the one field the caller could not have known |
-| `sheetCode` | string? | As sent, trimmed |
+| `sheetCode` | string? | **Generated by the service** — `T0001`, `T0002`, … The caller does not send one and cannot choose one |
 | `taskId` | int? | As sent |
 | `description` | string? | As sent |
 | `userId` | int? | As sent |
 | `startDate` | date? | As sent, date only |
-| `startTime` | TimeSpan? | As sent |
+| `startTime` | string? | As sent, `hh:mm:ss` |
 | `endDate` | date? | **Always written**, even if omitted — defaults to `startDate`, because a row with no end date cannot have its duration computed |
-| `endTime` | TimeSpan? | As sent |
+| `endTime` | string? | As sent, `hh:mm:ss` |
 | `status` | enum? | `"Save"` or `"Draft"` |
 | `statusName` | string | The status spelled out, so clients need not carry the numbers |
 | `totalWorkingHours` | decimal | Duration in hours, 2 dp. Computed across both ends including dates, so an overnight entry measures correctly instead of coming out negative |
@@ -504,7 +547,7 @@ that has just logged time can display it back without a second request.
   "message": "Time logged.",
   "data": {
     "sheetId": 8931,
-    "sheetCode": "TS-00121",
+    "sheetCode": "T0007",
     "taskId": 55,
     "description": "Implemented the save-employee-time-log endpoint.",
     "userId": 101,
@@ -533,12 +576,21 @@ that has just logged time can display it back without a second request.
 | `createdBy <= 0` | `CreatedBy is required: the row records who logged the time.` |
 | `startDate` empty | `StartDate is required.` |
 | `status` not 1 or 2 | `Status must be 1 (Save) or 2 (Draft).` |
-| `sheetCode` > 15 chars | `SheetCode cannot be longer than 15 characters.` |
-| `startTime` out of range | `StartTime must be between 00:00:00 and 23:59:59.` |
-| `endTime` out of range | `EndTime must be between 00:00:00 and 23:59:59.` |
 | `endDate` before `startDate` | `EndDate must not be earlier than StartDate.` |
 | `endDate` more than a day later | `EndDate must be the same day as StartDate or the day after it.` |
-| entry runs backwards or has no duration | `EndTime must be after StartTime.` |
+
+The three time rules are checked by `TimeLogService` rather than the validator,
+because one parser decides what a time of day is for the whole API. They are
+reported in the same 400 envelope, but **one at a time** — the service stops at
+the first — where the shape failures above are reported together:
+
+| Trigger | Message |
+|---|---|
+| `startTime` missing or blank | `StartTime is required, as a time of day in hh:mm:ss format - for example "09:00:00".` |
+| `startTime` malformed or out of range | `StartTime must be a time of day in hh:mm:ss format, between "00:00:00" and "23:59:59" - for example "09:00:00".` |
+| `endTime` missing or blank | `EndTime is required, as a time of day in hh:mm:ss format - for example "09:00:00".` |
+| `endTime` malformed or out of range | `EndTime must be a time of day in hh:mm:ss format, between "00:00:00" and "23:59:59" - for example "09:00:00".` |
+| entry runs backwards or has no duration | `EndTime must be after StartTime, once both dates are taken into account.` |
 
 ```json
 {
@@ -547,7 +599,20 @@ that has just logged time can display it back without a second request.
   "data": null,
   "errors": [
     "Status: Status must be 1 (Save) or 2 (Draft).",
-    "EndTime: EndTime must be after StartTime."
+    "TaskId: TaskId is required: time is always logged against a task."
+  ]
+}
+```
+
+A time failure arrives on its own, from the service:
+
+```json
+{
+  "success": false,
+  "message": "One or more validation errors occurred.",
+  "data": null,
+  "errors": [
+    "EndTime: EndTime must be after StartTime, once both dates are taken into account."
   ]
 }
 ```
@@ -618,9 +683,10 @@ Rules are applied in this order, and the first failure answers:
 Controller: `src/ETimeSheet.Api/Controllers/AdminController.cs`
 Service: `AdminService` · Prefix: `/api/v1/Admin`
 
-Administrative CRUD over `dbo.TimesheetMasterSetup`. **This is the surface that
-most obviously needs a permission behind it** — it has none while authentication
-is off.
+Administrative CRUD over `dbo.TimesheetMasterSetup`, plus the organisation's
+employee list. **This is the surface that most obviously needs a permission
+behind it** — it has none while authentication is off, and endpoint 7 returns a
+whole organisation's staff list to anyone who asks.
 
 ---
 
@@ -653,15 +719,15 @@ every column other than the key is nullable.
 | Field | Type | Required | Rules |
 |---|---|---|---|
 | `userId` | int | yes | `> 0` — identifies the row to save |
-| `maxTimeInHrs` | TimeSpan? | no | `00:00:00`–`23:59:59` |
-| `maxTimInMins` | TimeSpan? | no | `00:00:00`–`23:59:59` |
+| `maxTimeInHrs` | string? | no | `hh:mm:ss`, `00:00:00`–`23:59:59` — e.g. `"08:00:00"` |
+| `maxTimInMins` | string? | no | `hh:mm:ss`, `00:00:00`–`23:59:59` |
 | `organizationId` | int? | no | `> 0` when supplied |
 | `contractType` | int? | no | `> 0` when supplied |
 | `startDay` | int? | no | a `dbo.DayMaster.DayID`, `1`–`7` (1 = Monday … 7 = Sunday). Must be supplied together with `endDay` |
 | `endDay` | int? | no | a `dbo.DayMaster.DayID`, `1`–`7`. Must be supplied together with `startDay` |
 | `exceptionDay` | int? | no | a `dbo.DayMaster.DayID`, `1`–`7`. A day worked *in addition* to the normal week |
 | `countryId` | int? | no | `> 0` when supplied |
-| `timeEntryLockAt` | TimeSpan? | no | `00:00:00`–`23:59:59`. Time of day after which back-dated entry is locked |
+| `timeEntryLockAt` | string? | no | `hh:mm:ss`, `00:00:00`–`23:59:59`. Time of day after which back-dated entry is locked |
 | `createdBy` | int | yes | `> 0`. Lands in `CreatedBy` on insert, `UpdatedBy` on update/revive. **Temporary** |
 
 > `canUserLoggedPreDayTime` is deliberately **absent** from this payload — it is
@@ -710,15 +776,15 @@ last changed a setup.
 |---|---|---|
 | `setupId` | int | The row's key |
 | `userId` | int? | Who the setup belongs to |
-| `maxTimeInHrs` | TimeSpan? | The `MaxTimeinhrs` column |
-| `maxTimInMins` | TimeSpan? | The `MaxTiminmins` column |
+| `maxTimeInHrs` | string? | The `MaxTimeinhrs` column, `hh:mm:ss` |
+| `maxTimInMins` | string? | The `MaxTiminmins` column, `hh:mm:ss` |
 | `organizationId` | int? | |
 | `contractType` | int? | |
 | `startDay` | int? | A `dbo.DayMaster.DayID`, 1 = Monday … 7 = Sunday |
 | `endDay` | int? | A `dbo.DayMaster.DayID` |
 | `exceptionDay` | int? | A `dbo.DayMaster.DayID` — a day worked in addition to the normal week |
 | `countryId` | int? | |
-| `timeEntryLockAt` | TimeSpan? | |
+| `timeEntryLockAt` | string? | `hh:mm:ss` |
 | `createdBy` | int? | audit |
 | `createDate` | datetime? | audit |
 | `updatedBy` | int? | audit |
@@ -751,8 +817,8 @@ last changed a setup.
 }
 ```
 
-On a fresh insert, `updatedBy` and `updateDate` are null and therefore absent
-from the JSON.
+On a fresh insert, `updatedBy` and `updateDate` come back as `null` — present in
+the payload, with no value yet.
 
 The message is deliberately `"Timesheet setup saved."` rather than "added" or
 "updated" — the controller no longer knows which happened, and the saved row is
@@ -769,13 +835,20 @@ in the response if the client cares.
 | `organizationId <= 0` | `OrganizationId must be greater than 0 when it is supplied.` |
 | `contractType <= 0` | `ContractType must be greater than 0 when it is supplied.` |
 | `countryId <= 0` | `CountryId must be greater than 0 when it is supplied.` |
-| `maxTimeInHrs` out of range | `MaxTimeInHrs must be between 00:00:00 and 23:59:59.` |
-| `maxTimInMins` out of range | `MaxTimInMins must be between 00:00:00 and 23:59:59.` |
-| `timeEntryLockAt` out of range | `TimeEntryLockAt must be between 00:00:00 and 23:59:59.` |
 | `startDay` out of range | `StartDay must be a DayMaster day id between 1 (Monday) and 7 (Sunday).` |
 | `endDay` out of range | `EndDay must be a DayMaster day id between 1 (Monday) and 7 (Sunday).` |
 | `exceptionDay` out of range | `ExceptionDay must be a DayMaster day id between 1 (Monday) and 7 (Sunday).` |
 | Only one end of the week supplied | `StartDay and EndDay must be supplied together.` |
+
+The three time fields are read by `AdminService` rather than the validator, for
+the same reason as on the time-log write. An absent one is not an error; one
+that was sent and is malformed is, reported **one at a time**:
+
+| Trigger | Message |
+|---|---|
+| `maxTimeInHrs` malformed or out of range | `MaxTimeInHrs must be a time of day in hh:mm:ss format, between "00:00:00" and "23:59:59" - for example "09:00:00".` |
+| `maxTimInMins` malformed or out of range | `MaxTimInMins must be a time of day in hh:mm:ss format, between "00:00:00" and "23:59:59" - for example "09:00:00".` |
+| `timeEntryLockAt` malformed or out of range | `TimeEntryLockAt must be a time of day in hh:mm:ss format, between "00:00:00" and "23:59:59" - for example "09:00:00".` |
 
 ```json
 {
@@ -954,6 +1027,162 @@ success:
 
 ---
 
+### 7. GET `/api/v1/Admin/get-all-employees-by-orgid`
+
+**Purpose** — Every employee in one organisation, with their contracted time per
+week, what they have logged in the **current Monday–Sunday week**, progress
+against the contract, and head-count totals for the same rows.
+
+Executes `dbo.spc_GetEmployeeListByPOrgID`. Every figure in a row is computed by
+the procedure and passed straight through; the API adds only the `summary`.
+
+#### Request
+
+| Parameter | In | Type | Required | Rules |
+|---|---|---|---|---|
+| `orgID` | query | int | yes | `> 0`. Omitted, it binds to `0` and is refused |
+
+```
+GET /api/v1/Admin/get-all-employees-by-orgid?orgID=700
+```
+
+> **"Employee" is the procedure's definition, not the API's** — `dbo.Signup`
+> filtered on `RoleID = 2`. That does **not** line up with
+> [`RoleType`](#roletype), where `2` is `Manager`. The two vocabularies genuinely
+> differ and nothing reconciles them; the endpoint returns whatever the procedure
+> considers an employee.
+
+#### Success response — `200 OK`
+
+`data` is an `EmployeeListResponse`: `summary` first, then `employees`.
+
+**`summary`** — counted from the rows in the same response, never queried
+separately, so the totals can never disagree with the grid beneath them.
+
+| Field | Type | Meaning |
+|---|---|---|
+| `totalEmployees` | int | Rows returned |
+| `totalEmployeesWithSetup` | int | How many have a `dbo.TimesheetMasterSetup` row |
+| `totalEmployeesWithoutSetup` | int | How many have none. With the previous field, always adds up to `totalEmployees` |
+| `totalFullTime` | int | `contractTypeId == 1` |
+| `totalPartTime` | int | `contractTypeId == 2` |
+
+> **Full time + part time need not equal the head count.** An employee with no
+> setup has no contract, and a setup can carry a contract id that is neither 1
+> nor 2. Those rows count towards neither — inventing a default would report a
+> contract nobody chose.
+
+**`employees[]`**
+
+| Field | Type | Meaning |
+|---|---|---|
+| `userId` | int | `dbo.Signup.UserID` |
+| `setupId` | int? | Their setup's key, or `null` when they have none. **This is the "is this employee set up?" flag** — the expected-time fields are also null for a setup that exists but is half-filled |
+| `name` | string? | From `dbo.Signup` |
+| `email` | string? | From `dbo.Signup` |
+| `expectedHoursPerWeek` | int? | Whole contracted hours per week. Null when there is no setup, or it is incomplete |
+| `expectedMinsPerWeek` | int? | The **remainder** that goes with it, not a separate quantity: 37.5 h/week is `37` and `30` |
+| `expectedHoursPerWeekText` | string? | The same figure formatted by the procedure — `"37h 30m/week"` |
+| `totalLoggedHoursCurrentWeek` | int | Whole hours logged this week. `0` rather than null when nothing was logged |
+| `totalLoggedMinsCurrentWeek` | int | The remainder that goes with it |
+| `totalLoggedHoursCurrentWeekText` | string? | `"12h 45m"` |
+| `progressOnThisWeek` | decimal | Percent of the contracted week logged, **already capped at 100 by the procedure** so a client can draw a bar without clamping it again. `0` when there is nothing to measure against |
+| `contractTypeId` | int? | `1` = full time, `2` = part time |
+| `contractType` | string? | `"Full Time"` / `"Part Time"`. Null for any other id |
+
+#### Example response
+
+```json
+{
+  "success": true,
+  "message": "",
+  "data": {
+    "summary": {
+      "totalEmployees": 3,
+      "totalEmployeesWithSetup": 2,
+      "totalEmployeesWithoutSetup": 1,
+      "totalFullTime": 1,
+      "totalPartTime": 1
+    },
+    "employees": [
+      {
+        "userId": 5001,
+        "setupId": 17,
+        "name": "Priya Raman",
+        "email": "priya@etimesheet.test",
+        "expectedHoursPerWeek": 40,
+        "expectedMinsPerWeek": 0,
+        "expectedHoursPerWeekText": "40h/week",
+        "totalLoggedHoursCurrentWeek": 8,
+        "totalLoggedMinsCurrentWeek": 0,
+        "totalLoggedHoursCurrentWeekText": "8h",
+        "progressOnThisWeek": 20,
+        "contractTypeId": 1,
+        "contractType": "Full Time"
+      },
+      {
+        "userId": 5003,
+        "setupId": null,
+        "name": "Sam Patel",
+        "email": "sam@etimesheet.test",
+        "expectedHoursPerWeek": null,
+        "expectedMinsPerWeek": null,
+        "expectedHoursPerWeekText": null,
+        "totalLoggedHoursCurrentWeek": 0,
+        "totalLoggedMinsCurrentWeek": 0,
+        "totalLoggedHoursCurrentWeekText": "0h",
+        "progressOnThisWeek": 0,
+        "contractTypeId": null,
+        "contractType": null
+      }
+    ]
+  },
+  "errors": []
+}
+```
+
+The second employee has no setup, so `setupId`, every expected-time field and
+both contract fields come back as `null`. **They are still there.** Both rows
+carry the same thirteen keys, which is what lets a grid bind to the response
+without a per-row existence check.
+
+#### Error responses
+
+**400 — the organisation id is missing or not positive** (`errors[]` populated):
+
+```json
+{
+  "success": false,
+  "message": "One or more validation errors occurred.",
+  "data": null,
+  "errors": [
+    "orgID: orgID is required and must be greater than 0."
+  ]
+}
+```
+
+> **An organisation with nobody in it is `200` with an empty grid, not a 404.**
+> "This organisation has no employees" is an answer. Nothing here can tell an
+> empty organisation apart from one that does not exist — the procedure returns
+> no rows either way — so inventing a 404 would be a guess.
+
+#### Things worth knowing
+
+- **The week is the server's.** The procedure derives Monday–Sunday from
+  `GETDATE()` inside SQL Server. It is not affected by any clock the API
+  injects, and an integration test has to arrange its rows against the
+  database's own answer rather than the test host's.
+- **An entry spanning the week boundary is clipped**, not counted whole: the
+  procedure trims it to the part that falls inside the week.
+- **Deleted time logs are not excluded.** The procedure does not filter
+  `dbo.TimeLog.IsDeleted`, so a soft-deleted entry still counts towards the
+  logged total — unlike every other read in this API.
+- **An employee holding two setup rows would appear twice**, and be counted
+  twice. The Admin save path makes that impossible, but no database constraint
+  does.
+
+---
+
 ## Health endpoints
 
 Anonymous, outside the `ApiResponse` envelope, and outside `/api/v1`.
@@ -1023,6 +1252,7 @@ authentication is off.
 | 4 | POST | `/api/v1/Admin/save-user-timesheet-setup` | Add / update / revive a user's setup | `AdminSaveRequest` | `AdminResponse` | 400, 500 |
 | 5 | GET | `/api/v1/Admin/get-user-timesheet-setup/{userID}` | A user's setup (admin view, whole row) | route param | `AdminResponse` | 404, 500 |
 | 6 | POST | `/api/v1/Admin/delete-timesheet-setup` | Soft-delete a setup | `AdminDeleteRequest` | `null` | 400, 404, 500 |
+| 7 | GET | `/api/v1/Admin/get-all-employees-by-orgid` | An organisation's employees + head-count totals | `orgID` query param | `EmployeeListResponse` | 400, 500 |
 | — | GET | `/health`, `/health/live`, `/health/ready` | Liveness / readiness | — | *(unenveloped)* | 503 |
 
 ---
@@ -1044,3 +1274,19 @@ Documented so nobody has to rediscover them:
    insert-only.
 5. **The timesheet setup procedure does not guarantee uniqueness.** When a user
    has more than one row, the first is returned and a warning is logged.
+6. **`dbo.Signup` is only partially recorded.** `docs/database/schema/dbo.Signup.sql`
+   was written from the columns `spc_GetEmployeeListByPOrgID` reads, because no
+   scripted definition has been supplied. It is enough to stand up the
+   integration container; it is not a faithful record of the table.
+7. **The employee list counts deleted time logs.** `spc_GetEmployeeListByPOrgID`
+   does not filter `dbo.TimeLog.IsDeleted`, so `totalLoggedHoursCurrentWeek` can
+   exceed what every other read in the API reports for the same week.
+8. **`sheetCode` generation is read-then-write, and nothing enforces
+   uniqueness.** Two saves that overlap can read the same highest code and both
+   take the next number, producing a duplicate. `dbo.TimeLog` has no unique index
+   on `SheetCode` — the primary key is `SheetID` — so the database does not catch
+   it either. **Fix: add `CREATE UNIQUE NONCLUSTERED INDEX UX_TimeLog_SheetCode
+   ON dbo.TimeLog (SheetCode) WHERE SheetCode IS NOT NULL;`** (filtered, because
+   existing rows hold nulls). Once that index exists, a collision becomes a
+   failed insert rather than a silent duplicate, and the save can be made to
+   retry.

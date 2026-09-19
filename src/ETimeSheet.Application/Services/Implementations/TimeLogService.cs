@@ -1,12 +1,13 @@
-using ETimeSheet.Application.Common;
 using ETimeSheet.Application.Common.Mapping;
-using ETimeSheet.Application.DTOs.TimeLogs;
+using System.Globalization;
+using ETimeSheet.Application.Common;
 using ETimeSheet.Application.Interfaces.Repositories;
 using ETimeSheet.Application.Interfaces.Services;
 using ETimeSheet.Application.Models.Entities;
-using ETimeSheet.Application.Models.Results;
+using ETimeSheet.Application.Models;
 using ETimeSheet.Application.Services.Interfaces;
 using ETimeSheet.Shared.Exceptions;
+using ETimeSheet.Shared.Utilities;
 using Microsoft.Extensions.Logging;
 
 namespace ETimeSheet.Application.Services.Implementations;
@@ -169,13 +170,33 @@ public class TimeLogService : ITimeLogService
         TimeLogSaveRequest request,
         CancellationToken cancellationToken = default)
     {
+        // Both ends arrive as hh:mm:ss strings and are read here rather than in
+        // the validator, because TimeOfDay is the one place in the application
+        // that decides what a time of day is. A malformed value is a
+        // ValidationException naming the field, so the caller is told "StartTime
+        // must be ... hh:mm:ss" rather than being handed a binding error about a
+        // type it never sent.
+        var startTime = TimeOfDay.Parse(request.StartTime, nameof(TimeLogSaveRequest.StartTime));
+        var endTime = TimeOfDay.Parse(request.EndTime, nameof(TimeLogSaveRequest.EndTime));
+
         // Both ends as full instants, so every rule below reads the same way for
-        // an ordinary entry and for one that runs past midnight. The validator
-        // has already established that the second is after the first.
+        // an ordinary entry and for one that runs past midnight.
         var loggedOn = request.StartDate.Date;
-        var startsAt = loggedOn + request.StartTime;
-        var endsAt = (request.EndDate?.Date ?? loggedOn) + request.EndTime;
+        var startsAt = loggedOn + startTime;
+        var endsAt = (request.EndDate?.Date ?? loggedOn) + endTime;
         var duration = endsAt - startsAt;
+
+        // The entry has to cover some time, and it has to run forwards. Checked
+        // across both ends including their dates, so an overnight shift - 22:00
+        // on Monday to 06:00 on Tuesday - passes, while 17:00 to 09:00 on a
+        // single day does not. This is the one rule about the times that the
+        // validator cannot state, because it needs them parsed.
+        if (duration <= TimeSpan.Zero)
+        {
+            throw new ValidationException(
+                nameof(TimeLogSaveRequest.EndTime),
+                "EndTime must be after StartTime, once both dates are taken into account.");
+        }
 
         // No authorisation check and no current-user lookup, as on the reads:
         // authentication is switched off for this project for now, so the entry
@@ -202,14 +223,19 @@ public class TimeLogService : ITimeLogService
             UserId = request.UserId,
             TaskId = request.TaskId,
             Description = request.Description,
-            SheetCode = string.IsNullOrWhiteSpace(request.SheetCode) ? null : request.SheetCode.Trim(),
+
+            // Generated, never supplied. Read as late as possible - after every
+            // rule has passed - so a rejected request does not consume a number
+            // and leave a gap in the sequence.
+            SheetCode = NextSheetCode(
+                await _timeLogRepository.GetLatestSheetCodeAsync(cancellationToken)),
             StartDate = loggedOn,
             // Always written, even when the caller left it out: a row with a
             // start date and no end date cannot have its duration computed, and
             // spc_GetTimeLoggedDetailsForTask needs both to DATEDIFF across them.
             EndDate = request.EndDate?.Date ?? loggedOn,
-            StartTime = request.StartTime,
-            EndTime = request.EndTime,
+            StartTime = startTime,
+            EndTime = endTime,
             Status = request.Status,
 
             // Set here rather than left to AuditableEntityInterceptor. The
@@ -234,6 +260,112 @@ public class TimeLogService : ITimeLogService
             request.CreatedBy);
 
         return saved.ToResponse(ToHours(duration));
+    }
+
+    // ---- sheet code generation -------------------------------------------
+
+    /// <summary>The letter every generated sheet code starts with.</summary>
+    private const string SheetCodePrefix = "T";
+
+    /// <summary>
+    /// How many digits the first generation uses, which is what makes the very
+    /// first code <c>T0001</c> rather than <c>T1</c>.
+    /// </summary>
+    private const int SheetCodeInitialDigits = 4;
+
+    /// <summary>
+    /// <c>dbo.TimeLog.SheetCode</c> is <c>varchar(15)</c>. A longer value is
+    /// silently truncated by SQL Server rather than rejected, which would store
+    /// a code nobody generated and quietly duplicate an existing one.
+    /// </summary>
+    private const int SheetCodeMaximumLength = 15;
+
+    /// <summary>
+    /// The code that follows <paramref name="latest"/>.
+    /// <para>
+    /// Codes run <c>T0001</c>, <c>T0002</c> … <c>T9999</c>. When a width runs
+    /// out the sequence does not stop and does not overflow into a ragged
+    /// number - it starts a <b>new generation one digit wider, back at one</b>:
+    /// <c>T9999</c> is followed by <c>T00001</c>, and <c>T99999</c> by
+    /// <c>T000001</c>.
+    /// </para>
+    /// <para>
+    /// That is why the limit can never be reached. Each generation is 9x the
+    /// previous one, and because the widths differ, no code from one generation
+    /// can ever equal a code from another - <c>T0001</c> and <c>T00001</c> are
+    /// different strings. The width simply grows on demand, up to the fourteen
+    /// digits the column can hold, which is a hundred million million codes.
+    /// </para>
+    /// <para>
+    /// <paramref name="latest"/> is <see langword="null"/> when nothing has been
+    /// generated yet - an empty table, or one holding only hand-entered
+    /// references - and the sequence starts at <c>T0001</c>.
+    /// </para>
+    /// </summary>
+    private static string NextSheetCode(string? latest)
+    {
+        if (string.IsNullOrWhiteSpace(latest))
+        {
+            return Format(1, SheetCodeInitialDigits);
+        }
+
+        // The repository only returns codes of exactly this shape, so the digits
+        // parse. TryParse rather than Parse all the same: this decides what goes
+        // into the column, and falling back to the start of the sequence is
+        // better than throwing on data nobody can correct.
+        var digits = latest.Trim()[SheetCodePrefix.Length..];
+
+        if (!long.TryParse(digits, NumberStyles.None, CultureInfo.InvariantCulture, out var number))
+        {
+            return Format(1, SheetCodeInitialDigits);
+        }
+
+        var width = digits.Length;
+
+        // All nines at this width - 9999, 99999 - is the end of the generation.
+        // The next one is a digit wider and begins again at 1, which is what
+        // makes T00001 follow T9999.
+        if (number >= HighestAt(width))
+        {
+            return Format(1, width + 1);
+        }
+
+        return Format(number + 1, width);
+    }
+
+    /// <summary>The largest number that fits in <paramref name="width"/> digits: 4 gives 9999.</summary>
+    private static long HighestAt(int width)
+    {
+        var highest = 1L;
+
+        for (var digit = 0; digit < width; digit++)
+        {
+            highest *= 10;
+        }
+
+        return highest - 1;
+    }
+
+    /// <summary>
+    /// Renders one code, zero-padded to <paramref name="width"/>.
+    /// </summary>
+    /// <exception cref="BusinessException">
+    /// The code would not fit the column. Unreachable in practice - it takes a
+    /// hundred million million entries - but truncation would silently duplicate
+    /// an existing code, so it fails loudly instead.
+    /// </exception>
+    private static string Format(long number, int width)
+    {
+        var code = SheetCodePrefix + number.ToString(new string('0', width), CultureInfo.InvariantCulture);
+
+        if (code.Length > SheetCodeMaximumLength)
+        {
+            throw new BusinessException(
+                $"The sheet code sequence has run out of room: '{code}' is longer than the " +
+                $"{SheetCodeMaximumLength} characters dbo.TimeLog.SheetCode can hold.");
+        }
+
+        return code;
     }
 
     /// <summary>

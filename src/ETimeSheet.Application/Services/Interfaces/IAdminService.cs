@@ -1,4 +1,4 @@
-using ETimeSheet.Application.DTOs.Admins;
+using ETimeSheet.Application.Models;
 
 namespace ETimeSheet.Application.Services.Interfaces;
 
@@ -49,5 +49,23 @@ public interface IAdminService
     /// </exception>
     Task DeleteAsync(
         AdminDeleteRequest request,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns every employee in one organisation, with the head-count totals
+    /// for the same set of rows.
+    /// <para>
+    /// An organisation with no employees is an empty grid and a summary of
+    /// zeroes, not a 404: "this organisation has nobody in it" is an answer, and
+    /// an administrator looking at an empty list has learnt something. A 404
+    /// would be reserved for an organisation that does not exist, and nothing
+    /// here can tell the two apart - the procedure returns no rows either way.
+    /// </para>
+    /// </summary>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.ValidationException">
+    /// <paramref name="organizationId"/> is not a positive id.
+    /// </exception>
+    Task<EmployeeListResponse> GetEmployeeListByOrganizationIdAsync(
+        int organizationId,
         CancellationToken cancellationToken = default);
 }

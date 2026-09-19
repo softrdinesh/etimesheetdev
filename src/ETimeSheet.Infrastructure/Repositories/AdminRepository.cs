@@ -1,5 +1,6 @@
 using ETimeSheet.Application.Interfaces.Repositories;
 using ETimeSheet.Application.Models.Entities;
+using ETimeSheet.Application.Models;
 using ETimeSheet.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 
@@ -98,4 +99,15 @@ public class AdminRepository : IAdminRepository
 
         await _db.SaveChangesAsync(cancellationToken);
     }
+
+    public async Task<IReadOnlyList<EmployeeListDetail>> GetEmployeeListByOrganizationIdAsync(
+        int organizationId,
+        CancellationToken cancellationToken = default) =>
+        // @POrgID is spelled exactly as the procedure declares it. The
+        // interpolated hole becomes a real SqlParameter, so the value can never
+        // be parsed as SQL.
+        await _db.spc_GetEmployeeListByPOrgID
+            .FromSqlInterpolated(
+                $"EXEC dbo.spc_GetEmployeeListByPOrgID @POrgID = {organizationId}")
+            .ToListAsync(cancellationToken);
 }

@@ -1,5 +1,5 @@
-using ETimeSheet.Application.DTOs.Admins;
 using ETimeSheet.Application.Models.Entities;
+using ETimeSheet.Application.Models;
 
 namespace ETimeSheet.Application.Common.Mapping;
 
@@ -52,17 +52,55 @@ internal static class AdminMappings
     /// the two cannot drift apart and start accepting different fields.
     /// </para>
     /// </summary>
-    internal static void ApplyTo(this AdminSaveRequest request, TimesheetMasterSetup setup)
+    /// <param name="times">
+    /// The payload's three time fields, already read out of their
+    /// <c>hh:mm:ss</c> strings. They are passed in rather than parsed here
+    /// because parsing is validation - it can reject the payload - and a mapper
+    /// is not where a request is accepted or refused.
+    /// </param>
+    internal static void ApplyTo(
+        this AdminSaveRequest request,
+        TimesheetMasterSetup setup,
+        TimesheetSetupTimes times)
     {
         setup.UserId = request.UserId;
-        setup.MaxTimeInHrs = request.MaxTimeInHrs;
-        setup.MaxTimInMins = request.MaxTimInMins;
+        setup.MaxTimeInHrs = times.MaxTimeInHrs;
+        setup.MaxTimInMins = times.MaxTimInMins;
         setup.OrganizationId = request.OrganizationId;
         setup.ContractType = request.ContractType;
         setup.StartDay = request.StartDay;
         setup.EndDay = request.EndDay;
         setup.ExceptionDay = request.ExceptionDay;
         setup.CountryId = request.CountryId;
-        setup.TimeEntryLockAt = request.TimeEntryLockAt;
+        setup.TimeEntryLockAt = times.TimeEntryLockAt;
     }
+
+    /// <summary>
+    /// Projects one row of <c>dbo.spc_GetEmployeeListByPOrgID</c> to the grid.
+    /// <para>
+    /// Straight through, deliberately: every figure in the row was computed by
+    /// the procedure, and recomputing or reformatting one here would let this
+    /// endpoint and the procedure tell an administrator two different numbers.
+    /// </para>
+    /// </summary>
+    internal static EmployeeResponse ToResponse(this EmployeeListDetail employee) => new()
+    {
+        UserId = employee.UserId,
+        SetupId = employee.SetupId,
+        Name = employee.Name,
+        Email = employee.Email,
+        ExpectedHoursPerWeek = employee.ExpectedHoursPerWeek,
+        ExpectedMinsPerWeek = employee.ExpectedMinsPerWeek,
+        ExpectedHoursPerWeekText = employee.ExpectedHoursPerWeekText,
+        TotalLoggedHoursCurrentWeek = employee.TotalLoggedHoursCurrentWeek,
+        TotalLoggedMinsCurrentWeek = employee.TotalLoggedMinsCurrentWeek,
+        TotalLoggedHoursCurrentWeekText = employee.TotalLoggedHoursCurrentWeekText,
+        ProgressOnThisWeek = employee.ProgressOnThisWeek,
+        ContractTypeId = employee.ContractTypeId,
+        ContractType = employee.ContractType
+    };
+
+    internal static IReadOnlyCollection<EmployeeResponse> ToResponses(
+        this IEnumerable<EmployeeListDetail> employees) =>
+        employees.Select(ToResponse).ToArray();
 }
