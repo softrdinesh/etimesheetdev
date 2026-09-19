@@ -28,16 +28,9 @@ var app = builder.Build();
 // failures from everything below it, including authentication.
 app.UseExceptionHandling();
 
-if (app.Environment.IsDevelopment())
-{
-    app.UseSwaggerUi();
-}
-else
-{
-    // Only meaningful outside development, where TLS termination is in front.
-    app.UseHsts();
-    app.UseHttpsRedirection();
-}
+
+app.UseSwaggerUi();
+
 
 app.UseCors(CorsSettings.PolicyName);
 

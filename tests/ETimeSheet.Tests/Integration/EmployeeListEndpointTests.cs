@@ -9,7 +9,7 @@ using System.Net;
 namespace ETimeSheet.Tests.Integration;
 
 /// <summary>
-/// <c>GET /api/v1/Admin/get-all-employees-by-orgid</c>, end to end against a real
+/// <c>GET /api/v1/Admin/get-all-employees-by-orgid/{orgID}</c>, end to end against a real
 /// SQL Server: the real <c>dbo.spc_GetEmployeeListByPOrgID</c>, the real
 /// mapping, the real middleware.
 /// <para>
@@ -40,7 +40,7 @@ public class EmployeeListEndpointTests : IntegrationTestBase
     }
 
     private static string Url(int organizationId) =>
-        $"/api/v1/Admin/get-all-employees-by-orgid?orgID={organizationId}";
+        $"/api/v1/Admin/get-all-employees-by-orgid/{organizationId}";
 
     private async Task<EmployeeListResponse> GetAsync(int organizationId)
     {
@@ -327,9 +327,10 @@ public class EmployeeListEndpointTests : IntegrationTestBase
     }
 
     /// <summary>
-    /// A missing parameter binds to the default 0, which the service refuses -
-    /// so the caller is told what is wrong rather than being handed an empty
-    /// grid for an organisation they never named.
+    /// The organisation id is a route segment, so leaving it off is not a
+    /// request for every organisation - it is a different URL, and there is
+    /// nothing there. The caller is never handed a grid for an organisation
+    /// they did not name.
     /// </summary>
     [Fact]
     public async Task RejectsARequestWithNoOrganizationIdAtAll()
@@ -337,7 +338,7 @@ public class EmployeeListEndpointTests : IntegrationTestBase
         var response = await Factory.CreateClient()
             .GetAsync("/api/v1/Admin/get-all-employees-by-orgid");
 
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }
 
     [Fact]

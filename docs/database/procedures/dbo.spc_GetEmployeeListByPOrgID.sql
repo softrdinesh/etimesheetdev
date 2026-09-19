@@ -12,7 +12,7 @@
       src/ETimeSheet.Application/Models/Admin.cs (EmployeeListDetail)
       src/ETimeSheet.Infrastructure/Data/Context.cs (ConfigureStoredProcedureResults)
     Served by:
-      GET /api/v1/Admin/get-all-employees-by-orgid?orgID=
+      GET /api/v1/Admin/get-all-employees-by-orgid/{orgID}
 
     Recorded as CREATE OR ALTER: it was handed over as ALTER PROCEDURE, which
     cannot run against the empty database the integration fixture builds.
