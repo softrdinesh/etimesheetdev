@@ -33,16 +33,25 @@ public static class AuthenticationExtensions
     }
 
     /// <summary>
-    /// Registers ASP.NET Core authorization with a deny-by-default fallback, so
-    /// forgetting <c>[Authorize]</c> on a new controller cannot expose it.
-    /// Endpoints that must stay public are marked <c>[AllowAnonymous]</c>.
+    /// Registers ASP.NET Core authorization with <b>no fallback policy</b>, so
+    /// an endpoint is anonymous unless it carries <c>[Authorize]</c>.
+    /// <para>
+    /// The deny-by-default fallback that used to live here challenged every
+    /// request that reached the authorization middleware - including paths that
+    /// match no endpoint at all - which turned a mistyped URL into a 401 bearer
+    /// challenge instead of a 404 and made the whole host look locked down. That
+    /// is the wrong trade while security is off and the API is deliberately
+    /// unauthenticated.
+    /// </para>
+    /// <para>
+    /// When JWT is switched back on, restore <c>options.FallbackPolicy =
+    /// options.DefaultPolicy</c> here and take <c>[AllowAnonymous]</c> off the
+    /// controllers - the two changes belong in the same commit.
+    /// </para>
     /// </summary>
     public static IServiceCollection AddAuthorizationServices(this IServiceCollection services)
     {
-        services.AddAuthorization(options =>
-        {
-            options.FallbackPolicy = options.DefaultPolicy;
-        });
+        services.AddAuthorization();
 
         return services;
     }

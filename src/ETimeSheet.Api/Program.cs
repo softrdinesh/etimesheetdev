@@ -28,9 +28,13 @@ var app = builder.Build();
 // failures from everything below it, including authentication.
 app.UseExceptionHandling();
 
-
+// Swagger is served in every environment, deliberately and unconditionally: the
+// API is unauthenticated while security is off, and the deployed host is where
+// the team actually exercises it. It sits above CORS, authentication and
+// authorization so nothing downstream can challenge a request for the UI or the
+// document. When security is switched back on, this is one of the first things
+// to put behind a flag again.
 app.UseSwaggerUi();
-
 
 app.UseCors(CorsSettings.PolicyName);
 
