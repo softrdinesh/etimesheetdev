@@ -24,7 +24,7 @@ controller, DTO or validator, change this file with it.
   - [POST /api/v1/Admin/save-user-timesheet-setup](#4-post-apiv1adminsave-user-timesheet-setup)
   - [GET /api/v1/Admin/get-user-timesheet-setup/{userID}](#5-get-apiv1adminget-user-timesheet-setupuserid)
   - [POST /api/v1/Admin/delete-timesheet-setup](#6-post-apiv1admindelete-timesheet-setup)
-  - [GET /api/v1/Admin/get-all-employees-by-orgid](#7-get-apiv1adminget-all-employees-by-orgid)
+  - [GET /api/v1/Admin/get-all-employees-by-orgid/{orgID}](#7-get-apiv1adminget-all-employees-by-orgidorgid)
 - [Health endpoints](#health-endpoints)
 - [Enumerations](#enumerations)
 - [Endpoint summary table](#endpoint-summary-table)
@@ -1027,7 +1027,7 @@ success:
 
 ---
 
-### 7. GET `/api/v1/Admin/get-all-employees-by-orgid`
+### 7. GET `/api/v1/Admin/get-all-employees-by-orgid/{orgID}`
 
 **Purpose** — Every employee in one organisation, with their contracted time per
 week, what they have logged in the **current Monday–Sunday week**, progress
@@ -1040,10 +1040,10 @@ the procedure and passed straight through; the API adds only the `summary`.
 
 | Parameter | In | Type | Required | Rules |
 |---|---|---|---|---|
-| `orgID` | query | int | yes | `> 0`. Omitted, it binds to `0` and is refused |
+| `orgID` | route | int | yes | `> 0`. Omitted, the URL matches no route and is a `404` |
 
 ```
-GET /api/v1/Admin/get-all-employees-by-orgid?orgID=700
+GET /api/v1/Admin/get-all-employees-by-orgid/700
 ```
 
 > **"Employee" is the procedure's definition, not the API's** — `dbo.Signup`
@@ -1148,7 +1148,9 @@ without a per-row existence check.
 
 #### Error responses
 
-**400 — the organisation id is missing or not positive** (`errors[]` populated):
+**400 — the organisation id is not positive** (`errors[]` populated). The
+segment is constrained to `:int` but deliberately not `:min(1)`, so a `0`
+reaches the service and is told what is wrong with it:
 
 ```json
 {
@@ -1252,7 +1254,7 @@ authentication is off.
 | 4 | POST | `/api/v1/Admin/save-user-timesheet-setup` | Add / update / revive a user's setup | `AdminSaveRequest` | `AdminResponse` | 400, 500 |
 | 5 | GET | `/api/v1/Admin/get-user-timesheet-setup/{userID}` | A user's setup (admin view, whole row) | route param | `AdminResponse` | 404, 500 |
 | 6 | POST | `/api/v1/Admin/delete-timesheet-setup` | Soft-delete a setup | `AdminDeleteRequest` | `null` | 400, 404, 500 |
-| 7 | GET | `/api/v1/Admin/get-all-employees-by-orgid` | An organisation's employees + head-count totals | `orgID` query param | `EmployeeListResponse` | 400, 500 |
+| 7 | GET | `/api/v1/Admin/get-all-employees-by-orgid/{orgID}` | An organisation's employees + head-count totals | route param | `EmployeeListResponse` | 400, 500 |
 | — | GET | `/health`, `/health/live`, `/health/ready` | Liveness / readiness | — | *(unenveloped)* | 503 |
 
 ---

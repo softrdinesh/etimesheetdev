@@ -101,18 +101,21 @@ public class AdminController : ControllerBase
     /// </para>
     /// </summary>
     /// <param name="orgID">
-    /// The organisation whose employees to list. A query parameter rather than a
-    /// route segment: the route already says "by-orgid", and
-    /// <c>get-all-employees-by-orgid/3</c> reads worse than
-    /// <c>get-all-employees-by-orgid?orgID=3</c>.
+    /// The organisation whose employees to list, as a route segment.
     /// </param>
     /// <response code="200">The employees and their totals. An organisation with nobody in it is an empty grid, not a 404.</response>
     /// <response code="400">No organisation id, or one that is not greater than zero.</response>
-    [HttpGet("get-all-employees-by-orgid")]
+    [HttpGet("get-all-employees-by-orgid/{orgID:int}")]
     [ProducesResponseType(typeof(ApiResponse<EmployeeListResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> GetAllEmployeesByOrgId(
-        [FromQuery] int orgID,
+        // Spelled orgID, matching the route token character for character - see
+        // GetUserTimesheetSetup above for why the casing matters in Swagger UI.
+        //
+        // Constrained to :int but deliberately not :min(1): a 0 has to reach the
+        // service so it can answer 400 saying what is wrong, rather than missing
+        // the route and coming back as a 401 from the fallback policy.
+        [FromRoute] int orgID,
         CancellationToken cancellationToken)
     {
         var result = await _adminService.GetEmployeeListByOrganizationIdAsync(orgID, cancellationToken);
