@@ -299,6 +299,13 @@ public class EmployeeResponse
 
     /// <summary>The contract spelled out - <c>"Full Time"</c> or <c>"Part Time"</c>.</summary>
     public string? ContractType { get; init; }
+
+    /// <summary>
+    /// The employee's country, from <c>dbo.Signup.CountryID</c>. Independent of
+    /// whether they have a timesheet setup - null here means the signup names no
+    /// country, not that the employee is unconfigured.
+    /// </summary>
+    public int? CountryId { get; init; }
 }
 
 /// <summary>
@@ -367,7 +374,7 @@ public class EmployeeListResponse
 /// <para>
 /// This is a keyless type: it is not a table, it has no identity and it is never
 /// tracked or written. It exists solely to give the procedure's SELECT list a
-/// shape EF Core can materialise, which is why it carries exactly the thirteen
+/// shape EF Core can materialise, which is why it carries exactly the fourteen
 /// columns the procedure returns - no more.
 /// </para>
 /// <para>
@@ -452,6 +459,23 @@ public class EmployeeListDetail
     /// setup.
     /// </summary>
     public string? ContractType { get; set; }
+
+    /// <summary>
+    /// The employee's country - <b><c>dbo.Signup.CountryID</c></b>, added to
+    /// the procedure on 2026-09-21.
+    /// <para>
+    /// Unlike every other nullable column on this row, a null here does
+    /// <b>not</b> mean "no timesheet setup": it comes from the signup, which is
+    /// the side of the LEFT JOIN that always exists. Null means the signup
+    /// itself names no country.
+    /// </para>
+    /// <para>
+    /// Note whose column it is. <c>dbo.TimesheetMasterSetup</c> has a
+    /// <c>CountryID</c> of its own - the one the Admin save writes and resolves
+    /// the time zone against - and the two can hold different values.
+    /// </para>
+    /// </summary>
+    public int? CountryId { get; set; }
 }
 
 /// <summary>

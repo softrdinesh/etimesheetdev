@@ -201,6 +201,10 @@ public class Context : DbContext
             // alias ContractType is the spelled-out text beside it.
             employee.Property(row => row.ContractTypeId).HasColumnName("ContractTypeID");
             employee.Property(row => row.ContractType).HasColumnName("ContractType");
+
+            // Added to the procedure 2026-09-21. From the JOIN to dbo.Signup -
+            // the employee's own country, not the setup row's CountryID.
+            employee.Property(row => row.CountryId).HasColumnName("CountryID");
         });
     }
 }

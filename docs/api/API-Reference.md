@@ -1230,6 +1230,15 @@ separately, so the totals can never disagree with the grid beneath them.
 | `progressOnThisWeek` | decimal | Percent of the contracted week logged, **already capped at 100 by the procedure** so a client can draw a bar without clamping it again. `0` when there is nothing to measure against |
 | `contractTypeId` | int? | `1` = full time, `2` = part time |
 | `contractType` | string? | `"Full Time"` / `"Part Time"`. Null for any other id |
+| `countryId` | int? | The employee's country, from **`dbo.Signup.CountryID`**. Added 2026-09-21 |
+
+> `countryId` is the one nullable field here that says nothing about the
+> timesheet setup. Every other null above means "this employee has no setup, or
+> a half-filled one"; `countryId` comes from `dbo.Signup`, the side of the
+> `LEFT JOIN` that always exists, so a null means the **signup** names no
+> country. It is also not the same column as the `countryId` on
+> [endpoint 4](#4-post-apiv1adminsave-user-timesheet-setup)'s response, which is
+> `dbo.TimesheetMasterSetup.CountryID` — the two can hold different values.
 
 #### Example response
 
@@ -1259,7 +1268,8 @@ separately, so the totals can never disagree with the grid beneath them.
         "totalLoggedHoursCurrentWeekText": "8h",
         "progressOnThisWeek": 20,
         "contractTypeId": 1,
-        "contractType": "Full Time"
+        "contractType": "Full Time",
+        "countryId": 91
       },
       {
         "userId": 5003,
@@ -1274,7 +1284,8 @@ separately, so the totals can never disagree with the grid beneath them.
         "totalLoggedHoursCurrentWeekText": "0h",
         "progressOnThisWeek": 0,
         "contractTypeId": null,
-        "contractType": null
+        "contractType": null,
+        "countryId": 91
       }
     ]
   },
@@ -1284,8 +1295,11 @@ separately, so the totals can never disagree with the grid beneath them.
 
 The second employee has no setup, so `setupId`, every expected-time field and
 both contract fields come back as `null`. **They are still there.** Both rows
-carry the same thirteen keys, which is what lets a grid bind to the response
+carry the same fourteen keys, which is what lets a grid bind to the response
 without a per-row existence check.
+
+Note that the second employee still has a `countryId`: it comes from their
+signup, which exists whether or not anybody has given them a timesheet setup.
 
 #### Error responses
 
@@ -1513,7 +1527,7 @@ authentication is off.
 | 4 | POST | `/api/v1/Admin/save-user-timesheet-setup` | Add / update / revive a user's setup; resolves its time zone from the country | `AdminSaveRequest` | `AdminResponse` | 400, 404, 500 |
 | 5 | GET | `/api/v1/Admin/get-user-timesheet-setup/{userID}` | A user's setup (admin view, whole row) | route param | `AdminResponse` | 404, 500 |
 | 6 | POST | `/api/v1/Admin/delete-timesheet-setup` | Soft-delete a setup | `AdminDeleteRequest` | `null` | 400, 404, 500 |
-| 7 | GET | `/api/v1/Admin/get-all-employees-by-orgid/{orgID}` | An organisation's employees + head-count totals | route param | `EmployeeListResponse` | 400, 500 |
+| 7 | GET | `/api/v1/Admin/get-all-employees-by-orgid/{orgID}` | An organisation's employees, countries + head-count totals | route param | `EmployeeListResponse` | 400, 500 |
 | 8 | GET | `/api/v1/Admin/get-country-timezones-by-countryid/{countryID}` | A country's IANA time zones | route param | `string[]` | 400, 404, 500 |
 | — | GET | `/health`, `/health/live`, `/health/ready` | Liveness / readiness | — | *(unenveloped)* | 503 |
 

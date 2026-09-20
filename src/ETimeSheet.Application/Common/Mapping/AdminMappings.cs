@@ -112,7 +112,8 @@ internal static class AdminMappings
         TotalLoggedHoursCurrentWeekText = employee.TotalLoggedHoursCurrentWeekText,
         ProgressOnThisWeek = employee.ProgressOnThisWeek,
         ContractTypeId = employee.ContractTypeId,
-        ContractType = employee.ContractType
+        ContractType = employee.ContractType,
+        CountryId = employee.CountryId
     };
 
     internal static IReadOnlyCollection<EmployeeResponse> ToResponses(
