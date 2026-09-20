@@ -53,6 +53,14 @@ public class Context : DbContext
     /// </summary>
     public DbSet<DayMaster> DayMaster { get; set; } = null!;
 
+    /// <summary>
+    /// The <c>dbo.Country</c> lookup table. <b>Read-only:</b> its rows,
+    /// including the comma-separated <c>TimeZone</c> column, are maintained by
+    /// hand in SQL Server, so nothing adds, edits or deletes one through this
+    /// context.
+    /// </summary>
+    public DbSet<Country> Country { get; set; } = null!;
+
     // =====================================================================
     // STORED PROCEDURES  -  property name == procedure name
     //
@@ -155,6 +163,12 @@ public class Context : DbContext
             setup.Property(row => row.CanUserLoggedPreDayTime)
                  .HasColumnName("CanUserLoggedPreDayTime")
                  .HasConversion<int>();
+
+            // Added to the procedure 2026-09-21. CountryID comes from the JOIN
+            // to dbo.Signup - the person's country - not from the setup row's
+            // own CountryID column.
+            setup.Property(row => row.CountryId).HasColumnName("CountryID");
+            setup.Property(row => row.TimeZone).HasColumnName("TimeZone");
         });
 
         modelBuilder.Entity<EmployeeListDetail>(employee =>

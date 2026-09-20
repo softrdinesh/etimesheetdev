@@ -30,12 +30,20 @@ public class AdminServiceEmployeeListTests
     private readonly Mock<IAdminRepository> _repository = new(MockBehavior.Strict);
 
     /// <summary>
+    /// The country lookup takes no part in the employee-list read - only the
+    /// save resolves a time zone - so it is a strict mock with no setup at all:
+    /// any call to it fails the test rather than being quietly answered.
+    /// </summary>
+    private readonly Mock<ICountryRepository> _countries = new(MockBehavior.Strict);
+
+    /// <summary>
     /// The class under test is never mocked - only its collaborators are. The
     /// clock and the logger take no part in this read, so they are the plainest
     /// thing that satisfies the constructor.
     /// </summary>
     private AdminService CreateService() =>
         new(_repository.Object,
+            _countries.Object,
             new FixedDateTimeProvider(TimeLogTestData.Now),
             NullLogger<AdminService>.Instance);
 

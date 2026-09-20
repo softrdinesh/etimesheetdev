@@ -42,7 +42,9 @@ internal static class TimeLogMappings
         ContractType = setup.ContractType,
         StartDay = setup.StartDay,
         EndDay = setup.EndDay,
-        CanUserLoggedPreDayTime = setup.CanUserLoggedPreDayTime
+        CanUserLoggedPreDayTime = setup.CanUserLoggedPreDayTime,
+        CountryId = setup.CountryId,
+        TimeZone = setup.TimeZone
     };
 
     /// <summary>

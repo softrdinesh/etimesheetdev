@@ -94,6 +94,10 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddScoped<ITimeLogRepository, TimeLogRepository>();
         services.AddScoped<IAdminRepository, AdminRepository>();
 
+        // Not a feature repository: dbo.Country is a read-only lookup, and
+        // AdminService reads it to resolve a setup's time zone.
+        services.AddScoped<ICountryRepository, CountryRepository>();
+
         return services;
     }
 
