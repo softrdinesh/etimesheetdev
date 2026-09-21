@@ -69,7 +69,10 @@ public static class InfrastructureServiceCollectionExtensions
                 // Azure SQL and during failover.
                 sqlServer.EnableRetryOnFailure(settings.MaxRetryCount);
                 sqlServer.CommandTimeout(settings.CommandTimeoutSeconds);
-                sqlServer.MigrationsHistoryTable("__EFMigrationsHistory");
+
+                // No MigrationsHistoryTable, and no migrations to put in one:
+                // the schema is database-first and changed by hand. Nothing in
+                // this application creates, alters or drops it.
             });
 
             options.AddInterceptors(
@@ -93,6 +96,10 @@ public static class InfrastructureServiceCollectionExtensions
         // request's DbContext and its change tracker.
         services.AddScoped<ITimeLogRepository, TimeLogRepository>();
         services.AddScoped<IAdminRepository, AdminRepository>();
+
+        // Not a feature repository: dbo.Country is a read-only lookup, and
+        // AdminService reads it to resolve a setup's time zone.
+        services.AddScoped<ICountryRepository, CountryRepository>();
 
         return services;
     }

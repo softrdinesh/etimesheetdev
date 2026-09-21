@@ -290,8 +290,22 @@ public class TimesheetMasterSetupResponse
     /// <summary>
     /// Whether the user may log time against a previous day. Held as 0 or 1 in
     /// the database and surfaced as <c>true</c>/<c>false</c>.
+    /// <para>
+    /// The procedure derives this from the database server's clock, not the
+    /// employee's - see the note on <c>TimesheetMasterSetupDetail</c>.
+    /// </para>
     /// </summary>
     public bool? CanUserLoggedPreDayTime { get; init; }
+
+    /// <summary>The user's country, from <c>dbo.Signup.CountryID</c>.</summary>
+    public int? CountryId { get; init; }
+
+    /// <summary>
+    /// The IANA time zone this user's timesheet day is measured in - one id,
+    /// such as <c>"Asia/Kolkata"</c>. Null for a setup saved before time zones
+    /// existed, in which case the API falls back to UTC.
+    /// </summary>
+    public string? TimeZone { get; init; }
 }
 
 /// <summary>
@@ -385,6 +399,35 @@ public class TimesheetMasterSetupDetail
     /// <c>true</c>/<c>false</c> instead of having to know that 1 means yes. The
     /// store type is handled in the mapping, not here.
     /// </para>
+    /// <para>
+    /// <b>Derived by the procedure from the SQL Server's own clock</b> - it
+    /// compares <c>CAST(GETDATE() AS TIME)</c> against <c>TimeEntryLockAt</c> -
+    /// so it answers "has the cut-off passed <i>here</i>", not "has it passed
+    /// where the employee is". <c>TimeLogService</c> judges the cut-off itself
+    /// on <see cref="ETimeSheet.Application.Common.EmployeeClock"/> and uses
+    /// this flag only for the separate question of whether back-dating is
+    /// allowed at all.
+    /// </para>
     /// </summary>
     public bool? CanUserLoggedPreDayTime { get; set; }
+
+    /// <summary>
+    /// The user's country - <b><c>dbo.Signup.CountryID</c></b>, added to the
+    /// procedure on 2026-09-21.
+    /// <para>
+    /// Note whose column it is: the procedure joins <c>dbo.Signup</c> and takes
+    /// the country from the <i>person</i>, while
+    /// <c>dbo.TimesheetMasterSetup</c> has a <c>CountryID</c> of its own that
+    /// the Admin save writes. The two can disagree, and this one is the signup's.
+    /// </para>
+    /// </summary>
+    public int? CountryId { get; set; }
+
+    /// <summary>
+    /// The setup's IANA time zone - <c>dbo.TimesheetMasterSetup.TimeZone</c>,
+    /// one id such as <c>"Asia/Kolkata"</c>. Added to the procedure on
+    /// 2026-09-21 so the timesheet screen can show which clock the day's
+    /// cut-off is measured on.
+    /// </summary>
+    public string? TimeZone { get; set; }
 }

@@ -395,7 +395,8 @@ docs/database/
 ├── README.md         the rule, and how to regenerate from a live database
 ├── CHANGELOG.md      dated record of every change
 ├── schema/           one file per table
-└── procedures/       one file per stored procedure / function
+├── procedures/       one file per stored procedure / function
+└── data/             one-off data scripts, run by hand
 ```
 
 These files are documentation. **Nothing in the API executes them.** The only

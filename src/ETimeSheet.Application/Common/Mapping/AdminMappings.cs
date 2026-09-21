@@ -31,6 +31,7 @@ internal static class AdminMappings
         ExceptionDay = setup.ExceptionDay,
 
         CountryId = setup.CountryId,
+        TimeZone = setup.TimeZone,
         TimeEntryLockAt = setup.TimeEntryLockAt,
         CreatedBy = setup.CreatedBy,
         CreateDate = setup.CreateDate,
@@ -58,10 +59,23 @@ internal static class AdminMappings
     /// because parsing is validation - it can reject the payload - and a mapper
     /// is not where a request is accepted or refused.
     /// </param>
+    /// <param name="timeZone">
+    /// The setup's time zone, <b>already resolved against the country</b> - the
+    /// country's own zone when it has one, or the one the payload chose from its
+    /// list when it has several. Passed in for the same reason as
+    /// <paramref name="times"/>: resolving it reads the database and can reject
+    /// the payload, and neither belongs in a mapper.
+    /// <para>
+    /// This is why <c>request.TimeZone</c> is deliberately <b>not</b> read
+    /// below. Copying it straight across would store whatever the caller typed,
+    /// which is the exact thing the resolution exists to prevent.
+    /// </para>
+    /// </param>
     internal static void ApplyTo(
         this AdminSaveRequest request,
         TimesheetMasterSetup setup,
-        TimesheetSetupTimes times)
+        TimesheetSetupTimes times,
+        string timeZone)
     {
         setup.UserId = request.UserId;
         setup.MaxTimeInHrs = times.MaxTimeInHrs;
@@ -72,6 +86,7 @@ internal static class AdminMappings
         setup.EndDay = request.EndDay;
         setup.ExceptionDay = request.ExceptionDay;
         setup.CountryId = request.CountryId;
+        setup.TimeZone = timeZone;
         setup.TimeEntryLockAt = times.TimeEntryLockAt;
     }
 
@@ -97,7 +112,8 @@ internal static class AdminMappings
         TotalLoggedHoursCurrentWeekText = employee.TotalLoggedHoursCurrentWeekText,
         ProgressOnThisWeek = employee.ProgressOnThisWeek,
         ContractTypeId = employee.ContractTypeId,
-        ContractType = employee.ContractType
+        ContractType = employee.ContractType,
+        CountryId = employee.CountryId
     };
 
     internal static IReadOnlyCollection<EmployeeResponse> ToResponses(

@@ -7,10 +7,12 @@ namespace ETimeSheet.Tests.Fixtures;
 /// Owns the disposable SQL Server used by the whole integration suite.
 /// <para>
 /// Testcontainers starts a real SQL Server in Docker on a random free port with
-/// a generated password, applies the EF Core migrations to a database created
-/// for this run, and destroys the container when the run ends. No test ever
-/// touches a developer's local database or any deployed environment, and there
-/// is nothing to clean up by hand.
+/// a generated password, replays the recorded schema in <c>docs/database</c>
+/// into a database created for this run, and destroys the container when the
+/// run ends. There are no migrations - the real schema is changed by hand and
+/// this repository only records it. No test ever touches a developer's local
+/// database or any deployed environment, and there is nothing to clean up by
+/// hand.
 /// </para>
 /// <para>
 /// The container is shared across every integration test class through
@@ -105,8 +107,9 @@ public sealed class SqlServerFixture : IAsyncLifetime
 
     /// <summary>
     /// Retargets the container's connection string at a dedicated database.
-    /// The container hands back a <c>master</c> connection; the migrations
-    /// create the test database on first use.
+    /// The container hands back a <c>master</c> connection;
+    /// <see cref="ETimeSheetApiFactory.CreateSchemaAsync"/> creates the empty
+    /// database and replays the recorded schema into it.
     /// </summary>
     private string BuildConnectionString() =>
         new SqlConnectionStringBuilder(_container!.GetConnectionString())

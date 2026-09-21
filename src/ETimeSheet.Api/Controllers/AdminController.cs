@@ -43,12 +43,26 @@ public class AdminController : ControllerBase
     /// its <c>setupId</c>, so the caller never needs a second call to find out
     /// which happened.
     /// </para>
+    /// <para>
+    /// <b>The time zone is resolved, not accepted.</b> <c>countryId</c> is
+    /// required, and the country's own <c>TimeZone</c> list decides: a country
+    /// with a single zone supplies it and <c>timeZone</c> in the payload is
+    /// ignored, while a country with several - the United States, Australia,
+    /// Canada - requires <c>timeZone</c> and requires it to be one of theirs.
+    /// The saved row therefore never holds a zone its country does not have.
+    /// </para>
     /// </summary>
-    /// <response code="200">The setup as it now stands.</response>
-    /// <response code="400">The payload failed validation.</response>
+    /// <response code="200">The setup as it now stands, including the resolved <c>timeZone</c>.</response>
+    /// <response code="400">
+    /// The payload failed validation; or the country spans several time zones
+    /// and <c>timeZone</c> named none of them; or the country carries no time
+    /// zone at all.
+    /// </response>
+    /// <response code="404">No country has the <c>countryId</c> sent.</response>
     [HttpPost("save-user-timesheet-setup")]
     [ProducesResponseType(typeof(ApiResponse<AdminResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> SaveUserTimesheetSetup(
         [FromBody] AdminSaveRequest request,
         CancellationToken cancellationToken)
@@ -119,6 +133,48 @@ public class AdminController : ControllerBase
         CancellationToken cancellationToken)
     {
         var result = await _adminService.GetEmployeeListByOrganizationIdAsync(orgID, cancellationToken);
+        return Ok(ApiResponse.Ok(result));
+    }
+
+    /// <summary>
+    /// Returns the time zones one country has, as a plain list of IANA ids.
+    /// <para>
+    /// The country itself is not echoed back - the caller passed its id in, so
+    /// it already has it. <c>data</c> is the array of zones and nothing else.
+    /// </para>
+    /// <para>
+    /// <c>dbo.Country.TimeZone</c> holds them comma-separated - one id for most
+    /// countries, several for the United States, Australia, Canada, Brazil and
+    /// the rest that span more than one. This unpacks that column so a setup
+    /// screen can decide whether to ask the user at all: <b>one</b> entry means
+    /// do not ask, because <c>save-user-timesheet-setup</c> will use it whatever
+    /// the payload says; <b>several</b> means the save requires <c>timeZone</c>
+    /// and requires it to be one of these.
+    /// </para>
+    /// <para>
+    /// The list is in the column's own order, so the first entry is the
+    /// country's primary zone and is the sensible one to preselect. A country
+    /// with nothing recorded comes back with an empty list, not a 404 - the
+    /// country exists, it simply has no zones yet.
+    /// </para>
+    /// </summary>
+    /// <param name="countryID">The country whose time zones to list.</param>
+    /// <response code="200">The country's time zones, possibly an empty list.</response>
+    /// <response code="400">No country id, or one that is not greater than zero.</response>
+    /// <response code="404">No country has that id.</response>
+    [HttpGet("get-country-timezones-by-countryid/{countryID:int}")]
+    [ProducesResponseType(typeof(ApiResponse<IReadOnlyList<string>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetCountryTimeZonesByCountryId(
+        // Spelled countryID, matching the route token character for character -
+        // see GetUserTimesheetSetup above for why the casing matters in Swagger
+        // UI. Constrained to :int but not :min(1), so a 0 reaches the service
+        // and is answered with a 400 that says what is wrong.
+        [FromRoute] int countryID,
+        CancellationToken cancellationToken)
+    {
+        var result = await _adminService.GetCountryTimeZonesAsync(countryID, cancellationToken);
         return Ok(ApiResponse.Ok(result));
     }
 

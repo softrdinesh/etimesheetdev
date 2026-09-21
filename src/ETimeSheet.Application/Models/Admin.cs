@@ -35,9 +35,14 @@ namespace ETimeSheet.Application.Models;
 /// user by sending the wrong id.
 /// </para>
 /// <para>
-/// Every field except <see cref="UserId"/> and <see cref="CreatedBy"/> is
-/// optional, mirroring the table: every column on
-/// <c>dbo.TimesheetMasterSetup</c> other than the key is nullable.
+/// <see cref="UserId"/>, <see cref="CountryId"/> and <see cref="CreatedBy"/> are
+/// required; every other field is optional, mirroring the table, where every
+/// column other than the key is nullable.
+/// </para>
+/// <para>
+/// <see cref="CountryId"/> is required even though its column is nullable,
+/// because <see cref="TimeZone"/> is resolved from it: without a country there
+/// is no list of zones to choose from and nothing to check a chosen one against.
 /// </para>
 /// </summary>
 public class AdminSaveRequest
@@ -80,7 +85,46 @@ public class AdminSaveRequest
     /// </summary>
     public int? ExceptionDay { get; set; }
 
+    /// <summary>
+    /// The country this setup belongs to - a <c>dbo.Country.ID</c>.
+    /// <b>Required</b>, despite being declared nullable: every user has a
+    /// country, and it is what <see cref="TimeZone"/> is resolved against.
+    /// <para>
+    /// Nullable in C# only so that omitting it is answered with a 400 naming
+    /// <c>CountryId</c>, rather than an untyped model-binding error or a silent
+    /// zero.
+    /// </para>
+    /// </summary>
     public int? CountryId { get; set; }
+
+    /// <summary>
+    /// The IANA time zone for this setup - <b>one</b> id, such as
+    /// <c>"America/New_York"</c>. Whether it is needed depends on
+    /// <see cref="CountryId"/>:
+    /// <list type="bullet">
+    /// <item>
+    /// <description>
+    /// The country has <b>one</b> time zone - the United Kingdom, Germany, India:
+    /// leave this out. The country's zone is stored, and a value sent here is
+    /// ignored, because there is only one answer the country can have.
+    /// </description>
+    /// </item>
+    /// <item>
+    /// <description>
+    /// The country has <b>several</b> - the United States, Australia, Canada,
+    /// Brazil: this is required, and must be one of them. Anything else is a 400.
+    /// </description>
+    /// </item>
+    /// </list>
+    /// <para>
+    /// The list to choose from is <c>dbo.Country.TimeZone</c>, comma-separated,
+    /// with the country's primary zone first. Matching ignores case and
+    /// surrounding spaces, but what gets stored is the country's own spelling -
+    /// IANA ids are case-sensitive to every library that will later consume one.
+    /// </para>
+    /// </summary>
+    /// <example>America/New_York</example>
+    public string? TimeZone { get; set; }
 
     /// <summary>Time of day after which entry is locked, as <c>hh:mm:ss</c> - for example <c>"18:00:00"</c>.</summary>
     public string? TimeEntryLockAt { get; set; }
@@ -173,6 +217,13 @@ public class AdminResponse
 
     public int? CountryId { get; init; }
 
+    /// <summary>
+    /// The IANA time zone stored for this setup - always exactly one id, and
+    /// always one the country in <see cref="CountryId"/> actually has, because
+    /// the save resolves it rather than taking the payload's word for it.
+    /// </summary>
+    public string? TimeZone { get; init; }
+
     public TimeSpan? TimeEntryLockAt { get; init; }
 
     // ---- audit ----
@@ -248,6 +299,13 @@ public class EmployeeResponse
 
     /// <summary>The contract spelled out - <c>"Full Time"</c> or <c>"Part Time"</c>.</summary>
     public string? ContractType { get; init; }
+
+    /// <summary>
+    /// The employee's country, from <c>dbo.Signup.CountryID</c>. Independent of
+    /// whether they have a timesheet setup - null here means the signup names no
+    /// country, not that the employee is unconfigured.
+    /// </summary>
+    public int? CountryId { get; init; }
 }
 
 /// <summary>
@@ -316,7 +374,7 @@ public class EmployeeListResponse
 /// <para>
 /// This is a keyless type: it is not a table, it has no identity and it is never
 /// tracked or written. It exists solely to give the procedure's SELECT list a
-/// shape EF Core can materialise, which is why it carries exactly the thirteen
+/// shape EF Core can materialise, which is why it carries exactly the fourteen
 /// columns the procedure returns - no more.
 /// </para>
 /// <para>
@@ -401,6 +459,23 @@ public class EmployeeListDetail
     /// setup.
     /// </summary>
     public string? ContractType { get; set; }
+
+    /// <summary>
+    /// The employee's country - <b><c>dbo.Signup.CountryID</c></b>, added to
+    /// the procedure on 2026-09-21.
+    /// <para>
+    /// Unlike every other nullable column on this row, a null here does
+    /// <b>not</b> mean "no timesheet setup": it comes from the signup, which is
+    /// the side of the LEFT JOIN that always exists. Null means the signup
+    /// itself names no country.
+    /// </para>
+    /// <para>
+    /// Note whose column it is. <c>dbo.TimesheetMasterSetup</c> has a
+    /// <c>CountryID</c> of its own - the one the Admin save writes and resolves
+    /// the time zone against - and the two can hold different values.
+    /// </para>
+    /// </summary>
+    public int? CountryId { get; set; }
 }
 
 /// <summary>

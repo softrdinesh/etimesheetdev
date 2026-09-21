@@ -50,6 +50,12 @@ public class TimesheetMasterSetupConfiguration : IEntityTypeConfiguration<Timesh
         // Still the database's one-word, lower-case-d spelling.
         builder.Property(setup => setup.ExceptionDay).HasColumnName("Exceptionday");
 
+        // One IANA zone id, never the comma-separated list that
+        // dbo.Country.TimeZone holds - see the entity.
+        builder.Property(setup => setup.TimeZone)
+            .HasColumnName("TimeZone")
+            .HasMaxLength(100);
+
         builder.Property(setup => setup.TimeEntryLockAt)
             .HasColumnName("TimeEntryLockAt")
             .HasColumnType("time(7)");

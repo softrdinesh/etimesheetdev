@@ -4,6 +4,8 @@
     Revised:  2026-09-17 - StartDay, EndDay and Exceptionday changed from
               char(2)/char(2)/char(3) to int, per the column list supplied by the
               database owner. They now hold dbo.DayMaster.DayID values.
+    Revised:  2026-09-20 - TimeZone nvarchar(100) NULL added by the database
+              owner. Holds ONE IANA zone id for this setup.
 
     Per-user timesheet limits and working-week settings.
 
@@ -21,13 +23,19 @@
         a reference by convention, so a row can legally hold an id the lookup
         does not contain. The API treats an unknown id as "no week configured"
         rather than failing the request.
+      - TimeZone holds exactly ONE IANA zone id - "Europe/London". It is NOT
+        the comma-separated list that dbo.Country.TimeZone holds; it is one
+        entry chosen from that list. The API never takes it on trust: the save
+        reads the country's list, uses it outright when the country has a single
+        zone, and otherwise requires the payload to name one of them.
       - Soft delete is IsDelete, a NULLABLE bit. dbo.TimeLog spells the same idea
         IsDeleted and types it int NOT NULL. The two tables genuinely differ, so
         this entity does not share TimeLog's AuditableEntity base.
       - "Deletedby" is spelled with a lower-case b.
 
     CONFIRMED 2026-09-15, by querying the table through the API:
-      - The table has exactly the 18 columns below. There is NO
+      - The table had exactly the 18 columns confirmed that day; TimeZone,
+        added by the database owner on 2026-09-20, makes 19. There is NO
         CanUserLoggedPreDayTime column: selecting it returns
         "Invalid column name 'CanUserLoggedPreDayTime'".
         spc_GetTimesheetMasterSetupByUserID nonetheless RETURNS a column of that
@@ -74,6 +82,7 @@ CREATE TABLE dbo.TimesheetMasterSetup
     Deletedby        int        NULL,
     Exceptionday     int        NULL,
     TimeEntryLockAt  time(7)    NULL,
+    TimeZone         nvarchar(100) NULL,
     CONSTRAINT PK_TimesheetMasterSetup PRIMARY KEY CLUSTERED (SetupID)
 );
 GO

@@ -54,11 +54,33 @@ public class AdminSaveRequestValidator : AbstractValidator<AdminSaveRequest>
             .OverridePropertyName(nameof(AdminSaveRequest.ContractType))
             .When(request => request.ContractType.HasValue);
 
+        // Required, unlike the two above, even though the column is nullable:
+        // the setup's TimeZone is resolved from the country, so a save without
+        // one has nothing to resolve against and nothing to check a chosen zone
+        // against. Two rules rather than one so the caller is told which of
+        // "you left it out" and "you sent 0" happened.
+        RuleFor(request => request.CountryId)
+            .NotNull()
+            .WithMessage("CountryId is required: it is what determines the setup's time zone.");
+
         RuleFor(request => request.CountryId!.Value)
             .GreaterThan(0)
-            .WithMessage("CountryId must be greater than 0 when it is supplied.")
+            .WithMessage("CountryId must be greater than 0.")
             .OverridePropertyName(nameof(AdminSaveRequest.CountryId))
             .When(request => request.CountryId.HasValue);
+
+        // Shape only. Whether a time zone is needed at all, and whether this one
+        // is a zone the country actually has, are questions for dbo.Country -
+        // and a validator may not read the database (CLAUDE.md §12). AdminService
+        // answers both. All that can be said here is that a value which was sent
+        // has to be a real value and has to fit the nvarchar(100) column.
+        RuleFor(request => request.TimeZone!)
+            .NotEmpty()
+            .WithMessage("TimeZone must not be blank when it is supplied; leave it out instead.")
+            .MaximumLength(100)
+            .WithMessage("TimeZone must be 100 characters or fewer.")
+            .OverridePropertyName(nameof(AdminSaveRequest.TimeZone))
+            .When(request => request.TimeZone is not null);
 
         // MaxTimeInHrs, MaxTimInMins and TimeEntryLockAt are not validated here.
         // See the class summary: AdminService reads all three through TimeOfDay.

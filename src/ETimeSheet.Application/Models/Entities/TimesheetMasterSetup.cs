@@ -60,6 +60,24 @@ public class TimesheetMasterSetup
 
     public int? CountryId { get; set; }
 
+    /// <summary>
+    /// The IANA time zone this setup's times are read in - <b>exactly one id</b>,
+    /// such as <c>"Europe/London"</c>. <c>nvarchar(100)</c>.
+    /// <para>
+    /// Derived from <see cref="CountryId"/> rather than taken on trust: a
+    /// country with one zone supplies it, and a country with several has the
+    /// caller choose one of them. <c>AdminService</c> is what decides, and
+    /// <c>dbo.Country.TimeZone</c> is the list it chooses from - so a value here
+    /// is always a zone the country actually has.
+    /// </para>
+    /// <para>
+    /// Not a <see cref="TimeZoneInfo"/> and not an offset: an id, because an
+    /// offset is a property of a moment and would be wrong for half the year
+    /// wherever daylight saving applies.
+    /// </para>
+    /// </summary>
+    public string? TimeZone { get; set; }
+
     /// <summary>Time of day after which entry is locked. <c>time(7)</c>.</summary>
     public TimeSpan? TimeEntryLockAt { get; set; }
 

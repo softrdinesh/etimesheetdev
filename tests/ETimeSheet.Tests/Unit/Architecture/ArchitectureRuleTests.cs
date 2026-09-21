@@ -24,6 +24,7 @@ public class ArchitectureRuleTests
     [InlineData(typeof(TimeLogRepository), typeof(ITimeLogRepository))]
     [InlineData(typeof(AdminService), typeof(IAdminService))]
     [InlineData(typeof(AdminRepository), typeof(IAdminRepository))]
+    [InlineData(typeof(CountryRepository), typeof(ICountryRepository))]
     public void EveryPublicMethodIsDeclaredOnTheInterface(
         Type implementationType,
         Type interfaceType)
@@ -141,6 +142,121 @@ public class ArchitectureRuleTests
                     $"{controllerType.Name} injects the DbContext.");
             }
         }
+    }
+
+    /// <summary>
+    /// The database is database-first: its schema is changed by hand, by its
+    /// owner, and this repository only records what they changed in
+    /// <c>docs/database</c>. Nothing here may create, alter or drop anything.
+    /// <para>
+    /// The sole exception is
+    /// <see cref="Fixtures.ETimeSheetApiFactory.CreateSchemaAsync"/>, which
+    /// replays the recorded files into the throwaway Testcontainers SQL Server
+    /// and is itself fenced by <c>AssertUsingThrowawayContainer</c>. This test
+    /// is what stops that exception from widening: the day a second file starts
+    /// issuing DDL, the build fails here rather than the day someone runs it
+    /// against PPMUAT.
+    /// </para>
+    /// <para>
+    /// A source scan, not reflection, because what matters is the SQL a file
+    /// contains - which no amount of type inspection can see.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void NothingButTheTestContainerFixtureExecutesSchema()
+    {
+        var repositoryRoot = FindRepositoryRoot();
+
+        var offenders = new List<string>();
+
+        foreach (var file in CSharpSourceFiles(repositoryRoot))
+        {
+            var relativePath = Path.GetRelativePath(repositoryRoot, file);
+
+            if (MayDescribeSchemaOperations.Contains(relativePath))
+            {
+                continue;
+            }
+
+            var text = File.ReadAllText(file);
+
+            var found = SchemaOperations
+                .Where(operation => text.Contains(operation, StringComparison.OrdinalIgnoreCase))
+                .ToArray();
+
+            if (found.Length > 0)
+            {
+                offenders.Add($"{relativePath} ({string.Join(", ", found)})");
+            }
+        }
+
+        Assert.True(
+            offenders.Count == 0,
+            "Schema is changed by hand in SQL Server and only recorded in docs/database - see " +
+            "CLAUDE.md section 8. These files create, alter or drop it: " +
+            $"{string.Join("; ", offenders)}. The only code permitted to do that is " +
+            "ETimeSheetApiFactory.CreateSchemaAsync, against the throwaway test container.");
+    }
+
+    /// <summary>What "executes schema" looks like in C#, whether in EF Core or in SQL.</summary>
+    private static readonly IReadOnlyList<string> SchemaOperations = new[]
+    {
+        "CREATE TABLE",
+        "ALTER TABLE",
+        "DROP TABLE",
+        "CREATE OR ALTER",
+        "EnsureCreated",
+        "EnsureDeleted",
+        ".Migrate(",
+        "MigrateAsync",
+        "IRelationalDatabaseCreator"
+    };
+
+    /// <summary>
+    /// The two files that may contain those strings: the fixture, which is the
+    /// documented exception, and this one, which cannot forbid a string without
+    /// naming it.
+    /// </summary>
+    private static readonly IReadOnlySet<string> MayDescribeSchemaOperations =
+        new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            Path.Combine("tests", "ETimeSheet.Tests", "Fixtures", "ETimeSheetApiFactory.cs"),
+            Path.Combine("tests", "ETimeSheet.Tests", "Unit", "Architecture", "ArchitectureRuleTests.cs")
+        };
+
+    /// <summary>
+    /// Every hand-written <c>.cs</c> file in the solution. Generated output is
+    /// skipped: <c>obj</c> holds assembly attributes nobody wrote, and <c>bin</c>
+    /// holds copies that would be reported twice.
+    /// </summary>
+    private static IEnumerable<string> CSharpSourceFiles(string repositoryRoot) =>
+        new[] { "src", "tests" }
+            .Select(folder => Path.Combine(repositoryRoot, folder))
+            .Where(Directory.Exists)
+            .SelectMany(folder => Directory.EnumerateFiles(folder, "*.cs", SearchOption.AllDirectories))
+            .Where(file => !file.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}",
+                                          StringComparison.Ordinal))
+            .Where(file => !file.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}",
+                                          StringComparison.Ordinal));
+
+    /// <summary>
+    /// Walks up from the test binaries to the folder holding the solution file.
+    /// </summary>
+    private static string FindRepositoryRoot()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+
+        while (directory is not null && !File.Exists(Path.Combine(directory.FullName, "ETimeSheet.sln")))
+        {
+            directory = directory.Parent;
+        }
+
+        Assert.True(
+            directory is not null,
+            $"Could not find ETimeSheet.sln above '{AppContext.BaseDirectory}'. This test reads the " +
+            "solution's source files, so it has to run from inside the repository.");
+
+        return directory!.FullName;
     }
 
     private static bool TakesDbContextDependency(Type type) =>

@@ -110,13 +110,26 @@ public class ETimeSheetApiFactory : WebApplicationFactory<Program>
     }
 
     /// <summary>
-    /// Creates the schema by executing the checked-in <c>Schema/Schema.sql</c>.
+    /// Builds the container's schema by replaying the recorded SQL in
+    /// <c>docs/database</c>.
     /// <para>
-    /// This project is database-first, so there are no migrations to apply. The
-    /// script is the repository's copy of the real schema, which means the suite
-    /// still runs against genuine SQL Server DDL - real column types, real
-    /// lengths, real constraints - rather than a model-shaped approximation
-    /// produced by <c>EnsureCreated</c>.
+    /// This project is database-first: the real schema is changed by hand, by
+    /// its owner, and this repository only records it. Nothing in the
+    /// application - and nothing else in this test suite - creates, alters or
+    /// drops schema anywhere. <b>This method is the sole exception</b>, and it
+    /// is fenced in three ways: it runs only against the throwaway container
+    /// (<see cref="AssertUsingThrowawayContainer"/>), the container is
+    /// destroyed when the run ends, and
+    /// <c>ArchitectureRuleTests.NothingButTheTestContainerFixtureExecutesSchema</c>
+    /// fails the build if DDL appears anywhere else.
+    /// </para>
+    /// <para>
+    /// Replaying the record rather than calling <c>EnsureCreated</c> is the
+    /// point: the suite runs against the same DDL production runs - real column
+    /// types, real lengths, real constraints - so a drift between the record
+    /// and the EF mappings fails a test here instead of returning
+    /// <c>Invalid column name</c> at runtime. <c>EnsureCreated</c> would build
+    /// the container from the EF model, which can only ever agree with itself.
     /// </para>
     /// </summary>
     public async Task CreateSchemaAsync()
@@ -139,13 +152,62 @@ public class ETimeSheetApiFactory : WebApplicationFactory<Program>
 
         foreach (var batch in ReadSchemaBatches())
         {
-            await dbContext.Database.ExecuteSqlRawAsync(batch);
+            await ExecuteScriptAsync(dbContext, batch);
         }
+    }
+
+    /// <summary>
+    /// Sends one batch to SQL Server exactly as the file writes it.
+    /// <para>
+    /// Deliberately not <c>ExecuteSqlRawAsync</c>. "Raw" there means "not a
+    /// LINQ query", not "not a format string": EF Core puts the text through
+    /// <c>string.Format</c> before sending it, and it does so even when no
+    /// parameters are supplied. One brace anywhere in the script is therefore
+    /// enough to fail the entire run with <c>System.FormatException: Input
+    /// string was not in a correct format.</c> before a byte reaches the
+    /// server - and the recorded schema is hand-written SQL whose header
+    /// comments document routes such as
+    /// <c>get-all-employees-by-orgid/{orgID}</c>.
+    /// </para>
+    /// <para>
+    /// These batches are DDL with nothing in them to parameterise; what they
+    /// need is to be executed verbatim. A plain
+    /// <see cref="System.Data.Common.DbCommand"/> does that, and
+    /// <see cref="CurrentWeekStartAsync"/> already takes the same route.
+    /// </para>
+    /// </summary>
+    private static async Task ExecuteScriptAsync(Context dbContext, string sql)
+    {
+        var connection = dbContext.Database.GetDbConnection();
+
+        if (connection.State != System.Data.ConnectionState.Open)
+        {
+            await connection.OpenAsync();
+        }
+
+        await using var command = connection.CreateCommand();
+
+        command.CommandText = sql;
+
+        // Honours Database:CommandTimeoutSeconds, which the EF path would have
+        // applied for us.
+        if (dbContext.Database.GetCommandTimeout() is { } timeoutSeconds)
+        {
+            command.CommandTimeout = timeoutSeconds;
+        }
+
+        await command.ExecuteNonQueryAsync();
     }
 
     /// <summary>
     /// Reads the recorded schema from <c>docs/database</c> and splits each file
     /// on its <c>GO</c> separators.
+    /// <para>
+    /// <c>schema</c> and <c>procedures</c> only. <c>docs/database/data</c> is
+    /// deliberately left out: those are one-off data scripts the database owner
+    /// runs by hand against a real database, not part of an empty container's
+    /// schema.
+    /// </para>
     /// <para>
     /// Tables first, then procedures, because a procedure will not compile
     /// against a table that does not exist yet. <c>GO</c> is a batch separator

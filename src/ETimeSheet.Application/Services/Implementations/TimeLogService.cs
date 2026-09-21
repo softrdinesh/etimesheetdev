@@ -20,6 +20,13 @@ namespace ETimeSheet.Application.Services.Implementations;
 /// setup imposes on logging time. It reaches the database only through
 /// repository interfaces and never sees <c>Context</c>.
 /// </para>
+/// <para>
+/// <b>Every rule about a time of day is judged on the employee's clock</b>, read
+/// from the time zone their setup names - see <see cref="EmployeeClock"/>. The
+/// injected <c>IDateTimeProvider</c> supplies the instant; the zone decides what
+/// that instant reads as, and "today", "the future" and the day's cut-off all
+/// follow from it.
+/// </para>
 /// </summary>
 public class TimeLogService : ITimeLogService
 {
@@ -207,8 +214,14 @@ public class TimeLogService : ITimeLogService
                 $"User '{request.UserId}' has no timesheet setup, so there are no limits to check this " +
                 "entry against. An administrator has to create one before they can log time.");
 
-        await RequireDateIsOpenForLoggingAsync(request.UserId, loggedOn, setup, cancellationToken);
+        // Every rule below that asks "what time is it?" reads this clock and not
+        // the server's. The employee's setup names their time zone, and a
+        // cut-off written as 19:00 means seven in the evening where they are.
+        var clock = ClockFor(setup, request.UserId);
+
+        await RequireDateIsOpenForLoggingAsync(request.UserId, loggedOn, setup, clock, cancellationToken);
         RequireWorkingDay(loggedOn, setup);
+        RequireEntryIsNotPastTheCutOff(startTime, setup, clock);
 
         var existing = await _timeLogRepository.GetForUserOnDateAsync(
             request.UserId,
@@ -385,9 +398,14 @@ public class TimeLogService : ITimeLogService
         int userId,
         DateTime loggedOn,
         TimesheetMasterSetup setup,
+        EmployeeClock clock,
         CancellationToken cancellationToken)
     {
-        var today = _dateTimeProvider.UtcToday;
+        // The employee's today, not the server's. They are different dates for
+        // part of every day: at 09:00 in Auckland it is still yesterday in UTC,
+        // and judging "the future" on the server's date would reject an
+        // employee logging the morning they are actually living through.
+        var today = clock.Today;
 
         if (loggedOn > today)
         {
@@ -411,12 +429,100 @@ public class TimeLogService : ITimeLogService
                 $"{loggedOn:yyyy-MM-dd} cannot be used.");
         }
 
-        if (setup.TimeEntryLockAt is { } lockedAt && _dateTimeProvider.UtcNow.TimeOfDay > lockedAt)
+        if (setup.TimeEntryLockAt is { } lockedAt && clock.TimeOfDay > lockedAt)
         {
             throw new BusinessException(
-                $"The cut-off for logging time against an earlier day is {lockedAt:hh\\:mm}, " +
-                $"and it has passed, so {loggedOn:yyyy-MM-dd} is now locked.");
+                $"The cut-off for logging time against an earlier day is {lockedAt:hh\\:mm} " +
+                $"{clock.ZoneName} time, and it is now {clock.Now:HH:mm} there, so " +
+                $"{loggedOn:yyyy-MM-dd} is locked.");
         }
+    }
+
+    /// <summary>
+    /// Rejects an entry that begins before the day's cut-off once that cut-off
+    /// has passed on the employee's own clock.
+    /// <para>
+    /// <c>TimeEntryLockAt</c> is the moment the day's earlier hours stop being
+    /// editable. With a cut-off of 21:00: an employee logging at noon, at 17:00
+    /// or at 19:00 is fine, because the cut-off has not arrived. The same
+    /// employee at 22:00 may still log the evening they are working - an entry
+    /// starting at 22:00 is <b>after</b> the cut-off - but may no longer add the
+    /// 19:00 block they forgot. That one needs an administrator.
+    /// </para>
+    /// <para>
+    /// <b>Both halves matter.</b> Blocking on the clock alone would stop a late
+    /// shift from recording the hours it is working, which is not what a cut-off
+    /// is for; blocking on the entry's time alone would refuse a 19:00 block at
+    /// nine in the morning, when the day is still wide open.
+    /// </para>
+    /// <para>
+    /// The entry's <b>start</b> is what places it: a block running 20:00 to
+    /// 23:00 began before the cut-off and is refused with the rest of the
+    /// evening. Splitting it at the cut-off would be inventing an entry the
+    /// employee did not send.
+    /// </para>
+    /// <para>
+    /// No cut-off configured means no deadline at all - the column is nullable
+    /// and most rows leave it null.
+    /// </para>
+    /// </summary>
+    private static void RequireEntryIsNotPastTheCutOff(
+        TimeSpan startTime,
+        TimesheetMasterSetup setup,
+        EmployeeClock clock)
+    {
+        if (setup.TimeEntryLockAt is not { } lockedAt)
+        {
+            return;
+        }
+
+        // Still before the cut-off: the whole day is open, whatever the entry
+        // covers. Exactly on it counts as open - the deadline is the last
+        // moment that works, not the first that does not.
+        if (clock.TimeOfDay <= lockedAt)
+        {
+            return;
+        }
+
+        // The cut-off has passed, but this entry belongs to the part of the day
+        // that comes after it - the hours the employee is working right now.
+        if (startTime >= lockedAt)
+        {
+            return;
+        }
+
+        throw new BusinessException(
+            $"It is {clock.Now:HH:mm} {clock.ZoneName} time, past the {lockedAt:hh\\:mm} cut-off, " +
+            $"so time starting before {lockedAt:hh\\:mm} can no longer be added or changed. " +
+            "Ask an administrator to record it for you.");
+    }
+
+    /// <summary>
+    /// Builds the employee's clock from the time zone on their setup.
+    /// <para>
+    /// An unusable zone - none recorded, or one this system does not recognise -
+    /// falls back to UTC and is logged rather than refused. The zone is data an
+    /// administrator fills in, and an employee should not lose the ability to
+    /// log time because somebody mistyped it; the warning is what gets it
+    /// corrected. Rows written before <c>TimeZone</c> existed are the ordinary
+    /// case of this.
+    /// </para>
+    /// </summary>
+    private EmployeeClock ClockFor(TimesheetMasterSetup setup, int userId)
+    {
+        var zone = EmployeeClock.FindZone(setup.TimeZone);
+
+        if (zone is null && !string.IsNullOrWhiteSpace(setup.TimeZone))
+        {
+            _logger.LogWarning(
+                "Timesheet setup {SetupId} for user {UserId} names time zone {TimeZone}, which this " +
+                "system does not recognise. Time-of-day rules for this entry fall back to UTC.",
+                setup.SetupId,
+                userId,
+                setup.TimeZone);
+        }
+
+        return EmployeeClock.At(_dateTimeProvider.UtcNow, zone);
     }
 
     /// <summary>

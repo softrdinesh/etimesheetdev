@@ -1,6 +1,8 @@
 /*
     Procedure: dbo.spc_GetEmployeeListByPOrgID
     Recorded: 2026-09-19 (body as handed over by the database owner)
+    Revised:  2026-09-21 - s.CountryID added as the last column of the SELECT.
+              Nothing else in the body changed.
 
     Every employee in one organisation, with their contracted time per week,
     what they have logged in the CURRENT Monday-Sunday week, and how far through
@@ -50,6 +52,11 @@
         MaxTiminmins but ignores DATEPART(HOUR, ...) of it. That is recorded as
         handed over. If MaxTiminmins ever holds an hour component, it is
         dropped here.
+
+      - CountryID is dbo.Signup's, so it is present even for an employee with
+        no timesheet setup at all - unlike every other nullable column here,
+        which is null precisely because the LEFT JOIN found no setup. A null
+        CountryID means the signup itself has no country.
 
       - ProgressOnThisWeek is clamped to 100 by the procedure, so a client can
         draw a bar straight from it. Its CASE mixes int literals with a
@@ -181,7 +188,12 @@ BEGIN
         CASE 
             WHEN tms.ContractType = 1 THEN 'Full Time'
             WHEN tms.ContractType = 2 THEN 'Part Time'
-        END AS ContractType
+        END AS ContractType,
+
+        -- Added 2026-09-21. The employee's own country, from dbo.Signup -
+        -- NOT dbo.TimesheetMasterSetup.CountryID, which the Admin save writes
+        -- and which the time zone is resolved against. The two can disagree.
+        s.CountryID
 
     FROM Signup s
 

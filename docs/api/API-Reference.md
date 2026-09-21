@@ -3,7 +3,7 @@
 Every endpoint the API exposes today, with its purpose, input payload, success
 response and failure responses — each with a worked example.
 
-Generated from the code on branch `develop` (2026-09-17). If you change a
+Generated from the code on branch `develop` (2026-09-21). If you change a
 controller, DTO or validator, change this file with it.
 
 ---
@@ -25,6 +25,7 @@ controller, DTO or validator, change this file with it.
   - [GET /api/v1/Admin/get-user-timesheet-setup/{userID}](#5-get-apiv1adminget-user-timesheet-setupuserid)
   - [POST /api/v1/Admin/delete-timesheet-setup](#6-post-apiv1admindelete-timesheet-setup)
   - [GET /api/v1/Admin/get-all-employees-by-orgid/{orgID}](#7-get-apiv1adminget-all-employees-by-orgidorgid)
+  - [GET /api/v1/Admin/get-country-timezones-by-countryid/{countryID}](#8-get-apiv1adminget-country-timezones-by-countryidcountryid)
 - [Health endpoints](#health-endpoints)
 - [Enumerations](#enumerations)
 - [Endpoint summary table](#endpoint-summary-table)
@@ -334,10 +335,10 @@ empty `details` array and zeroed totals:
 ### 2. GET `/api/v1/TimeLog/get-timesheet-setup-by-user/{userId}`
 
 **Purpose** — Return the timesheet setup that governs one user: their maximum
-loggable time, contract type, the bounds of their timesheet week, and whether
-they may still back-date an entry.
+loggable time, contract type, the bounds of their timesheet week, whether they
+may still back-date an entry, and the time zone their day is measured in.
 
-This is the **timesheet-screen** view — a seven-column projection from
+This is the **timesheet-screen** view — a nine-column projection from
 `spc_GetTimesheetMasterSetupByUserID`. It is deliberately *not* the same shape as
 the administrative view returned by `/api/v1/Admin/get-user-timesheet-setup/{userID}`.
 Two audiences, two contracts.
@@ -368,7 +369,11 @@ GET /api/v1/TimeLog/get-timesheet-setup-by-user/101
 | `contractType` | int? | Contract type id |
 | `startDay` | int? | First day of the timesheet week — a `dbo.DayMaster.DayID`, 1 = Monday … 7 = Sunday |
 | `endDay` | int? | Last day of the timesheet week — a `dbo.DayMaster.DayID` |
-| `canUserLoggedPreDayTime` | bool? | Whether the user may log against an earlier day. Held as 0/1 in the database, surfaced as `true`/`false` |
+| `canUserLoggedPreDayTime` | bool? | Whether the user may log against an earlier day. Held as 0/1 in the database, surfaced as `true`/`false`. **Computed on the database server's clock** — see the warning below |
+| `countryId` | int? | The user's country, from **`dbo.Signup.CountryID`** — the person's country, not the setup row's own `CountryID` |
+| `timeZone` | string? | The IANA zone the user's timesheet day is measured in — one id, e.g. `"Asia/Kolkata"`. `null` for a setup saved before time zones existed, in which case the API falls back to UTC |
+
+> `countryId` and `timeZone` were added to the procedure on **2026-09-21**.
 
 #### Example response
 
@@ -383,17 +388,35 @@ GET /api/v1/TimeLog/get-timesheet-setup-by-user/101
     "contractType": 1,
     "startDay": 1,
     "endDay": 5,
-    "canUserLoggedPreDayTime": true
+    "canUserLoggedPreDayTime": true,
+    "countryId": 91,
+    "timeZone": "Asia/Kolkata"
   },
   "errors": []
 }
 ```
 
+> ### ⚠ Two things about `canUserLoggedPreDayTime`
+>
+> The procedure derives it as
+> `CASE WHEN CAST(GETDATE() AS TIME) <= tms.TimeEntryLockAt THEN 1 ELSE 0 END`,
+> and that has two consequences a client should know:
+>
+> 1. **It is measured on the database server's clock**, not the employee's. It
+>    answers "has the cut-off passed *where the server is*". The write path does
+>    **not** rely on it for that: `save-employee-time-log` judges
+>    `timeEntryLockAt` itself in the employee's own zone. This flag is used only
+>    for the separate question of whether back-dating is permitted at all.
+> 2. **A `null` `TimeEntryLockAt` yields `false`, not `true`** — comparing
+>    against `NULL` is `UNKNOWN`, so the `CASE` falls to `ELSE 0`. A setup that
+>    has never had a cut-off configured therefore reports "may not back-date",
+>    and the write path refuses back-dated entries for that user.
+
 #### Error responses
 
 | Status | Cause |
 |---|---|
-| **404** | The user has no timesheet setup row |
+| **404** | The user has no timesheet setup row, **or no `dbo.Signup` row** — the procedure inner-joins the two, so either absence returns no rows |
 | **404** | `userId` below 1 — no route matches |
 | **500** | Unhandled defect |
 
@@ -624,7 +647,8 @@ A time failure arrives on its own, from the service:
 | No setup for the user | `User '4242' has no timesheet setup, so there are no limits to check this entry against. An administrator has to create one before they can log time.` |
 | Future date | `Time cannot be logged against 2026-12-01 because it has not happened yet.` |
 | Back-dating not permitted | `User '101' is not allowed to log time against an earlier day, so 2026-09-10 cannot be used.` |
-| Back-dating cut-off passed | `The cut-off for logging time against an earlier day is 18:00, and it has passed, so 2026-09-15 is now locked.` |
+| Back-dating cut-off passed | `The cut-off for logging time against an earlier day is 18:00 Asia/Kolkata time, and it is now 19:42 there, so 2026-09-15 is locked.` |
+| Entry starts before a cut-off that has passed | `It is 22:10 Asia/Kolkata time, past the 21:00 cut-off, so time starting before 21:00 can no longer be added or changed. Ask an administrator to record it for you.` |
 | Non-working day | `2026-09-13 is a Sunday, which is not a working day in this user's timesheet week (MO to FR).` |
 | Over the daily maximum | `Logging 3.50 hours would bring 2026-09-16 to 9.50 hours, above the 8.00 hour daily maximum in this user's timesheet setup (6.00 hours are already logged).` |
 
@@ -659,16 +683,49 @@ which is how a day is normally filled in.
 
 **500** — unhandled defect.
 
+#### The `timeEntryLockAt` cut-off, and the employee's time zone
+
+**Every rule about a time of day is judged on the employee's own clock**, read
+from the `TimeZone` on their timesheet setup — never on the server's. A cut-off
+written as `21:00` means nine in the evening *where the employee is sitting*;
+for a team in Kolkata that moment is 15:30 UTC, and comparing it against the
+server's clock would lock them out five and a half hours early.
+
+Once that moment has passed, the employee can **still log the hours they are
+working** — what they can no longer do is add a block that *started* before it:
+
+| Local now | Entry starts | Result |
+|---|---|---|
+| 12:00 | 10:00 | logged — the cut-off has not arrived |
+| 19:00 | 17:00 | logged |
+| 21:00 exactly | 19:00 | logged — the deadline is the last moment that works, not the first that does not |
+| 22:00 | 22:00 | logged — the entry is *after* the cut-off |
+| 22:00 | 19:00 | **400** — the forgotten evening block needs an administrator |
+
+An entry's **start** is what places it, so a block running 20:00–23:00 began
+before a 21:00 cut-off and is refused with the rest of the evening; it is not
+split at the cut-off. A setup with no `timeEntryLockAt` has no deadline at all.
+
+> **A missing or unrecognised `timeZone` falls back to UTC** and is logged as a
+> warning rather than refusing the entry — matching how the rest of this API
+> treats a half-filled setup. Every setup saved before the column existed is
+> this case, so those users behave exactly as they did before.
+
+"Today" and "the future" are read on the same clock. At 09:00 in Auckland it is
+still yesterday in UTC, so judging those on the server's date would reject an
+employee logging the morning they are actually living through.
+
 #### Rule evaluation order
 
 Rules are applied in this order, and the first failure answers:
 
 1. Payload shape (FluentValidation) → **400**
 2. User has a timesheet setup → **400**
-3. Date is open for logging — not in the future; if back-dated, `canUserLoggedPreDayTime` is true and `timeEntryLockAt` has not passed → **400**
+3. Date is open for logging — not in the future; if back-dated, `canUserLoggedPreDayTime` is true and `timeEntryLockAt` has not passed **in the employee's zone** → **400**
 4. Date falls inside the timesheet week, or is the exception day → **400**
-5. No overlap with existing entries that day → **409**
-6. Day stays within the daily maximum → **400**
+5. The entry does not start before a `timeEntryLockAt` that has already passed **in the employee's zone** → **400**
+6. No overlap with existing entries that day → **409**
+7. Day stays within the daily maximum → **400**
 
 > A week that is not configured, or configured with codes the application does
 > not recognise, imposes **no** constraint — blocking an employee over a
@@ -713,8 +770,12 @@ sending the wrong id.
 
 #### Request body — `AdminSaveRequest`
 
-Every field except `userId` and `createdBy` is optional, mirroring the table —
-every column other than the key is nullable.
+`userId`, `countryId` and `createdBy` are required; every other field is
+optional, mirroring the table — every column other than the key is nullable.
+
+`countryId` is required **even though its column is nullable**, because
+`timeZone` is resolved from it: without a country there is no list of zones to
+choose from, and nothing to check a chosen one against.
 
 | Field | Type | Required | Rules |
 |---|---|---|---|
@@ -726,8 +787,9 @@ every column other than the key is nullable.
 | `startDay` | int? | no | a `dbo.DayMaster.DayID`, `1`–`7` (1 = Monday … 7 = Sunday). Must be supplied together with `endDay` |
 | `endDay` | int? | no | a `dbo.DayMaster.DayID`, `1`–`7`. Must be supplied together with `startDay` |
 | `exceptionDay` | int? | no | a `dbo.DayMaster.DayID`, `1`–`7`. A day worked *in addition* to the normal week |
-| `countryId` | int? | no | `> 0` when supplied |
-| `timeEntryLockAt` | string? | no | `hh:mm:ss`, `00:00:00`–`23:59:59`. Time of day after which back-dated entry is locked |
+| `countryId` | int? | **yes** | `> 0`. A `dbo.Country.ID` — it is what the setup's time zone is resolved against |
+| `timeZone` | string? | *depends* | One IANA zone id, e.g. `"America/New_York"`. Required **only** when the country spans several zones, and then it must be one of them. See below |
+| `timeEntryLockAt` | string? | no | `hh:mm:ss`, `00:00:00`–`23:59:59`. Time of day after which entry is locked — measured in the setup's `timeZone` |
 | `createdBy` | int | yes | `> 0`. Lands in `CreatedBy` on insert, `UpdatedBy` on update/revive. **Temporary** |
 
 > `canUserLoggedPreDayTime` is deliberately **absent** from this payload — it is
@@ -738,6 +800,35 @@ every column other than the key is nullable.
 > 2026-09-17. They are `dbo.DayMaster` ids now, and are validated against the
 > exact range `1`–`7` rather than for shape, because the lookup fixes the
 > vocabulary at seven rows.
+
+#### How `timeZone` is decided
+
+**The country decides, not the caller.** `dbo.Country.TimeZone` lists a
+country's IANA zones, comma-separated, and the *count* of that list is the whole
+rule:
+
+| The country has | What to send | What gets stored |
+|---|---|---|
+| **One** zone — United Kingdom, Germany, India | Nothing. `timeZone` is not consulted, even if you send one | The country's zone |
+| **Several** — United States, Australia, Canada, Brazil | `timeZone`, and it must be one of theirs | The zone you named |
+
+Call [endpoint 8](#8-get-apiv1adminget-country-timezones-by-countryidcountryid)
+first to find out which case you are in and what the options are; it reads the
+same column through the same splitter, so it can never offer a value this
+endpoint will refuse.
+
+No default is picked for a multi-zone country. "The first one listed" would
+silently put a New York employee's day on a Los Angeles clock.
+
+> Matching **ignores case and surrounding spaces** — `"europe/london"` is
+> accepted — but what gets stored is the country's own spelling, because IANA
+> ids are case-sensitive to every library that will later look one up. The
+> `timeZone` in the response is therefore the canonical form, which may differ
+> from what you sent.
+
+> A saved row can never hold a zone its country does not have. That is what
+> makes the cut-off on
+> [endpoint 3](#3-post-apiv1timelogsave-employee-time-log) trustworthy.
 
 #### Example request
 
@@ -752,19 +843,27 @@ every column other than the key is nullable.
   "endDay": 5,
   "exceptionDay": 7,
   "countryId": 91,
+  "timeZone": "Asia/Kolkata",
   "timeEntryLockAt": "18:00:00",
   "createdBy": 9
 }
 ```
+
+India has a single zone, so the `timeZone` above is ignored and
+`"Asia/Kolkata"` is stored because the country says so. For the United States it
+would be required, and would have to be one of that country's twenty-nine.
 
 #### Minimal request
 
 ```json
 {
   "userId": 101,
+  "countryId": 91,
   "createdBy": 9
 }
 ```
+
+`countryId` is part of the minimum now — the setup's time zone comes from it.
 
 #### Success response — `200 OK`
 
@@ -784,7 +883,8 @@ last changed a setup.
 | `endDay` | int? | A `dbo.DayMaster.DayID` |
 | `exceptionDay` | int? | A `dbo.DayMaster.DayID` — a day worked in addition to the normal week |
 | `countryId` | int? | |
-| `timeEntryLockAt` | string? | `hh:mm:ss` |
+| `timeZone` | string? | The resolved IANA zone id — always one the country actually has, never simply what was sent |
+| `timeEntryLockAt` | string? | `hh:mm:ss`, measured in `timeZone` |
 | `createdBy` | int? | audit |
 | `createDate` | datetime? | audit |
 | `updatedBy` | int? | audit |
@@ -807,6 +907,7 @@ last changed a setup.
     "endDay": 5,
     "exceptionDay": 7,
     "countryId": 91,
+    "timeZone": "Asia/Kolkata",
     "timeEntryLockAt": "18:00:00",
     "createdBy": 9,
     "createDate": "2026-09-01T08:15:02.443",
@@ -834,7 +935,10 @@ in the response if the client cares.
 | `createdBy <= 0` | `CreatedBy is required: the row records who created or changed it.` |
 | `organizationId <= 0` | `OrganizationId must be greater than 0 when it is supplied.` |
 | `contractType <= 0` | `ContractType must be greater than 0 when it is supplied.` |
-| `countryId <= 0` | `CountryId must be greater than 0 when it is supplied.` |
+| `countryId` missing | `CountryId is required: it is what determines the setup's time zone.` |
+| `countryId <= 0` | `CountryId must be greater than 0.` |
+| `timeZone` sent as `""` or whitespace | `TimeZone must not be blank when it is supplied; leave it out instead.` |
+| `timeZone` longer than 100 characters | `TimeZone must be 100 characters or fewer.` |
 | `startDay` out of range | `StartDay must be a DayMaster day id between 1 (Monday) and 7 (Sunday).` |
 | `endDay` out of range | `EndDay must be a DayMaster day id between 1 (Monday) and 7 (Sunday).` |
 | `exceptionDay` out of range | `ExceptionDay must be a DayMaster day id between 1 (Monday) and 7 (Sunday).` |
@@ -862,9 +966,45 @@ that was sent and is malformed is, reported **one at a time**:
 }
 ```
 
+**400 — the time zone could not be resolved.** These come from `AdminService`,
+which reads `dbo.Country`, so they are reported one at a time:
+
+| Trigger | Where it appears | Message |
+|---|---|---|
+| Country spans several zones and `timeZone` named none of them — including when it was left out | `errors[]`, keyed `TimeZone` | `Country '233' spans 29 time zones, so TimeZone is required and must be one of: America/New_York, America/Detroit, …` |
+| The country exists but its `TimeZone` column is empty | `message` | `Country '91' has no time zone configured.` |
+
+The first names the field, because the caller can fix it by choosing from the
+list in the message. The second does not: the payload is fine and the lookup row
+is incomplete, so keying it on `TimeZone` would send them hunting for a mistake
+that is not theirs.
+
+```json
+{
+  "success": false,
+  "message": "One or more validation errors occurred.",
+  "data": null,
+  "errors": [
+    "TimeZone: Country '233' spans 29 time zones, so TimeZone is required and must be one of: America/New_York, America/Detroit, America/Kentucky/Louisville, ..."
+  ]
+}
+```
+
+**404 — no country has that id:**
+
+```json
+{
+  "success": false,
+  "message": "Country '9999' was not found.",
+  "data": null,
+  "errors": []
+}
+```
+
 **500** — unhandled defect.
 
-There is no 404 on this endpoint: a user with no setup gets one created.
+> A 404 here is always about the **country**, never the setup: a user with no
+> setup gets one created, so the save never fails to find *that*.
 
 ---
 
@@ -875,7 +1015,7 @@ administrative shape (whole row, audit columns included). A user has at most one
 so this is a single object rather than a list.
 
 Compare with [endpoint 2](#2-get-apiv1timelogget-timesheet-setup-by-useruserid),
-which returns the seven-column timesheet-screen projection for the same user.
+which returns the nine-column timesheet-screen projection for the same user.
 
 #### Route parameters
 
@@ -916,6 +1056,7 @@ GET /api/v1/Admin/get-user-timesheet-setup/101
     "endDay": 5,
     "exceptionDay": 7,
     "countryId": 91,
+    "timeZone": "Asia/Kolkata",
     "timeEntryLockAt": "18:00:00",
     "createdBy": 9,
     "createDate": "2026-09-01T08:15:02.443"
@@ -1089,6 +1230,15 @@ separately, so the totals can never disagree with the grid beneath them.
 | `progressOnThisWeek` | decimal | Percent of the contracted week logged, **already capped at 100 by the procedure** so a client can draw a bar without clamping it again. `0` when there is nothing to measure against |
 | `contractTypeId` | int? | `1` = full time, `2` = part time |
 | `contractType` | string? | `"Full Time"` / `"Part Time"`. Null for any other id |
+| `countryId` | int? | The employee's country, from **`dbo.Signup.CountryID`**. Added 2026-09-21 |
+
+> `countryId` is the one nullable field here that says nothing about the
+> timesheet setup. Every other null above means "this employee has no setup, or
+> a half-filled one"; `countryId` comes from `dbo.Signup`, the side of the
+> `LEFT JOIN` that always exists, so a null means the **signup** names no
+> country. It is also not the same column as the `countryId` on
+> [endpoint 4](#4-post-apiv1adminsave-user-timesheet-setup)'s response, which is
+> `dbo.TimesheetMasterSetup.CountryID` — the two can hold different values.
 
 #### Example response
 
@@ -1118,7 +1268,8 @@ separately, so the totals can never disagree with the grid beneath them.
         "totalLoggedHoursCurrentWeekText": "8h",
         "progressOnThisWeek": 20,
         "contractTypeId": 1,
-        "contractType": "Full Time"
+        "contractType": "Full Time",
+        "countryId": 91
       },
       {
         "userId": 5003,
@@ -1133,7 +1284,8 @@ separately, so the totals can never disagree with the grid beneath them.
         "totalLoggedHoursCurrentWeekText": "0h",
         "progressOnThisWeek": 0,
         "contractTypeId": null,
-        "contractType": null
+        "contractType": null,
+        "countryId": 91
       }
     ]
   },
@@ -1143,8 +1295,11 @@ separately, so the totals can never disagree with the grid beneath them.
 
 The second employee has no setup, so `setupId`, every expected-time field and
 both contract fields come back as `null`. **They are still there.** Both rows
-carry the same thirteen keys, which is what lets a grid bind to the response
+carry the same fourteen keys, which is what lets a grid bind to the response
 without a per-row existence check.
+
+Note that the second employee still has a `countryId`: it comes from their
+signup, which exists whether or not anybody has given them a timesheet setup.
 
 #### Error responses
 
@@ -1182,6 +1337,124 @@ reaches the service and is told what is wrong with it:
 - **An employee holding two setup rows would appear twice**, and be counted
   twice. The Admin save path makes that impossible, but no database constraint
   does.
+
+---
+
+### 8. GET `/api/v1/Admin/get-country-timezones-by-countryid/{countryID}`
+
+**Purpose** — Return the time zones one country has, as a plain list of IANA
+ids.
+
+`dbo.Country.TimeZone` holds them comma-separated — one id for most countries,
+several for the United States, Australia, Canada, Brazil and the rest that span
+more than one. This unpacks that column so a setup screen can decide whether to
+ask the user at all.
+
+**The country itself is not echoed back.** The caller passed its id in, so it
+already has it; `data` is the array of zones and nothing else.
+
+#### Route parameters
+
+| Parameter | Type | Constraint |
+|---|---|---|
+| `countryID` | int | `:int` — deliberately **not** `:min(1)`, so a `0` reaches the service and is answered with a 400 that says what is wrong, rather than matching no route |
+
+> Spelled `countryID`, matching the route token character for character — see
+> [endpoint 5](#5-get-apiv1adminget-user-timesheet-setupuserid) for why the
+> casing matters in Swagger UI.
+
+No request body.
+
+#### Example request
+
+```http
+GET /api/v1/Admin/get-country-timezones-by-countryid/233
+```
+
+#### Success response — `200 OK`
+
+`data` is a **list of strings** — the country's IANA zone ids, **in the order
+the column lists them**, so the first is its primary zone and the sensible one
+to preselect.
+
+```json
+{
+  "success": true,
+  "message": "",
+  "data": [
+    "America/New_York",
+    "America/Detroit",
+    "America/Chicago",
+    "America/Denver",
+    "America/Los_Angeles"
+  ],
+  "errors": []
+}
+```
+
+A single-zone country returns a one-entry list:
+
+```json
+{
+  "success": true,
+  "message": "",
+  "data": ["Asia/Kolkata"],
+  "errors": []
+}
+```
+
+#### How the client uses it
+
+| `data.length` | What the setup screen should do |
+|---|---|
+| **1** | Do not ask. `save-user-timesheet-setup` stores that zone whatever the payload says |
+| **more than 1** | Show a picker of exactly these values. The save **requires** `timeZone` and requires it to be one of them |
+| **0** | The country has no zones recorded. The save will answer 400 — an administrator has to fix the `dbo.Country` row |
+
+This endpoint and the save read the same column through the same splitter, so
+the picker can never offer a value the save then rejects.
+
+#### Empty result
+
+A country whose `TimeZone` column has never been filled in is **200 with an
+empty list**, not a 404 — the country exists, it simply has no zones yet:
+
+```json
+{
+  "success": true,
+  "message": "",
+  "data": [],
+  "errors": []
+}
+```
+
+#### Error responses
+
+| Status | Cause |
+|---|---|
+| **400** | `countryID` is `0` or negative |
+| **404** | No country has that id |
+| **500** | Unhandled defect |
+
+```json
+{
+  "success": false,
+  "message": "One or more validation errors occurred.",
+  "data": null,
+  "errors": [
+    "countryID: countryID is required and must be greater than 0."
+  ]
+}
+```
+
+```json
+{
+  "success": false,
+  "message": "Country '9999' was not found.",
+  "data": null,
+  "errors": []
+}
+```
 
 ---
 
@@ -1249,12 +1522,13 @@ authentication is off.
 | # | Method | Route | Purpose | Request | Success `data` | Failures |
 |---|---|---|---|---|---|---|
 | 1 | POST | `/api/v1/TimeLog/get-time-logged-details` | Entries for a user + task in a date range, with totals | `TimeLoggedDetailsForTaskRequest` | `TimeLoggedDetailsForTaskResponse` | 400, 500 |
-| 2 | GET | `/api/v1/TimeLog/get-timesheet-setup-by-user/{userId}` | A user's timesheet limits (screen view) | route param | `TimesheetMasterSetupResponse` | 404, 500 |
+| 2 | GET | `/api/v1/TimeLog/get-timesheet-setup-by-user/{userId}` | A user's timesheet limits, country and time zone (screen view) | route param | `TimesheetMasterSetupResponse` | 404, 500 |
 | 3 | POST | `/api/v1/TimeLog/save-employee-time-log` | Log one block of time (insert only) | `TimeLogSaveRequest` | `TimeLogResponse` | 400, 409, 500 |
-| 4 | POST | `/api/v1/Admin/save-user-timesheet-setup` | Add / update / revive a user's setup | `AdminSaveRequest` | `AdminResponse` | 400, 500 |
+| 4 | POST | `/api/v1/Admin/save-user-timesheet-setup` | Add / update / revive a user's setup; resolves its time zone from the country | `AdminSaveRequest` | `AdminResponse` | 400, 404, 500 |
 | 5 | GET | `/api/v1/Admin/get-user-timesheet-setup/{userID}` | A user's setup (admin view, whole row) | route param | `AdminResponse` | 404, 500 |
 | 6 | POST | `/api/v1/Admin/delete-timesheet-setup` | Soft-delete a setup | `AdminDeleteRequest` | `null` | 400, 404, 500 |
-| 7 | GET | `/api/v1/Admin/get-all-employees-by-orgid/{orgID}` | An organisation's employees + head-count totals | route param | `EmployeeListResponse` | 400, 500 |
+| 7 | GET | `/api/v1/Admin/get-all-employees-by-orgid/{orgID}` | An organisation's employees, countries + head-count totals | route param | `EmployeeListResponse` | 400, 500 |
+| 8 | GET | `/api/v1/Admin/get-country-timezones-by-countryid/{countryID}` | A country's IANA time zones | route param | `string[]` | 400, 404, 500 |
 | — | GET | `/health`, `/health/live`, `/health/ready` | Liveness / readiness | — | *(unenveloped)* | 503 |
 
 ---
@@ -1283,12 +1557,31 @@ Documented so nobody has to rediscover them:
 7. **The employee list counts deleted time logs.** `spc_GetEmployeeListByPOrgID`
    does not filter `dbo.TimeLog.IsDeleted`, so `totalLoggedHoursCurrentWeek` can
    exceed what every other read in the API reports for the same week.
-8. **`sheetCode` generation is read-then-write, and nothing enforces
-   uniqueness.** Two saves that overlap can read the same highest code and both
-   take the next number, producing a duplicate. `dbo.TimeLog` has no unique index
-   on `SheetCode` — the primary key is `SheetID` — so the database does not catch
-   it either. **Fix: add `CREATE UNIQUE NONCLUSTERED INDEX UX_TimeLog_SheetCode
-   ON dbo.TimeLog (SheetCode) WHERE SheetCode IS NOT NULL;`** (filtered, because
-   existing rows hold nulls). Once that index exists, a collision becomes a
-   failed insert rather than a silent duplicate, and the save can be made to
-   retry.
+8. **`canUserLoggedPreDayTime` is computed on the database server's clock.**
+   `spc_GetTimesheetMasterSetupByUserID` derives it from `GETDATE()`, so the
+   flag returned by endpoint 2 answers "has the cut-off passed *on the server*",
+   not "where the employee is" — it will read wrong for anyone outside the
+   server's zone. The write path is unaffected: it judges `timeEntryLockAt`
+   itself in the employee's zone. Now that the procedure also returns
+   `TimeZone`, this could be derived correctly in the service instead.
+9. **A `null` `timeEntryLockAt` makes `canUserLoggedPreDayTime` false.** The
+   procedure's `CASE` compares against `NULL`, which is `UNKNOWN`, and falls to
+   `ELSE 0`. A user whose setup has no cut-off configured is therefore refused
+   **all** back-dating. If that is not intended, the procedure needs
+   `WHEN tms.TimeEntryLockAt IS NULL THEN 1`.
+10. **A setup's `timeZone` is never re-checked after it is stored.** The save
+    validates it against the country at the time of writing; if `dbo.Country` is
+    later edited so that zone is no longer one of the country's, the stored row
+    keeps it until the setup is saved again.
+11. **An unrecognised `timeZone` silently falls back to UTC** on the write path,
+    with a warning in the log. It keeps an employee working when their setup is
+    wrong, but nothing surfaces the problem to a caller.
+12. **`sheetCode` generation is read-then-write, and nothing enforces
+    uniqueness.** Two saves that overlap can read the same highest code and both
+    take the next number, producing a duplicate. `dbo.TimeLog` has no unique index
+    on `SheetCode` — the primary key is `SheetID` — so the database does not catch
+    it either. **Fix: add `CREATE UNIQUE NONCLUSTERED INDEX UX_TimeLog_SheetCode
+    ON dbo.TimeLog (SheetCode) WHERE SheetCode IS NOT NULL;`** (filtered, because
+    existing rows hold nulls). Once that index exists, a collision becomes a
+    failed insert rather than a silent duplicate, and the save can be made to
+    retry.

@@ -75,9 +75,17 @@ public class TimeLogController : ControllerBase
     /// <para>
     /// The entry is checked against that user's timesheet setup before it is
     /// stored - their working week, whether they may still back-date, their
-    /// daily maximum - and against the entries they already have that day, so
-    /// two blocks cannot cover the same hour. A user with no setup cannot log
-    /// time at all.
+    /// daily maximum, the day's cut-off - and against the entries they already
+    /// have that day, so two blocks cannot cover the same hour. A user with no
+    /// setup cannot log time at all.
+    /// </para>
+    /// <para>
+    /// <b>Times of day are judged in the employee's own time zone</b>, the one
+    /// on their setup - not the server's. A <c>timeEntryLockAt</c> of 21:00
+    /// means nine in the evening where they are. Once that moment has passed
+    /// they can still log the hours they are working - an entry starting at
+    /// 22:00 is after the cut-off - but can no longer add a block that starts
+    /// before it; that needs an administrator. Both rejections are 400s.
     /// </para>
     /// <para>
     /// Insert only: this creates an entry and returns it with its generated
