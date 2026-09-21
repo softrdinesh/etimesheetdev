@@ -69,7 +69,10 @@ public static class InfrastructureServiceCollectionExtensions
                 // Azure SQL and during failover.
                 sqlServer.EnableRetryOnFailure(settings.MaxRetryCount);
                 sqlServer.CommandTimeout(settings.CommandTimeoutSeconds);
-                sqlServer.MigrationsHistoryTable("__EFMigrationsHistory");
+
+                // No MigrationsHistoryTable, and no migrations to put in one:
+                // the schema is database-first and changed by hand. Nothing in
+                // this application creates, alters or drops it.
             });
 
             options.AddInterceptors(
