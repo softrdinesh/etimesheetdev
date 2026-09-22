@@ -902,7 +902,7 @@ would be required, and would have to be one of that country's twenty-nine.
 }
 ```
 
-`countryId` is part of the minimum now — the setup's time zone comes from it.
+`countryId` is part of the minimum, and is stored exactly as sent.
 
 #### Success response — `200 OK`
 
@@ -921,8 +921,10 @@ last changed a setup.
 | `startDay` | int? | A `dbo.DayMaster.DayID`, 1 = Monday … 7 = Sunday |
 | `endDay` | int? | A `dbo.DayMaster.DayID` |
 | `exceptionDay` | int? | A `dbo.DayMaster.DayID` — a day worked in addition to the normal week |
-| `countryId` | int? | |
+| `countryId` | int? | Stored as sent |
+| `countryName` | string? | **Derived** — the country's name from `dbo.Country`. `null` when the setup names no country, **or names one that does not exist** |
 | `timeZone` | string? | The IANA zone id **exactly as it was sent** — not resolved, and not necessarily one the country has |
+| `countryWithTimeZone` | string? | **Derived** — `countryName` and `timeZone` joined with a hyphen, `"India-Asia/Kolkata"`. The same string [endpoint 8](#8-get-apiv1adminget-country-list-with-timezones) returns as `optionValue` for that pairing |
 | `timeEntryLockAt` | string? | `hh:mm:ss`, measured in `timeZone` |
 | `createdBy` | int? | audit |
 | `createDate` | datetime? | audit |
@@ -946,7 +948,9 @@ last changed a setup.
     "endDay": 5,
     "exceptionDay": 7,
     "countryId": 91,
+    "countryName": "India",
     "timeZone": "Asia/Kolkata",
+    "countryWithTimeZone": "India-Asia/Kolkata",
     "timeEntryLockAt": "18:00:00",
     "createdBy": 9,
     "createDate": "2026-09-01T08:15:02.443",
@@ -1048,7 +1052,8 @@ GET /api/v1/Admin/get-user-timesheet-setup/101
 #### Success response — `200 OK`
 
 `data` is an `AdminResponse` — same shape as
-[endpoint 4](#4-post-apiv1adminsave-user-timesheet-setup).
+[endpoint 4](#4-post-apiv1adminsave-user-timesheet-setup), including the two
+**derived** fields `countryName` and `countryWithTimeZone`.
 
 ```json
 {
@@ -1065,14 +1070,52 @@ GET /api/v1/Admin/get-user-timesheet-setup/101
     "endDay": 5,
     "exceptionDay": 7,
     "countryId": 91,
+    "countryName": "India",
     "timeZone": "Asia/Kolkata",
+    "countryWithTimeZone": "India-Asia/Kolkata",
     "timeEntryLockAt": "18:00:00",
     "createdBy": 9,
-    "createDate": "2026-09-01T08:15:02.443"
+    "createDate": "2026-09-01T08:15:02.443",
+    "updatedBy": null,
+    "updateDate": null
   },
   "errors": []
 }
 ```
+
+#### The country, three ways
+
+| Field | Source |
+|---|---|
+| `countryId` | **Stored** — the `CountryID` column, exactly as the save was given it |
+| `countryName` | **Derived** — the country's name, looked up in `dbo.Country` |
+| `countryWithTimeZone` | **Derived** — `countryName` and `timeZone` joined with a hyphen, `"India-Asia/Kolkata"` |
+
+Neither derived field is stored; both are built on the way out from one lookup
+of `countryId`.
+
+`countryWithTimeZone` holds **exactly** the string
+[endpoint 8](#8-get-apiv1adminget-country-list-with-timezones) returns as
+`optionValue` for the same pairing — the two are built by one shared joiner. So:
+load the picker from endpoint 8, load the setup from here, and preselect the
+entry whose `optionValue` equals this. One string comparison, no reassembly.
+
+> The names differ, the values do not. Endpoint 8 calls it `optionValue`
+> because it is a dropdown option; here it is `countryWithTimeZone` because it
+> describes the setup. Compare the values, never the key names.
+
+Only the parts that exist are joined, so there is never a dangling hyphen:
+
+| The setup holds | `countryName` | `countryWithTimeZone` |
+|---|---|---|
+| A real country and a zone | `"India"` | `"India-Asia/Kolkata"` |
+| A country id **no country has** | `null` | `"Asia/Kolkata"` — the bare zone |
+| A country but no zone | `"India"` | `"India"` |
+| Neither | `null` | `null` |
+
+> The second row is reachable: [endpoint 4](#4-post-apiv1adminsave-user-timesheet-setup)
+> stores `countryId` without checking it exists. A null `countryName` beside a
+> non-null `countryId` is the signal that the stored id has no matching row.
 
 #### When the user has no setup
 
@@ -1560,7 +1603,7 @@ authentication is off.
 | 2 | GET | `/api/v1/TimeLog/get-timesheet-setup-by-user/{userId}` | A user's timesheet limits, country and time zone (screen view) | route param | `TimesheetMasterSetupResponse`, or `null` when they have none | 500 |
 | 3 | POST | `/api/v1/TimeLog/save-employee-time-log` | Log one block of time (insert only) | `TimeLogSaveRequest` | `TimeLogResponse` | 400, 409, 500 |
 | 4 | POST | `/api/v1/Admin/save-user-timesheet-setup` | Add / update / revive a user's setup; stores `countryId` and `timeZone` as sent | `AdminSaveRequest` | `AdminResponse` | 400, 500 |
-| 5 | GET | `/api/v1/Admin/get-user-timesheet-setup/{userID}` | A user's setup (admin view, whole row) | route param | `AdminResponse`, or `null` when they have none | 500 |
+| 5 | GET | `/api/v1/Admin/get-user-timesheet-setup/{userID}` | A user's setup (admin view, whole row + `countryName`/`countryWithTimeZone`) | route param | `AdminResponse`, or `null` when they have none | 500 |
 | 6 | POST | `/api/v1/Admin/delete-timesheet-setup` | Soft-delete a setup | `AdminDeleteRequest` | `null` | 400, 404, 500 |
 | 7 | GET | `/api/v1/Admin/get-all-employees-by-orgid/{orgID}` | An organisation's employees, countries + head-count totals | route param | `EmployeeListResponse` | 400, 500 |
 | 8 | GET | `/api/v1/Admin/get-country-list-with-timezones` | Every country paired with each of its time zones, one entry per zone | — | `CountryTimeZoneResponse[]` (`countryId`, `countryName`, `timeZone`, `optionValue`) | 500 |

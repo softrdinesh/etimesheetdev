@@ -215,11 +215,51 @@ public class AdminResponse
     public int? CountryId { get; init; }
 
     /// <summary>
-    /// The IANA time zone stored for this setup - always exactly one id, and
-    /// always one the country in <see cref="CountryId"/> actually has, because
-    /// the save resolves it rather than taking the payload's word for it.
+    /// The name of the country in <see cref="CountryId"/>, looked up from
+    /// <c>dbo.Country</c> - <c>"United States"</c>.
+    /// <para>
+    /// <see langword="null"/> when the setup names no country, and also when it
+    /// names one that <b>does not exist</b>: the save stores <c>CountryId</c>
+    /// without checking it, so a row can hold an id the lookup has no row for. A
+    /// null here beside a non-null <see cref="CountryId"/> means exactly that,
+    /// and is worth surfacing rather than hiding.
+    /// </para>
+    /// </summary>
+    public string? CountryName { get; init; }
+
+    /// <summary>
+    /// The IANA time zone stored for this setup - exactly one id, as the save
+    /// payload sent it.
+    /// <para>
+    /// <b>Not guaranteed to be one the country in <see cref="CountryId"/>
+    /// has.</b> The save stores what it is given and cross-checks nothing, so
+    /// this and <see cref="CountryId"/> can disagree.
+    /// </para>
     /// </summary>
     public string? TimeZone { get; init; }
+
+    /// <summary>
+    /// The country and the zone joined with a hyphen -
+    /// <c>"United States-America/New_York"</c>. The label to display, and the
+    /// value to match a country picker's selection against.
+    /// <para>
+    /// <b>Byte-for-byte the same string as
+    /// <see cref="CountryTimeZoneResponse.OptionValue"/></b> for the same
+    /// pairing, which is the point: a screen loads the picker from
+    /// <c>get-country-list-with-timezones</c>, loads the setup from here, and
+    /// preselects the entry whose value matches - one string comparison, no
+    /// reassembly. The two properties are spelled differently and hold the same
+    /// thing; only the value has to match, and one shared joiner guarantees it
+    /// does.
+    /// </para>
+    /// <para>
+    /// Whichever parts exist are what gets joined, so there is never a dangling
+    /// hyphen: a country with no zone is just the name, an unknown or absent
+    /// country with a zone is just the zone, and a setup with neither is
+    /// <see langword="null"/>.
+    /// </para>
+    /// </summary>
+    public string? CountryWithTimeZone { get; init; }
 
     public TimeSpan? TimeEntryLockAt { get; init; }
 

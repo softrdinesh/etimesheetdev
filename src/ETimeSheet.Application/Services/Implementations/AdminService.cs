@@ -20,6 +20,7 @@ namespace ETimeSheet.Application.Services.Implementations;
 /// than being replaced; and who gets stamped into the audit columns. It reaches
 /// the database only through <see cref="IAdminRepository"/> and
 /// <see cref="ICountryRepository"/>, and never sees <c>Context</c>.
+/// </para>
 /// <para>
 /// <b>It does not resolve the time zone.</b> <c>CountryId</c> and
 /// <c>TimeZone</c> are stored exactly as the payload sends them - no lookup, no
@@ -27,6 +28,11 @@ namespace ETimeSheet.Application.Services.Implementations;
 /// sense is the caller's job; <c>get-country-list-with-timezones</c> is there to
 /// build the choice from.
 /// </para>
+/// <para>
+/// It <i>does</i> read <c>dbo.Country</c> on the way <b>out</b>, to name the
+/// country a setup holds and build its <c>countryWithTimeZone</c> label. That is
+/// presentation, not resolution: it runs after the write and cannot change a
+/// stored value.
 /// </para>
 /// <para>
 /// <b>No authorisation check.</b> Administrative CRUD is exactly the surface
@@ -116,7 +122,47 @@ public class AdminService : IAdminService
         // not been set up yet" is the whole reason someone opened it. Telling
         // them success: false sends them looking for a mistake they did not
         // make.
-        return setup?.ToResponse();
+        return setup is null
+            ? null
+            : await ToResponseAsync(setup, cancellationToken);
+    }
+
+    /// <summary>
+    /// Projects a saved setup to its response, naming the country it holds.
+    /// <para>
+    /// The one extra read this module does, and it is <b>presentation only</b>:
+    /// it supplies <c>CountryName</c> and the <c>CountryWithTimeZone</c> label so a
+    /// screen can show the country and preselect its picker. It cannot affect
+    /// what is stored - the save writes <c>CountryID</c> and <c>TimeZone</c>
+    /// exactly as the payload sent them, and this runs afterwards, on the way
+    /// out.
+    /// </para>
+    /// <para>
+    /// Every path that returns an <c>AdminResponse</c> goes through here, so the
+    /// two fields are populated the same way on the read and on the save. A
+    /// field that carried a value from one endpoint and null from another would
+    /// be a trap (CLAUDE.md §5).
+    /// </para>
+    /// <para>
+    /// A country id the lookup has no row for leaves <c>CountryName</c> null
+    /// rather than failing. That is now reachable - the save stores the id
+    /// without checking it - and a read is not the place to start rejecting rows
+    /// that are already stored.
+    /// </para>
+    /// </summary>
+    private async Task<AdminResponse> ToResponseAsync(
+        TimesheetMasterSetup setup,
+        CancellationToken cancellationToken)
+    {
+        if (setup.CountryId is not { } countryId || countryId <= 0)
+        {
+            // No country on the row, so nothing to look up and nothing to name.
+            return setup.ToResponse();
+        }
+
+        var country = await _countryRepository.GetByIdAsync(countryId, cancellationToken);
+
+        return setup.ToResponse(country?.Name);
     }
 
     public async Task DeleteAsync(
@@ -258,7 +304,7 @@ public class AdminService : IAdminService
             request.UserId,
             request.CreatedBy);
 
-        return saved.ToResponse();
+        return await ToResponseAsync(saved, cancellationToken);
     }
 
     /// <summary>
@@ -309,6 +355,6 @@ public class AdminService : IAdminService
             wasDeleted ? "restored and updated" : "updated",
             request.CreatedBy);
 
-        return setup.ToResponse();
+        return await ToResponseAsync(setup, cancellationToken);
     }
 }

@@ -14,7 +14,18 @@ namespace ETimeSheet.Application.Common.Mapping;
 /// </summary>
 internal static class AdminMappings
 {
-    internal static AdminResponse ToResponse(this TimesheetMasterSetup setup) => new()
+    /// <summary>
+    /// Projects a stored setup to the administrative response.
+    /// </summary>
+    /// <param name="countryName">
+    /// The name of the country the setup holds, already looked up, or
+    /// <see langword="null"/> when it names none or names one that does not
+    /// exist. Passed in rather than fetched here because a mapper does not read
+    /// the database - and because the caller often has it already.
+    /// </param>
+    internal static AdminResponse ToResponse(
+        this TimesheetMasterSetup setup,
+        string? countryName = null) => new()
     {
         SetupId = setup.SetupId,
         UserId = setup.UserId,
@@ -31,7 +42,16 @@ internal static class AdminMappings
         ExceptionDay = setup.ExceptionDay,
 
         CountryId = setup.CountryId,
+        CountryName = countryName,
         TimeZone = setup.TimeZone,
+
+        // Built from whichever parts exist, so a missing one never leaves a
+        // dangling hyphen. The same joiner CountryTimeZoneResponse.OptionValue
+        // goes through, deliberately: the two properties are named differently
+        // but must hold the same string for the same pairing, because a screen
+        // matches them to preselect its country picker.
+        CountryWithTimeZone = JoinLabel(countryName, setup.TimeZone),
+
         TimeEntryLockAt = setup.TimeEntryLockAt,
         CreatedBy = setup.CreatedBy,
         CreateDate = setup.CreateDate,
@@ -136,6 +156,35 @@ internal static class AdminMappings
     /// column lists them - so a country's primary zone is its first row.
     /// </para>
     /// </summary>
+    /// <summary>
+    /// Joins a country name and a time zone into the one label both Admin
+    /// responses carry - <c>"United States-America/New_York"</c>.
+    /// <para>
+    /// Only the parts that are there are joined, so the result is never a
+    /// dangling hyphen: name alone when there is no zone, zone alone when there
+    /// is no name, and null when there is neither. A row missing one of them is
+    /// incomplete data, and a label that looks like the API dropped something
+    /// would be worse than a shorter one.
+    /// </para>
+    /// <para>
+    /// One method so the setup read and the country picker cannot start
+    /// spelling the same pairing differently - matching them is the whole reason
+    /// the label is on both.
+    /// </para>
+    /// </summary>
+    private static string? JoinLabel(string? countryName, string? timeZone)
+    {
+        var name = countryName?.Trim() ?? string.Empty;
+        var zone = timeZone?.Trim() ?? string.Empty;
+
+        if (name.Length == 0)
+        {
+            return zone.Length == 0 ? null : zone;
+        }
+
+        return zone.Length == 0 ? name : $"{name}-{zone}";
+    }
+
     internal static IReadOnlyList<CountryTimeZoneResponse> ToCountryTimeZoneResponses(
         this IEnumerable<Country> countries) =>
         countries
@@ -154,11 +203,10 @@ internal static class AdminMappings
                         CountryName = name,
                         TimeZone = zone,
 
-                        // A nameless country yields the bare zone rather than a
-                        // label with a leading hyphen: the row is broken
-                        // reference data either way, and a dangling separator
-                        // just looks like the API dropped something.
-                        OptionValue = name.Length == 0 ? zone : $"{name}-{zone}"
+                        // Through the same joiner the setup read uses, so the
+                        // two endpoints cannot start spelling one pairing
+                        // differently - a picker matches them as plain strings.
+                        OptionValue = JoinLabel(name, zone) ?? string.Empty
                     };
                 }))
             .ToArray();

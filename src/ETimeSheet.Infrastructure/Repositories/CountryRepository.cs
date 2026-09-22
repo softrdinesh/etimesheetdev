@@ -22,6 +22,17 @@ public class CountryRepository : ICountryRepository
         _db = db;
     }
 
+    public async Task<Country?> GetByIdAsync(
+        int countryId,
+        CancellationToken cancellationToken = default) =>
+        // AsNoTracking: reference data that is never mutated here, so there is
+        // no reason to pay for change tracking - and no way for a stray edit to
+        // a looked-up country to be saved by an unrelated SaveChanges on the
+        // same request's context.
+        await _db.Country
+            .AsNoTracking()
+            .FirstOrDefaultAsync(country => country.Id == countryId, cancellationToken);
+
     public async Task<IReadOnlyList<Country>> GetAllAsync(
         CancellationToken cancellationToken = default) =>
         // AsNoTracking: this is reference data that is never mutated, and the

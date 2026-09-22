@@ -18,15 +18,31 @@ namespace ETimeSheet.Application.Interfaces.Repositories;
 /// the day something asks for a Country module, not before.
 /// </para>
 /// <para>
-/// <b>One read, because there is one caller.</b> A <c>GetByIdAsync</c> lived
-/// here while the timesheet save resolved its time zone from the country; the
-/// save now stores what the payload sends, so nothing looked a single country
-/// up any more and the method went with the rule. Add it back when an endpoint
-/// needs it, not before (CLAUDE.md §21.22).
+/// Two reads, one per caller: the whole lookup for the country picker, and one
+/// country by id so a setup read can name the country it holds.
 /// </para>
 /// </summary>
 public interface ICountryRepository
 {
+    /// <summary>
+    /// Returns one country by its <c>ID</c>, untracked, or <see langword="null"/>
+    /// when no row has that id.
+    /// <para>
+    /// Null is an ordinary answer here, not an error. Since the timesheet save
+    /// stopped resolving anything, it stores <c>CountryID</c> without checking
+    /// it, so a setup can genuinely name a country the lookup has no row for -
+    /// and a read of that setup has to be able to say so.
+    /// </para>
+    /// <para>
+    /// The whole row rather than just <c>Name</c>: the entity is what the
+    /// caller already works in, and this table is narrow enough that projecting
+    /// one column would buy nothing.
+    /// </para>
+    /// </summary>
+    Task<Country?> GetByIdAsync(
+        int countryId,
+        CancellationToken cancellationToken = default);
+
     /// <summary>
     /// Returns every country in the lookup, untracked, ordered by name.
     /// <para>

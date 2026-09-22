@@ -83,6 +83,22 @@ public class AdminController : ControllerBase
     /// soft-deleted. Finding an unconfigured employee is one of the reasons to
     /// call this, and it is an answer rather than an error.
     /// </para>
+    /// <para>
+    /// The country comes back three ways: <c>countryId</c> as stored,
+    /// <c>countryName</c> looked up from <c>dbo.Country</c>, and
+    /// <c>countryWithTimeZone</c> - the name and the zone joined as
+    /// <c>"United States-America/New_York"</c>. That last one holds the same
+    /// string <c>get-country-list-with-timezones</c> returns as its
+    /// <c>optionValue</c> for the same pairing, so a screen can preselect its
+    /// country picker with one comparison instead of reassembling the label.
+    /// </para>
+    /// <para>
+    /// <c>countryName</c> and <c>countryWithTimeZone</c> are <b>derived on the
+    /// way out</b> and stored nowhere. A setup naming a country that does not
+    /// exist - which the save permits, since it stores <c>countryId</c>
+    /// unchecked - comes back with a null <c>countryName</c> and the bare zone
+    /// as its <c>countryWithTimeZone</c>, rather than an error.
+    /// </para>
     /// </summary>
     /// <response code="200">
     /// The user's setup, or <c>null</c> when they have none. Check <c>data</c>,
