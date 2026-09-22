@@ -19,9 +19,12 @@ namespace ETimeSheet.Application.Common;
 /// the client cannot make.
 /// </para>
 /// <para>
-/// It is pure string work with no rule in it: whether a caller must choose a
-/// zone, and what happens when they choose one that is not here, is
-/// <c>AdminService</c>'s decision.
+/// It is pure string work with no rule in it, and no longer has a rule to
+/// serve: the timesheet save used to resolve a setup's zone through this class,
+/// and now stores whatever the payload sends. What is left is the unpacking that
+/// <c>get-country-list-with-timezones</c> needs to turn one row into one entry
+/// per zone. A <c>Find</c> that matched a caller's zone against a country's list
+/// went when that rule did.
 /// </para>
 /// </summary>
 internal static class CountryTimeZones
@@ -47,37 +50,4 @@ internal static class CountryTimeZones
                 .Select(zone => zone.Trim())
                 .Where(zone => zone.Length > 0)
                 .ToArray();
-
-    /// <summary>
-    /// Finds one zone in a country's list, ignoring case and surrounding
-    /// whitespace, and returns it <b>as the country spells it</b> - or null when
-    /// the country does not have it.
-    /// <para>
-    /// The country's spelling is what gets stored, not the caller's: IANA ids
-    /// are case-sensitive in every library that consumes them, so accepting
-    /// <c>"europe/london"</c> and writing it back verbatim would persist a value
-    /// that <see cref="TimeZoneInfo.FindSystemTimeZoneById"/> later rejects.
-    /// Matching leniently and storing canonically is the only combination that
-    /// is both forgiving at the edge and correct in the row.
-    /// </para>
-    /// </summary>
-    internal static string? Find(IReadOnlyList<string> zones, string? timeZone)
-    {
-        if (string.IsNullOrWhiteSpace(timeZone))
-        {
-            return null;
-        }
-
-        var wanted = timeZone!.Trim();
-
-        foreach (var zone in zones)
-        {
-            if (string.Equals(zone, wanted, StringComparison.OrdinalIgnoreCase))
-            {
-                return zone;
-            }
-        }
-
-        return null;
-    }
 }

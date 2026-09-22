@@ -87,8 +87,12 @@ public class AdminSaveRequest
 
     /// <summary>
     /// The country this setup belongs to - a <c>dbo.Country.ID</c>.
-    /// <b>Required</b>, despite being declared nullable: every user has a
-    /// country, and it is what <see cref="TimeZone"/> is resolved against.
+    /// <b>Required</b>, despite being declared nullable.
+    /// <para>
+    /// <b>Stored exactly as sent.</b> The id is not looked up and its existence
+    /// is not checked - <c>dbo.Country</c> is not read on the save path at all -
+    /// so an id no country has will be written to the row.
+    /// </para>
     /// <para>
     /// Nullable in C# only so that omitting it is answered with a 400 naming
     /// <c>CountryId</c>, rather than an untyped model-binding error or a silent
@@ -99,28 +103,21 @@ public class AdminSaveRequest
 
     /// <summary>
     /// The IANA time zone for this setup - <b>one</b> id, such as
-    /// <c>"America/New_York"</c>. Whether it is needed depends on
-    /// <see cref="CountryId"/>:
-    /// <list type="bullet">
-    /// <item>
-    /// <description>
-    /// The country has <b>one</b> time zone - the United Kingdom, Germany, India:
-    /// leave this out. The country's zone is stored, and a value sent here is
-    /// ignored, because there is only one answer the country can have.
-    /// </description>
-    /// </item>
-    /// <item>
-    /// <description>
-    /// The country has <b>several</b> - the United States, Australia, Canada,
-    /// Brazil: this is required, and must be one of them. Anything else is a 400.
-    /// </description>
-    /// </item>
-    /// </list>
+    /// <c>"America/New_York"</c>. Optional; leave it out to store no zone.
     /// <para>
-    /// The list to choose from is <c>dbo.Country.TimeZone</c>, comma-separated,
-    /// with the country's primary zone first. Matching ignores case and
-    /// surrounding spaces, but what gets stored is the country's own spelling -
-    /// IANA ids are case-sensitive to every library that will later consume one.
+    /// <b>Stored exactly as sent.</b> It is not resolved from
+    /// <see cref="CountryId"/>, not matched against the country's zone list, and
+    /// not checked for being a real IANA id. The only rules are shape: a value
+    /// that is present may not be blank, and must fit the <c>nvarchar(100)</c>
+    /// column.
+    /// </para>
+    /// <para>
+    /// So <b>the caller owns the pairing</b> - nothing here will stop a setup
+    /// holding a zone its country does not have, or a misspelling that
+    /// <see cref="TimeZoneInfo.FindSystemTimeZoneById"/> later rejects. Build
+    /// the choice from <c>get-country-list-with-timezones</c>, which returns
+    /// each country's zones already spelled the way the lookup spells them, and
+    /// send its <c>timeZone</c> back verbatim.
     /// </para>
     /// </summary>
     /// <example>America/New_York</example>
@@ -476,6 +473,75 @@ public class EmployeeListDetail
     /// </para>
     /// </summary>
     public int? CountryId { get; set; }
+}
+
+/// <summary>
+/// One selectable country/time-zone pairing, as the setup screen's country
+/// picker wants it.
+/// <para>
+/// <b>One row per zone, not one row per country.</b> <c>dbo.Country.TimeZone</c>
+/// packs a country's IANA zones into one comma-separated column, and this
+/// response unpacks it: the United Kingdom is a single row, the United States is
+/// twenty-nine, all of them carrying the <b>same</b>
+/// <see cref="CountryId"/>. That is deliberate - it lets a client bind a flat
+/// list straight to a dropdown, with no nested shape to expand and no second
+/// call to find out which countries need a choice made.
+/// </para>
+/// <para>
+/// <see cref="CountryId"/> is therefore <b>not unique</b> in the list. What
+/// identifies a row is the country and the zone together - which is exactly
+/// what <see cref="OptionValue"/> is.
+/// </para>
+/// <para>
+/// The parts come back <b>separately as well as joined</b>. The client never
+/// has to take a composed label apart to find the values it must send back:
+/// <see cref="CountryId"/> and <see cref="TimeZone"/> are the two fields
+/// <c>save-user-timesheet-setup</c> wants, and they are here verbatim.
+/// </para>
+/// </summary>
+public class CountryTimeZoneResponse
+{
+    /// <summary>
+    /// The <c>dbo.Country.ID</c> - what a save sends back as its
+    /// <c>countryId</c>. Repeated across every row of a multi-zone country.
+    /// </summary>
+    public int CountryId { get; set; }
+
+    /// <summary>
+    /// The country's name on its own - <c>"United States"</c> - straight from
+    /// <c>dbo.Country.Name</c>. Empty for the handful of rows whose name column
+    /// is null; the column is nullable on that table.
+    /// </summary>
+    public string CountryName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// The IANA zone id on its own - <c>"America/New_York"</c> - and the value
+    /// to send as <c>timeZone</c> on <c>save-user-timesheet-setup</c>.
+    /// <para>
+    /// The country's own spelling, as the column records it, because IANA ids
+    /// are case-sensitive to every library that will later look one up.
+    /// </para>
+    /// </summary>
+    public string TimeZone { get; set; } = string.Empty;
+
+    /// <summary>
+    /// The two above joined with a hyphen -
+    /// <c>"United States-America/New_York"</c> - for a dropdown to display and
+    /// to key a selection on.
+    /// <para>
+    /// Composed here rather than left to the client so every screen shows a
+    /// multi-zone country the same way, and so the text a user picked can be
+    /// compared as one value. It is a <b>label</b>: send
+    /// <see cref="CountryId"/> and <see cref="TimeZone"/> back to the save, not
+    /// a substring of this.
+    /// </para>
+    /// <para>
+    /// A country with no name yields the bare zone rather than a label with a
+    /// leading hyphen - such a row is broken reference data either way, and a
+    /// dangling separator just looks like the API dropped something.
+    /// </para>
+    /// </summary>
+    public string OptionValue { get; set; } = string.Empty;
 }
 
 /// <summary>

@@ -52,6 +52,14 @@ internal static class AdminMappings
     /// Used for both the insert and the update path, which is what guarantees
     /// the two cannot drift apart and start accepting different fields.
     /// </para>
+    /// <para>
+    /// <b><c>CountryId</c> and <c>TimeZone</c> go straight through.</b> The
+    /// payload is the only source for both: nothing is looked up, nothing is
+    /// cross-checked against <c>dbo.Country</c>, and whatever the caller sent is
+    /// what lands in the row. An earlier version derived <c>TimeZone</c> from
+    /// the country and ignored the payload's value for a single-zone country -
+    /// that is gone, and the two columns now behave like every other field here.
+    /// </para>
     /// </summary>
     /// <param name="times">
     /// The payload's three time fields, already read out of their
@@ -59,23 +67,10 @@ internal static class AdminMappings
     /// because parsing is validation - it can reject the payload - and a mapper
     /// is not where a request is accepted or refused.
     /// </param>
-    /// <param name="timeZone">
-    /// The setup's time zone, <b>already resolved against the country</b> - the
-    /// country's own zone when it has one, or the one the payload chose from its
-    /// list when it has several. Passed in for the same reason as
-    /// <paramref name="times"/>: resolving it reads the database and can reject
-    /// the payload, and neither belongs in a mapper.
-    /// <para>
-    /// This is why <c>request.TimeZone</c> is deliberately <b>not</b> read
-    /// below. Copying it straight across would store whatever the caller typed,
-    /// which is the exact thing the resolution exists to prevent.
-    /// </para>
-    /// </param>
     internal static void ApplyTo(
         this AdminSaveRequest request,
         TimesheetMasterSetup setup,
-        TimesheetSetupTimes times,
-        string timeZone)
+        TimesheetSetupTimes times)
     {
         setup.UserId = request.UserId;
         setup.MaxTimeInHrs = times.MaxTimeInHrs;
@@ -86,7 +81,7 @@ internal static class AdminMappings
         setup.EndDay = request.EndDay;
         setup.ExceptionDay = request.ExceptionDay;
         setup.CountryId = request.CountryId;
-        setup.TimeZone = timeZone;
+        setup.TimeZone = request.TimeZone;
         setup.TimeEntryLockAt = times.TimeEntryLockAt;
     }
 
@@ -119,4 +114,52 @@ internal static class AdminMappings
     internal static IReadOnlyCollection<EmployeeResponse> ToResponses(
         this IEnumerable<EmployeeListDetail> employees) =>
         employees.Select(ToResponse).ToArray();
+
+    /// <summary>
+    /// Flattens countries into one <see cref="CountryTimeZoneResponse"/> per
+    /// time zone - the shape the setup screen's picker binds to.
+    /// <para>
+    /// This is where the list stops being nested: a country with three zones
+    /// becomes three rows carrying the same <c>CountryId</c> and three different
+    /// zones. <c>CountryTimeZones.Split</c> does the unpacking, the same
+    /// splitter the save resolves a chosen zone with, so the picker can never
+    /// offer a pairing the save then refuses.
+    /// </para>
+    /// <para>
+    /// A country whose <c>TimeZone</c> column is empty contributes <b>no</b>
+    /// rows. Listing it would offer a choice that the save answers 400 to, and a
+    /// picker's job is to only contain valid answers.
+    /// </para>
+    /// <para>
+    /// Order is preserved from both sides: the countries in the order the
+    /// repository read them, and within each one the zones in the order the
+    /// column lists them - so a country's primary zone is its first row.
+    /// </para>
+    /// </summary>
+    internal static IReadOnlyList<CountryTimeZoneResponse> ToCountryTimeZoneResponses(
+        this IEnumerable<Country> countries) =>
+        countries
+            .SelectMany(country => CountryTimeZones
+                .Split(country.TimeZone)
+                .Select(zone =>
+                {
+                    // Trimmed once and used for both the standalone field and
+                    // the label, so the two can never disagree about what the
+                    // country is called.
+                    var name = country.Name?.Trim() ?? string.Empty;
+
+                    return new CountryTimeZoneResponse
+                    {
+                        CountryId = country.Id,
+                        CountryName = name,
+                        TimeZone = zone,
+
+                        // A nameless country yields the bare zone rather than a
+                        // label with a leading hyphen: the row is broken
+                        // reference data either way, and a dangling separator
+                        // just looks like the API dropped something.
+                        OptionValue = name.Length == 0 ? zone : $"{name}-{zone}"
+                    };
+                }))
+            .ToArray();
 }

@@ -54,14 +54,16 @@ public class AdminSaveRequestValidator : AbstractValidator<AdminSaveRequest>
             .OverridePropertyName(nameof(AdminSaveRequest.ContractType))
             .When(request => request.ContractType.HasValue);
 
-        // Required, unlike the two above, even though the column is nullable:
-        // the setup's TimeZone is resolved from the country, so a save without
-        // one has nothing to resolve against and nothing to check a chosen zone
-        // against. Two rules rather than one so the caller is told which of
-        // "you left it out" and "you sent 0" happened.
+        // Required, unlike the two above, even though the column is nullable.
+        // It is no longer required in order to resolve the time zone - nothing
+        // resolves anything any more, and CountryId is stored exactly as sent -
+        // but a timesheet setup that names no country is still not a setup
+        // anyone asked for, so the contract keeps it mandatory. Two rules rather
+        // than one so the caller is told which of "you left it out" and "you
+        // sent 0" happened.
         RuleFor(request => request.CountryId)
             .NotNull()
-            .WithMessage("CountryId is required: it is what determines the setup's time zone.");
+            .WithMessage("CountryId is required.");
 
         RuleFor(request => request.CountryId!.Value)
             .GreaterThan(0)
@@ -69,11 +71,16 @@ public class AdminSaveRequestValidator : AbstractValidator<AdminSaveRequest>
             .OverridePropertyName(nameof(AdminSaveRequest.CountryId))
             .When(request => request.CountryId.HasValue);
 
-        // Shape only. Whether a time zone is needed at all, and whether this one
-        // is a zone the country actually has, are questions for dbo.Country -
-        // and a validator may not read the database (CLAUDE.md §12). AdminService
-        // answers both. All that can be said here is that a value which was sent
-        // has to be a real value and has to fit the nvarchar(100) column.
+        // Shape only, and shape is now the ONLY check this field gets: the save
+        // stores whatever arrives, so nothing downstream will notice a zone that
+        // its country does not have, or one that is not an IANA id at all. These
+        // two rules are the whole guard - a value that was sent has to be a real
+        // value and has to fit the nvarchar(100) column.
+        //
+        // Deliberately still not a format or membership rule. Both need
+        // dbo.Country or the system's zone database, and a validator may not
+        // read either (CLAUDE.md §12); the caller owns that consistency and
+        // builds its choice from get-country-list-with-timezones.
         RuleFor(request => request.TimeZone!)
             .NotEmpty()
             .WithMessage("TimeZone must not be blank when it is supplied; leave it out instead.")

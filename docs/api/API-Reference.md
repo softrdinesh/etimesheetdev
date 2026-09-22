@@ -15,6 +15,7 @@ controller, DTO or validator, change this file with it.
   - [Authentication](#authentication)
   - [The response envelope](#the-response-envelope)
   - [JSON rules](#json-rules)
+  - [Empty results are successes](#empty-results-are-successes)
   - [Error contract](#error-contract)
 - [TimeLog](#timelog)
   - [POST /api/v1/TimeLog/get-time-logged-details](#1-post-apiv1timelogget-time-logged-details)
@@ -25,7 +26,7 @@ controller, DTO or validator, change this file with it.
   - [GET /api/v1/Admin/get-user-timesheet-setup/{userID}](#5-get-apiv1adminget-user-timesheet-setupuserid)
   - [POST /api/v1/Admin/delete-timesheet-setup](#6-post-apiv1admindelete-timesheet-setup)
   - [GET /api/v1/Admin/get-all-employees-by-orgid/{orgID}](#7-get-apiv1adminget-all-employees-by-orgidorgid)
-  - [GET /api/v1/Admin/get-country-timezones-by-countryid/{countryID}](#8-get-apiv1adminget-country-timezones-by-countryidcountryid)
+  - [GET /api/v1/Admin/get-country-list-with-timezones](#8-get-apiv1adminget-country-list-with-timezones)
 - [Health endpoints](#health-endpoints)
 - [Enumerations](#enumerations)
 - [Endpoint summary table](#endpoint-summary-table)
@@ -90,6 +91,31 @@ Every endpoint — success or failure — returns the same envelope:
 | Content type | `application/json` in and out. |
 | Cancellation | Every action honours client disconnect; an aborted request answers **499**. |
 
+### Empty results are successes
+
+**An endpoint that finds no data returns `200` with `success: true` and
+`data: null` (or an empty list).** It does not return `404`, and it never
+returns `success: false`.
+
+`success: false` means *the caller has something to fix* — a malformed payload,
+a broken rule, a collision, a defect. "There is no row for this user" is none of
+those: the request was well formed, it ran, and the answer is that there is
+nothing there. A client that sees `success: false` goes looking for its own
+mistake, and on these endpoints there isn't one — finding an employee who has
+not been set up yet is often the *reason* the screen was opened.
+
+| Endpoint kind | No data looks like |
+|---|---|
+| Returns a **list** | `success: true`, `data: []` |
+| Returns an **object** | `success: true`, `data: null`, and a `message` saying so |
+
+So **branch on `data`, not on the status code**, for endpoints 2, 5 and 8.
+
+This does not soften the **write** endpoints. Asking to delete a setup that does
+not exist, or to save one against a country id that does not exist, is a failed
+*operation*, not an empty *result* — those still fail, because reporting them as
+successes would tell a client that something happened when nothing did.
+
 ### Error contract
 
 | Thrown | HTTP | When |
@@ -98,7 +124,7 @@ Every endpoint — success or failure — returns the same envelope:
 | `BusinessException` | **400** | The payload is well formed but breaks a rule that needed the database to check |
 | `UnauthorizedException` | **401** | Not authenticated *(unreachable today — auth is off)* |
 | `ForbiddenException` | **403** | Authenticated but not allowed *(unreachable today)* |
-| `NotFoundException` | **404** | The named row does not exist, or was soft-deleted |
+| `NotFoundException` | **404** | A **write** named a row that does not exist. Never used for a read that simply found nothing — see [Empty results are successes](#empty-results-are-successes) |
 | `ConflictException` | **409** | The request collides with data already stored |
 | anything else | **500** | A defect. Logged in full; the caller gets a correlation id only |
 
@@ -135,12 +161,12 @@ service stops at the first thing it cannot accept.
 Note the difference: shape failures fill `errors[]`, rule failures put a single
 sentence in `message` and leave `errors[]` empty.
 
-**Not found (404):**
+**Not found (404)** — only ever from a write naming a row that is not there:
 
 ```json
 {
   "success": false,
-  "message": "Timesheet setup for user '4242' was not found.",
+  "message": "Timesheet setup '4242' was not found.",
   "data": null,
   "errors": []
 }
@@ -412,26 +438,34 @@ GET /api/v1/TimeLog/get-timesheet-setup-by-user/101
 >    has never had a cut-off configured therefore reports "may not back-date",
 >    and the write path refuses back-dated entries for that user.
 
-#### Error responses
+#### When the user has no setup
 
-| Status | Cause |
-|---|---|
-| **404** | The user has no timesheet setup row, **or no `dbo.Signup` row** — the procedure inner-joins the two, so either absence returns no rows |
-| **404** | `userId` below 1 — no route matches |
-| **500** | Unhandled defect |
-
-A missing setup is a 404 rather than an empty 200 on purpose: *"this user has no
-configured limits"* is a different answer from *"here are their limits"*, and a
-caller that read absent as zero would apply a maximum of nothing.
+**`200`, `success: true`, `data: null`** — not a 404. The read succeeded; the
+answer is that there is no row. This also covers a user with no `dbo.Signup`
+row, since the procedure inner-joins the two and either absence returns nothing.
 
 ```json
 {
-  "success": false,
-  "message": "Timesheet setup for user '4242' was not found.",
+  "success": true,
+  "message": "This user has no timesheet setup.",
   "data": null,
   "errors": []
 }
 ```
+
+> **`data: null` is not "no limits — log whatever you like."** It means the user
+> has not been configured, and
+> [endpoint 3](#3-post-apiv1timelogsave-employee-time-log) refuses to log time
+> for such a user. Do not read absent as zero, or as unlimited. A setup that
+> *exists* but has empty columns comes back as an **object** with nulls inside
+> it, which is a different answer again.
+
+#### Error responses
+
+| Status | Cause |
+|---|---|
+| **404** | `userId` below 1 — no route matches. This is routing, not "no data" |
+| **500** | Unhandled defect |
 
 > If the data holds more than one setup row for a user, the first is returned and
 > a warning is logged. The procedure does not guarantee uniqueness.
@@ -773,9 +807,10 @@ sending the wrong id.
 `userId`, `countryId` and `createdBy` are required; every other field is
 optional, mirroring the table — every column other than the key is nullable.
 
-`countryId` is required **even though its column is nullable**, because
-`timeZone` is resolved from it: without a country there is no list of zones to
-choose from, and nothing to check a chosen one against.
+`countryId` is required **even though its column is nullable** — a timesheet
+setup that names no country is not a setup anyone asked for. It is required, not
+validated: the id is stored exactly as sent, and no check confirms a country
+with that id exists.
 
 | Field | Type | Required | Rules |
 |---|---|---|---|
@@ -787,8 +822,8 @@ choose from, and nothing to check a chosen one against.
 | `startDay` | int? | no | a `dbo.DayMaster.DayID`, `1`–`7` (1 = Monday … 7 = Sunday). Must be supplied together with `endDay` |
 | `endDay` | int? | no | a `dbo.DayMaster.DayID`, `1`–`7`. Must be supplied together with `startDay` |
 | `exceptionDay` | int? | no | a `dbo.DayMaster.DayID`, `1`–`7`. A day worked *in addition* to the normal week |
-| `countryId` | int? | **yes** | `> 0`. A `dbo.Country.ID` — it is what the setup's time zone is resolved against |
-| `timeZone` | string? | *depends* | One IANA zone id, e.g. `"America/New_York"`. Required **only** when the country spans several zones, and then it must be one of them. See below |
+| `countryId` | int? | **yes** | `> 0`. A `dbo.Country.ID`. **Stored as sent** — its existence is not checked |
+| `timeZone` | string? | no | One IANA zone id, e.g. `"America/New_York"`. **Stored as sent.** Non-blank and ≤ 100 chars when supplied; leave it out to store none |
 | `timeEntryLockAt` | string? | no | `hh:mm:ss`, `00:00:00`–`23:59:59`. Time of day after which entry is locked — measured in the setup's `timeZone` |
 | `createdBy` | int | yes | `> 0`. Lands in `CreatedBy` on insert, `UpdatedBy` on update/revive. **Temporary** |
 
@@ -801,34 +836,38 @@ choose from, and nothing to check a chosen one against.
 > exact range `1`–`7` rather than for shape, because the lookup fixes the
 > vocabulary at seven rows.
 
-#### How `timeZone` is decided
+#### `countryId` and `timeZone` are stored verbatim
 
-**The country decides, not the caller.** `dbo.Country.TimeZone` lists a
-country's IANA zones, comma-separated, and the *count* of that list is the whole
-rule:
+**Neither is looked up, derived or cross-checked.** `dbo.Country` is not read on
+this path at all — whatever the payload carries is what lands in the row, on
+insert and on edit alike.
 
-| The country has | What to send | What gets stored |
-|---|---|---|
-| **One** zone — United Kingdom, Germany, India | Nothing. `timeZone` is not consulted, even if you send one | The country's zone |
-| **Several** — United States, Australia, Canada, Brazil | `timeZone`, and it must be one of theirs | The zone you named |
+| You send | What gets stored |
+|---|---|
+| `countryId: 233`, `timeZone: "America/Chicago"` | Exactly that pair |
+| `countryId: 232`, `timeZone: "America/Chicago"` | Exactly that pair — the mismatch is **not** rejected |
+| `countryId: 999999` (no such country) | `999999` — existence is **not** checked |
+| `timeZone` omitted | `null` |
+| `timeZone: "  "` | **400** — blank is rejected rather than stored |
 
-Call [endpoint 8](#8-get-apiv1adminget-country-timezones-by-countryidcountryid)
-first to find out which case you are in and what the options are; it reads the
-same column through the same splitter, so it can never offer a value this
-endpoint will refuse.
+So **the caller owns the pairing.** Build the choice from
+[endpoint 8](#8-get-apiv1adminget-country-list-with-timezones), which returns
+every country/zone pair with the zone spelled the way `dbo.Country` spells it,
+and send its `countryId` and `timeZone` back unchanged.
 
-No default is picked for a multi-zone country. "The first one listed" would
-silently put a New York employee's day on a Los Angeles clock.
+> **Changed 2026-09-22.** This endpoint used to *resolve* `timeZone` from the
+> country: a single-zone country supplied its own zone and ignored whatever you
+> sent, and a multi-zone country required `timeZone` to be one of its own or
+> answered 400. That is gone, along with the 404 for an unknown `countryId` and
+> the 400 for a country with no zones. Three failure modes fewer — and one
+> guarantee fewer: a stored zone is no longer necessarily one its country has.
 
-> Matching **ignores case and surrounding spaces** — `"europe/london"` is
-> accepted — but what gets stored is the country's own spelling, because IANA
-> ids are case-sensitive to every library that will later look one up. The
-> `timeZone` in the response is therefore the canonical form, which may differ
-> from what you sent.
-
-> A saved row can never hold a zone its country does not have. That is what
-> makes the cut-off on
-> [endpoint 3](#3-post-apiv1timelogsave-employee-time-log) trustworthy.
+> **A zone that names nothing real degrades quietly.** Nothing validates the id
+> against the system zone database, so a misspelling is stored happily and
+> [endpoint 3](#3-post-apiv1timelogsave-employee-time-log) then falls back to
+> **UTC** when it cannot resolve it — logging a warning, not failing. An
+> employee's cut-off would be judged on the wrong clock. Send ids from endpoint
+> 8 and this cannot happen.
 
 #### Example request
 
@@ -883,7 +922,7 @@ last changed a setup.
 | `endDay` | int? | A `dbo.DayMaster.DayID` |
 | `exceptionDay` | int? | A `dbo.DayMaster.DayID` — a day worked in addition to the normal week |
 | `countryId` | int? | |
-| `timeZone` | string? | The resolved IANA zone id — always one the country actually has, never simply what was sent |
+| `timeZone` | string? | The IANA zone id **exactly as it was sent** — not resolved, and not necessarily one the country has |
 | `timeEntryLockAt` | string? | `hh:mm:ss`, measured in `timeZone` |
 | `createdBy` | int? | audit |
 | `createDate` | datetime? | audit |
@@ -935,7 +974,7 @@ in the response if the client cares.
 | `createdBy <= 0` | `CreatedBy is required: the row records who created or changed it.` |
 | `organizationId <= 0` | `OrganizationId must be greater than 0 when it is supplied.` |
 | `contractType <= 0` | `ContractType must be greater than 0 when it is supplied.` |
-| `countryId` missing | `CountryId is required: it is what determines the setup's time zone.` |
+| `countryId` missing | `CountryId is required.` |
 | `countryId <= 0` | `CountryId must be greater than 0.` |
 | `timeZone` sent as `""` or whitespace | `TimeZone must not be blank when it is supplied; leave it out instead.` |
 | `timeZone` longer than 100 characters | `TimeZone must be 100 characters or fewer.` |
@@ -966,45 +1005,15 @@ that was sent and is malformed is, reported **one at a time**:
 }
 ```
 
-**400 — the time zone could not be resolved.** These come from `AdminService`,
-which reads `dbo.Country`, so they are reported one at a time:
-
-| Trigger | Where it appears | Message |
-|---|---|---|
-| Country spans several zones and `timeZone` named none of them — including when it was left out | `errors[]`, keyed `TimeZone` | `Country '233' spans 29 time zones, so TimeZone is required and must be one of: America/New_York, America/Detroit, …` |
-| The country exists but its `TimeZone` column is empty | `message` | `Country '91' has no time zone configured.` |
-
-The first names the field, because the caller can fix it by choosing from the
-list in the message. The second does not: the payload is fine and the lookup row
-is incomplete, so keying it on `TimeZone` would send them hunting for a mistake
-that is not theirs.
-
-```json
-{
-  "success": false,
-  "message": "One or more validation errors occurred.",
-  "data": null,
-  "errors": [
-    "TimeZone: Country '233' spans 29 time zones, so TimeZone is required and must be one of: America/New_York, America/Detroit, America/Kentucky/Louisville, ..."
-  ]
-}
-```
-
-**404 — no country has that id:**
-
-```json
-{
-  "success": false,
-  "message": "Country '9999' was not found.",
-  "data": null,
-  "errors": []
-}
-```
-
 **500** — unhandled defect.
 
-> A 404 here is always about the **country**, never the setup: a user with no
-> setup gets one created, so the save never fails to find *that*.
+> **No 404, and no country-related 400.** Both were removed on 2026-09-22 with
+> the time-zone resolution. Nothing on this path reads `dbo.Country`, so there
+> is no country to fail to find and no zone list to fail against. Every failure
+> this endpoint can now produce is a **shape** failure from the validator.
+>
+> The save also never fails to find the **setup**: a user who has none gets one
+> created.
 
 ---
 
@@ -1065,22 +1074,31 @@ GET /api/v1/Admin/get-user-timesheet-setup/101
 }
 ```
 
-#### Error responses
+#### When the user has no setup
 
-| Status | Cause |
-|---|---|
-| **404** | The user has no setup — **including one that was soft-deleted**. A global query filter hides deleted rows |
-| **404** | `userID` below 1 — no route matches |
-| **500** | Unhandled defect |
+**`200`, `success: true`, `data: null`** — not a 404, and that includes a setup
+that was **soft-deleted**, which the global query filter hides.
 
 ```json
 {
-  "success": false,
-  "message": "Timesheet setup for user '4242' was not found.",
+  "success": true,
+  "message": "This user has no timesheet setup.",
   "data": null,
   "errors": []
 }
 ```
+
+Finding an employee who has not been set up is one of the reasons to call this,
+so it is an answer rather than an error. Follow it with
+[endpoint 4](#4-post-apiv1adminsave-user-timesheet-setup), which needs no
+insert/update distinction — send the same payload either way.
+
+#### Error responses
+
+| Status | Cause |
+|---|---|
+| **404** | `userID` below 1 — no route matches. This is routing, not "no data" |
+| **500** | Unhandled defect |
 
 ---
 
@@ -1340,121 +1358,138 @@ reaches the service and is told what is wrong with it:
 
 ---
 
-### 8. GET `/api/v1/Admin/get-country-timezones-by-countryid/{countryID}`
+### 8. GET `/api/v1/Admin/get-country-list-with-timezones`
 
-**Purpose** — Return the time zones one country has, as a plain list of IANA
-ids.
+**Purpose** — Return every country paired with each of its time zones: the flat
+list a setup screen's country picker binds to.
 
-`dbo.Country.TimeZone` holds them comma-separated — one id for most countries,
-several for the United States, Australia, Canada, Brazil and the rest that span
-more than one. This unpacks that column so a setup screen can decide whether to
-ask the user at all.
+**One entry per time zone, not one per country.** `dbo.Country.TimeZone` holds a
+country's IANA zones comma-separated, and this unpacks the whole lookup — the
+United Kingdom is one entry, the United States is twenty-nine, and **all of them
+repeat the same `countryId`**. `countryId` is therefore *not* unique in the
+list; the country and the zone together identify an entry.
 
-**The country itself is not echoed back.** The caller passed its id in, so it
-already has it; `data` is the array of zones and nothing else.
+Each entry carries the parts **and** the joined label, so a client displays
+`optionValue` and sends `countryId` + `timeZone` straight back to the save,
+without ever splitting a string.
 
-#### Route parameters
+> Replaces the old `get-country-timezones-by-countryid/{countryID}`, which took
+> a country id and returned bare zone strings. That could only be called *after*
+> a country had been chosen, which is backwards — the client needs the list in
+> order to build the choice. One call at screen load now, instead of one per
+> country the user clicks.
 
-| Parameter | Type | Constraint |
-|---|---|---|
-| `countryID` | int | `:int` — deliberately **not** `:min(1)`, so a `0` reaches the service and is answered with a 400 that says what is wrong, rather than matching no route |
+#### Parameters
 
-> Spelled `countryID`, matching the route token character for character — see
-> [endpoint 5](#5-get-apiv1adminget-user-timesheet-setupuserid) for why the
-> casing matters in Swagger UI.
-
-No request body.
+None. No route parameter, no query string, no body.
 
 #### Example request
 
 ```http
-GET /api/v1/Admin/get-country-timezones-by-countryid/233
+GET /api/v1/Admin/get-country-list-with-timezones
 ```
 
 #### Success response — `200 OK`
 
-`data` is a **list of strings** — the country's IANA zone ids, **in the order
-the column lists them**, so the first is its primary zone and the sensible one
-to preselect.
+`data` is a **list of objects**:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `countryId` | int | The `dbo.Country.ID` — send this back as `countryId` on [endpoint 4](#4-post-apiv1adminsave-user-timesheet-setup). Repeated across every entry of a multi-zone country |
+| `countryName` | string | The country's name on its own — `"United States"`. `""` for the rare row whose `Name` column is null |
+| `timeZone` | string | The IANA zone id on its own — `"America/New_York"`. Send this back as `timeZone` on endpoint 4 |
+| `optionValue` | string | The two joined with a hyphen — `"United States-America/New_York"`. The label to display and to key a selection on |
 
 ```json
 {
   "success": true,
   "message": "",
   "data": [
-    "America/New_York",
-    "America/Detroit",
-    "America/Chicago",
-    "America/Denver",
-    "America/Los_Angeles"
+    {
+      "countryId": 13,
+      "countryName": "Australia",
+      "timeZone": "Australia/Sydney",
+      "optionValue": "Australia-Australia/Sydney"
+    },
+    {
+      "countryId": 13,
+      "countryName": "Australia",
+      "timeZone": "Australia/Perth",
+      "optionValue": "Australia-Australia/Perth"
+    },
+    {
+      "countryId": 101,
+      "countryName": "India",
+      "timeZone": "Asia/Kolkata",
+      "optionValue": "India-Asia/Kolkata"
+    },
+    {
+      "countryId": 232,
+      "countryName": "United Kingdom",
+      "timeZone": "Europe/London",
+      "optionValue": "United Kingdom-Europe/London"
+    },
+    {
+      "countryId": 233,
+      "countryName": "United States",
+      "timeZone": "America/New_York",
+      "optionValue": "United States-America/New_York"
+    },
+    {
+      "countryId": 233,
+      "countryName": "United States",
+      "timeZone": "America/Chicago",
+      "optionValue": "United States-America/Chicago"
+    }
   ],
   "errors": []
 }
 ```
 
-A single-zone country returns a one-entry list:
+#### Order
 
-```json
-{
-  "success": true,
-  "message": "",
-  "data": ["Asia/Kolkata"],
-  "errors": []
-}
-```
+Countries by **name**, sorted by SQL Server; within a country, its zones in the
+order the column lists them — so a country's **first** entry is its primary zone
+and the sensible one to preselect.
+
+#### What is not in the list
+
+A country whose `TimeZone` column has never been filled in contributes **no
+entries at all**. [Endpoint 4](#4-post-apiv1adminsave-user-timesheet-setup)
+answers 400 for such a country, and a picker should only hold answers that work.
+It is invisible here rather than unselectable — if a country is missing from
+this list, its `dbo.Country` row needs a time zone.
 
 #### How the client uses it
 
-| `data.length` | What the setup screen should do |
+Bind the dropdown's **text** to `optionValue` and its **value** to the entry's
+`countryId` + `timeZone`. Then:
+
+| The country appears | What the setup screen should do |
 |---|---|
-| **1** | Do not ask. `save-user-timesheet-setup` stores that zone whatever the payload says |
-| **more than 1** | Show a picker of exactly these values. The save **requires** `timeZone` and requires it to be one of them |
-| **0** | The country has no zones recorded. The save will answer 400 — an administrator has to fix the `dbo.Country` row |
+| **once** | Selecting it is the whole answer. `save-user-timesheet-setup` stores that zone whatever `timeZone` in the payload says |
+| **more than once** | Each entry is a separate selectable row. The save **requires** `timeZone`, and it is the selected entry's `timeZone` field verbatim |
+| **not at all** | The country has no zones recorded and cannot be saved against |
 
 This endpoint and the save read the same column through the same splitter, so
-the picker can never offer a value the save then rejects.
+the picker can never offer a pairing the save then rejects.
+
+> Never parse `optionValue` to get the zone back — `timeZone` is right there in
+> the same entry, in the country's own spelling, which is what the save matches
+> against.
 
 #### Empty result
 
-A country whose `TimeZone` column has never been filled in is **200 with an
-empty list**, not a 404 — the country exists, it simply has no zones yet:
-
-```json
-{
-  "success": true,
-  "message": "",
-  "data": [],
-  "errors": []
-}
-```
+Only if `dbo.Country` holds no time zones whatsoever — `200` with an empty list.
 
 #### Error responses
 
 | Status | Cause |
 |---|---|
-| **400** | `countryID` is `0` or negative |
-| **404** | No country has that id |
 | **500** | Unhandled defect |
 
-```json
-{
-  "success": false,
-  "message": "One or more validation errors occurred.",
-  "data": null,
-  "errors": [
-    "countryID: countryID is required and must be greater than 0."
-  ]
-}
-```
-
-```json
-{
-  "success": false,
-  "message": "Country '9999' was not found.",
-  "data": null,
-  "errors": []
-}
-```
+There is no 400 and no 404: the endpoint takes no input, so there is nothing to
+reject and nothing to fail to find.
 
 ---
 
@@ -1522,13 +1557,13 @@ authentication is off.
 | # | Method | Route | Purpose | Request | Success `data` | Failures |
 |---|---|---|---|---|---|---|
 | 1 | POST | `/api/v1/TimeLog/get-time-logged-details` | Entries for a user + task in a date range, with totals | `TimeLoggedDetailsForTaskRequest` | `TimeLoggedDetailsForTaskResponse` | 400, 500 |
-| 2 | GET | `/api/v1/TimeLog/get-timesheet-setup-by-user/{userId}` | A user's timesheet limits, country and time zone (screen view) | route param | `TimesheetMasterSetupResponse` | 404, 500 |
+| 2 | GET | `/api/v1/TimeLog/get-timesheet-setup-by-user/{userId}` | A user's timesheet limits, country and time zone (screen view) | route param | `TimesheetMasterSetupResponse`, or `null` when they have none | 500 |
 | 3 | POST | `/api/v1/TimeLog/save-employee-time-log` | Log one block of time (insert only) | `TimeLogSaveRequest` | `TimeLogResponse` | 400, 409, 500 |
-| 4 | POST | `/api/v1/Admin/save-user-timesheet-setup` | Add / update / revive a user's setup; resolves its time zone from the country | `AdminSaveRequest` | `AdminResponse` | 400, 404, 500 |
-| 5 | GET | `/api/v1/Admin/get-user-timesheet-setup/{userID}` | A user's setup (admin view, whole row) | route param | `AdminResponse` | 404, 500 |
+| 4 | POST | `/api/v1/Admin/save-user-timesheet-setup` | Add / update / revive a user's setup; stores `countryId` and `timeZone` as sent | `AdminSaveRequest` | `AdminResponse` | 400, 500 |
+| 5 | GET | `/api/v1/Admin/get-user-timesheet-setup/{userID}` | A user's setup (admin view, whole row) | route param | `AdminResponse`, or `null` when they have none | 500 |
 | 6 | POST | `/api/v1/Admin/delete-timesheet-setup` | Soft-delete a setup | `AdminDeleteRequest` | `null` | 400, 404, 500 |
 | 7 | GET | `/api/v1/Admin/get-all-employees-by-orgid/{orgID}` | An organisation's employees, countries + head-count totals | route param | `EmployeeListResponse` | 400, 500 |
-| 8 | GET | `/api/v1/Admin/get-country-timezones-by-countryid/{countryID}` | A country's IANA time zones | route param | `string[]` | 400, 404, 500 |
+| 8 | GET | `/api/v1/Admin/get-country-list-with-timezones` | Every country paired with each of its time zones, one entry per zone | — | `CountryTimeZoneResponse[]` (`countryId`, `countryName`, `timeZone`, `optionValue`) | 500 |
 | — | GET | `/health`, `/health/live`, `/health/ready` | Liveness / readiness | — | *(unenveloped)* | 503 |
 
 ---

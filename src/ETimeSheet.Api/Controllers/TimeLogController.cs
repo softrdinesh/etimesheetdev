@@ -57,17 +57,31 @@ public class TimeLogController : ControllerBase
     /// <summary>
     /// Returns the timesheet setup for the given user: their maximum loggable
     /// time, contract type and the bounds of their timesheet week.
+    /// <para>
+    /// <b>A user with no setup is a 200, not a 404</b> - <c>success: true</c>
+    /// with <c>data: null</c> and a message saying so. The read succeeded; the
+    /// answer is that there is no row. <c>success: false</c> is reserved for a
+    /// caller who has something to fix.
+    /// </para>
     /// </summary>
-    /// <response code="404">The user has no timesheet setup row.</response>
+    /// <response code="200">
+    /// The user's setup, or <c>null</c> when they have none. Check <c>data</c>,
+    /// not the status code.
+    /// </response>
     [HttpGet("get-timesheet-setup-by-user/{userId:int:min(1)}")]
     [ProducesResponseType(typeof(ApiResponse<TimesheetMasterSetupResponse>), StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetTimesheetSetupByUser(
         [FromRoute] int userId,
         CancellationToken cancellationToken)
     {
         var result = await _timeLogService.GetTimesheetMasterSetupByUserIdAsync(userId, cancellationToken);
-        return Ok(ApiResponse.Ok(result));
+
+        // The message is what distinguishes "nothing there" from "here it is",
+        // now that both are success: true. data is null in the first case and an
+        // object in the second, so a client can branch on either.
+        return Ok(result is null
+            ? ApiResponse.Ok(result, "This user has no timesheet setup.")
+            : ApiResponse.Ok(result));
     }
 
     /// <summary>

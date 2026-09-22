@@ -64,11 +64,18 @@ public class TimesheetMasterSetup
     /// The IANA time zone this setup's times are read in - <b>exactly one id</b>,
     /// such as <c>"Europe/London"</c>. <c>nvarchar(100)</c>.
     /// <para>
-    /// Derived from <see cref="CountryId"/> rather than taken on trust: a
-    /// country with one zone supplies it, and a country with several has the
-    /// caller choose one of them. <c>AdminService</c> is what decides, and
-    /// <c>dbo.Country.TimeZone</c> is the list it chooses from - so a value here
-    /// is always a zone the country actually has.
+    /// <b>Whatever the save payload sent.</b> It is not derived from
+    /// <see cref="CountryId"/> and not checked against
+    /// <c>dbo.Country.TimeZone</c>, so a value here is <b>not</b> guaranteed to
+    /// be a zone that country has, nor to be an id
+    /// <see cref="TimeZoneInfo.FindSystemTimeZoneById"/> will accept. Anything
+    /// reading this column has to cope with that.
+    /// </para>
+    /// <para>
+    /// It was resolved from the country until 2026-09-22, which made the
+    /// guarantee above hold. That was removed deliberately: the pairing is the
+    /// caller's to get right, built from
+    /// <c>get-country-list-with-timezones</c>.
     /// </para>
     /// <para>
     /// Not a <see cref="TimeZoneInfo"/> and not an offset: an id, because an
