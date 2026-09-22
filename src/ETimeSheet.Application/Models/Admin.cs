@@ -51,37 +51,61 @@ public class AdminSaveRequest
     public int UserId { get; set; }
 
     /// <summary>
-    /// Maximum time loggable, as a string in <c>hh:mm:ss</c> rather than a
-    /// number: 8 hours is <c>"08:00:00"</c>. The column is <c>time(7)</c>, so
-    /// the value must be inside a single day.
+    /// The hours half of the daily maximum, as a string in <c>hh:mm:ss</c>
+    /// rather than a number: 8 hours is <c>"08:00:00"</c>.
+    /// <b>Required</b>, and between <c>"00:00:00"</c> and <c>"23:00:00"</c>
+    /// inclusive - a whole day's worth of hours is the most this can mean, and
+    /// the minutes travel separately in <see cref="MaxTimInMins"/>.
     /// <para>
     /// A string rather than a <c>TimeSpan</c>, as on every time input in this
     /// API: the contract is one exact format, and <c>AdminService</c> is what
-    /// reads it. See <see cref="ETimeSheet.Shared.Utilities.TimeOfDay"/>.
+    /// reads it - including the required-ness and the range, neither of which
+    /// can be stated without parsing. See
+    /// <see cref="ETimeSheet.Shared.Utilities.TimeOfDay"/>.
     /// </para>
     /// </summary>
+    /// <example>08:00:00</example>
     public string? MaxTimeInHrs { get; set; }
 
-    /// <summary>Companion to <see cref="MaxTimeInHrs"/>, also a <c>time(7)</c> and also <c>hh:mm:ss</c>.</summary>
+    /// <summary>
+    /// The minutes that go with <see cref="MaxTimeInHrs"/> - the remainder, not
+    /// a second quantity. <b>Required</b>, and between <c>"00:00:00"</c> and
+    /// <c>"00:59:00"</c> inclusive, so it can never carry an hour of its own and
+    /// double-count.
+    /// </summary>
+    /// <example>00:30:00</example>
     public string? MaxTimInMins { get; set; }
 
+    /// <summary>The organisation this setup belongs to. <b>Required</b>, and greater than 0.</summary>
     public int? OrganizationId { get; set; }
 
+    /// <summary>
+    /// The contract. <b>Required</b>, and exactly <c>1</c> (Full Time) or
+    /// <c>2</c> (Part Time) - the vocabulary is fixed at two values by
+    /// <c>spc_GetEmployeeListByPOrgID</c>, which names those and returns null
+    /// for anything else.
+    /// </summary>
     public int? ContractType { get; set; }
 
     /// <summary>
     /// First day of the timesheet week - a <c>dbo.DayMaster.DayID</c>: 1 =
     /// Monday, 2 = Tuesday ... 7 = Sunday. Send 1, not <c>"MO"</c>; the column
     /// stopped being a two-letter code on 2026-09-17.
+    /// <b>Required</b>, and between 1 and 7.
     /// </summary>
     public int? StartDay { get; set; }
 
-    /// <summary>Last day of the timesheet week. A day id, as <see cref="StartDay"/>. Send it with <see cref="StartDay"/> or not at all.</summary>
+    /// <summary>
+    /// Last day of the timesheet week. A day id, as <see cref="StartDay"/>.
+    /// <b>Required</b>, and between 1 and 7.
+    /// </summary>
     public int? EndDay { get; set; }
 
     /// <summary>
     /// A day worked in addition to the normal week - also a
     /// <c>dbo.DayMaster.DayID</c>. Send 7 for Sunday, not <c>"SUN"</c>.
+    /// <b>Optional</b> - the only one of the three day fields that is, because
+    /// most setups have no exception day at all. Between 1 and 7 when sent.
     /// </summary>
     public int? ExceptionDay { get; set; }
 
@@ -103,13 +127,15 @@ public class AdminSaveRequest
 
     /// <summary>
     /// The IANA time zone for this setup - <b>one</b> id, such as
-    /// <c>"America/New_York"</c>. Optional; leave it out to store no zone.
+    /// <c>"America/New_York"</c>. <b>Required</b>, and required to have a
+    /// value: null, <c>""</c> and whitespace are all refused, so sending the
+    /// field is not the same as sending a zone. Maximum 100 characters, the
+    /// column's width.
     /// <para>
     /// <b>Stored exactly as sent.</b> It is not resolved from
     /// <see cref="CountryId"/>, not matched against the country's zone list, and
-    /// not checked for being a real IANA id. The only rules are shape: a value
-    /// that is present may not be blank, and must fit the <c>nvarchar(100)</c>
-    /// column.
+    /// not checked for being a real IANA id. Presence and length are the only
+    /// rules it gets.
     /// </para>
     /// <para>
     /// So <b>the caller owns the pairing</b> - nothing here will stop a setup
@@ -123,7 +149,13 @@ public class AdminSaveRequest
     /// <example>America/New_York</example>
     public string? TimeZone { get; set; }
 
-    /// <summary>Time of day after which entry is locked, as <c>hh:mm:ss</c> - for example <c>"18:00:00"</c>.</summary>
+    /// <summary>
+    /// Time of day after which entry is locked, as <c>hh:mm:ss</c> - for example
+    /// <c>"18:00:00"</c>. <b>Optional</b>: leave it out and the setup has no
+    /// cut-off. Any time of day, <c>"00:00:00"</c> to <c>"23:59:59"</c> - it is
+    /// a moment in the day rather than a duration, so neither of the narrower
+    /// bounds above applies to it.
+    /// </summary>
     public string? TimeEntryLockAt { get; set; }
 
     // CanUserLoggedPreDayTime is deliberately absent: it is not a column on
@@ -596,8 +628,13 @@ public class CountryTimeZoneResponse
 /// inserting, updating or reviving, and the same parsed value is what every
 /// branch writes.
 /// </para>
+/// <para>
+/// The first two are <b>not nullable</b>, unlike the columns they land in:
+/// they became required fields on 2026-09-22, so by the time this exists both
+/// have a value. Only <see cref="TimeEntryLockAt"/> can still be absent.
+/// </para>
 /// </summary>
 internal readonly record struct TimesheetSetupTimes(
-    TimeSpan? MaxTimeInHrs,
-    TimeSpan? MaxTimInMins,
+    TimeSpan MaxTimeInHrs,
+    TimeSpan MaxTimInMins,
     TimeSpan? TimeEntryLockAt);

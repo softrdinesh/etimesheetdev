@@ -804,8 +804,11 @@ sending the wrong id.
 
 #### Request body — `AdminSaveRequest`
 
-`userId`, `countryId` and `createdBy` are required; every other field is
-optional, mirroring the table — every column other than the key is nullable.
+**Almost everything is required.** As of 2026-09-22 the only optional fields
+are `exceptionDay` and `timeEntryLockAt`; every other field in the table below
+must be sent with a usable value. The columns behind them are nearly all
+nullable, so this is a contract decision, not a database one — a half-filled
+setup is a setup nothing downstream can compute a week from.
 
 `countryId` is required **even though its column is nullable** — a timesheet
 setup that names no country is not a setup anyone asked for. It is required, not
@@ -815,16 +818,16 @@ with that id exists.
 | Field | Type | Required | Rules |
 |---|---|---|---|
 | `userId` | int | yes | `> 0` — identifies the row to save |
-| `maxTimeInHrs` | string? | no | `hh:mm:ss`, `00:00:00`–`23:59:59` — e.g. `"08:00:00"` |
-| `maxTimInMins` | string? | no | `hh:mm:ss`, `00:00:00`–`23:59:59` |
-| `organizationId` | int? | no | `> 0` when supplied |
-| `contractType` | int? | no | `> 0` when supplied |
-| `startDay` | int? | no | a `dbo.DayMaster.DayID`, `1`–`7` (1 = Monday … 7 = Sunday). Must be supplied together with `endDay` |
-| `endDay` | int? | no | a `dbo.DayMaster.DayID`, `1`–`7`. Must be supplied together with `startDay` |
-| `exceptionDay` | int? | no | a `dbo.DayMaster.DayID`, `1`–`7`. A day worked *in addition* to the normal week |
+| `maxTimeInHrs` | string? | **yes** | `hh:mm:ss`, **`00:00:00`–`23:00:00`** — e.g. `"08:00:00"`. The *hours* half of the daily maximum |
+| `maxTimInMins` | string? | **yes** | `hh:mm:ss`, **`00:00:00`–`00:59:00`** — e.g. `"00:30:00"`. The *minutes* that go with `maxTimeInHrs`, so it can never carry an hour of its own |
+| `organizationId` | int? | **yes** | `> 0` |
+| `contractType` | int? | **yes** | exactly `1` (Full Time) or `2` (Part Time). Nothing else — a `3` is refused, not stored as an unnamed contract |
+| `startDay` | int? | **yes** | a `dbo.DayMaster.DayID`, `1`–`7` (1 = Monday … 7 = Sunday) |
+| `endDay` | int? | **yes** | a `dbo.DayMaster.DayID`, `1`–`7` |
+| `exceptionDay` | int? | no | a `dbo.DayMaster.DayID`, `1`–`7`. A day worked *in addition* to the normal week. **The only optional day field** |
 | `countryId` | int? | **yes** | `> 0`. A `dbo.Country.ID`. **Stored as sent** — its existence is not checked |
-| `timeZone` | string? | no | One IANA zone id, e.g. `"America/New_York"`. **Stored as sent.** Non-blank and ≤ 100 chars when supplied; leave it out to store none |
-| `timeEntryLockAt` | string? | no | `hh:mm:ss`, `00:00:00`–`23:59:59`. Time of day after which entry is locked — measured in the setup's `timeZone` |
+| `timeZone` | string? | **yes** | One IANA zone id, e.g. `"America/New_York"`. **Stored as sent.** Must carry a value — `null`, `""` and whitespace are all refused — and be ≤ 100 chars |
+| `timeEntryLockAt` | string? | no | `hh:mm:ss`, `00:00:00`–`23:59:59`. Time of day after which entry is locked — measured in the setup's `timeZone`. A moment in the day, so the narrower bounds above do not apply |
 | `createdBy` | int | yes | `> 0`. Lands in `CreatedBy` on insert, `UpdatedBy` on update/revive. **Temporary** |
 
 > `canUserLoggedPreDayTime` is deliberately **absent** from this payload — it is
@@ -835,6 +838,15 @@ with that id exists.
 > 2026-09-17. They are `dbo.DayMaster` ids now, and are validated against the
 > exact range `1`–`7` rather than for shape, because the lookup fixes the
 > vocabulary at seven rows.
+
+> **Where each rule is enforced, and why you get one time error at a time.**
+> Everything except the three time fields is checked by the validator, which
+> reports **all** its failures together in `errors[]`. The time fields are read
+> by `AdminService` through the single `TimeOfDay` parser — being required and
+> being in range both need the value parsed, so they cannot be stated in a
+> validator that is forbidden from parsing. Service checks stop at the first
+> failure, so a payload with two bad times reports the first one only, and you
+> will see the second after fixing it.
 
 #### `countryId` and `timeZone` are stored verbatim
 
@@ -888,21 +900,33 @@ and send its `countryId` and `timeZone` back unchanged.
 }
 ```
 
-India has a single zone, so the `timeZone` above is ignored and
-`"Asia/Kolkata"` is stored because the country says so. For the United States it
-would be required, and would have to be one of that country's twenty-nine.
+`"Asia/Kolkata"` is stored because that is what was sent — the country is not
+consulted. See [`countryId` and `timeZone` are stored verbatim](#countryid-and-timezone-are-stored-verbatim).
 
 #### Minimal request
+
+Only `exceptionDay` and `timeEntryLockAt` can be left out, so the minimum is
+almost the whole payload:
 
 ```json
 {
   "userId": 101,
+  "maxTimeInHrs": "08:00:00",
+  "maxTimInMins": "00:30:00",
+  "organizationId": 3,
+  "contractType": 1,
+  "startDay": 1,
+  "endDay": 5,
   "countryId": 91,
+  "timeZone": "Asia/Kolkata",
   "createdBy": 9
 }
 ```
 
-`countryId` is part of the minimum, and is stored exactly as sent.
+> This used to be `userId`, `countryId` and `createdBy` alone. Everything else
+> became mandatory on 2026-09-22 — a setup missing its hours, its week or its
+> contract is one nothing downstream can compute a week from, and it was being
+> accepted and stored.
 
 #### Success response — `200 OK`
 
@@ -976,26 +1000,41 @@ in the response if the client cares.
 |---|---|
 | `userId <= 0` | `UserId is required: a setup must belong to a user.` |
 | `createdBy <= 0` | `CreatedBy is required: the row records who created or changed it.` |
-| `organizationId <= 0` | `OrganizationId must be greater than 0 when it is supplied.` |
-| `contractType <= 0` | `ContractType must be greater than 0 when it is supplied.` |
+| `organizationId` missing | `OrganizationId is required.` |
+| `organizationId <= 0` | `OrganizationId must be greater than 0.` |
+| `contractType` missing | `ContractType is required.` |
+| `contractType` not 1 or 2 | `ContractType must be 1 (Full Time) or 2 (Part Time).` |
 | `countryId` missing | `CountryId is required.` |
 | `countryId <= 0` | `CountryId must be greater than 0.` |
-| `timeZone` sent as `""` or whitespace | `TimeZone must not be blank when it is supplied; leave it out instead.` |
+| `timeZone` missing, `""` or whitespace | `TimeZone is required.` |
 | `timeZone` longer than 100 characters | `TimeZone must be 100 characters or fewer.` |
+| `startDay` missing | `StartDay is required.` |
 | `startDay` out of range | `StartDay must be a DayMaster day id between 1 (Monday) and 7 (Sunday).` |
+| `endDay` missing | `EndDay is required.` |
 | `endDay` out of range | `EndDay must be a DayMaster day id between 1 (Monday) and 7 (Sunday).` |
 | `exceptionDay` out of range | `ExceptionDay must be a DayMaster day id between 1 (Monday) and 7 (Sunday).` |
-| Only one end of the week supplied | `StartDay and EndDay must be supplied together.` |
 
-The three time fields are read by `AdminService` rather than the validator, for
-the same reason as on the time-log write. An absent one is not an error; one
-that was sent and is malformed is, reported **one at a time**:
+**400 — the time fields.** These are read by `AdminService` rather than the
+validator, for the same reason as on the time-log write, and are reported **one
+at a time** — the service stops at the first thing it cannot accept.
+
+`maxTimeInHrs` and `maxTimInMins` are now **required**, so an absent one is an
+error; `timeEntryLockAt` is still optional, and absent is simply `null`.
 
 | Trigger | Message |
 |---|---|
-| `maxTimeInHrs` malformed or out of range | `MaxTimeInHrs must be a time of day in hh:mm:ss format, between "00:00:00" and "23:59:59" - for example "09:00:00".` |
-| `maxTimInMins` malformed or out of range | `MaxTimInMins must be a time of day in hh:mm:ss format, between "00:00:00" and "23:59:59" - for example "09:00:00".` |
-| `timeEntryLockAt` malformed or out of range | `TimeEntryLockAt must be a time of day in hh:mm:ss format, between "00:00:00" and "23:59:59" - for example "09:00:00".` |
+| `maxTimeInHrs` missing | `MaxTimeInHrs is required, as a time of day in hh:mm:ss format - for example "09:00:00".` |
+| `maxTimeInHrs` malformed, or outside a day | `MaxTimeInHrs must be a time of day in hh:mm:ss format, between "00:00:00" and "23:59:59" - for example "09:00:00".` |
+| `maxTimeInHrs` above `23:00:00` | `MaxTimeInHrs must be between "00:00:00" and "23:00:00".` |
+| `maxTimInMins` missing | `MaxTimInMins is required, as a time of day in hh:mm:ss format - for example "09:00:00".` |
+| `maxTimInMins` malformed, or outside a day | `MaxTimInMins must be a time of day in hh:mm:ss format, between "00:00:00" and "23:59:59" - for example "09:00:00".` |
+| `maxTimInMins` above `00:59:00` | `MaxTimInMins must be between "00:00:00" and "00:59:00".` |
+| `timeEntryLockAt` sent and malformed | `TimeEntryLockAt must be a time of day in hh:mm:ss format, between "00:00:00" and "23:59:59" - for example "09:00:00".` |
+
+> Two messages per bounded field, deliberately. `"25:00:00"` is not a time of
+> day at all and gets the format message; `"23:30:00"` is a perfectly good time
+> that this particular field does not accept, and gets the range one. Telling a
+> caller their valid time is malformed would send them looking for a typo.
 
 ```json
 {
@@ -1004,7 +1043,8 @@ that was sent and is malformed is, reported **one at a time**:
   "data": null,
   "errors": [
     "UserId: UserId is required: a setup must belong to a user.",
-    "StartDay: StartDay and EndDay must be supplied together."
+    "EndDay: EndDay is required.",
+    "TimeZone: TimeZone is required."
   ]
 }
 ```
@@ -1248,11 +1288,17 @@ the procedure and passed straight through; the API adds only the `summary`.
 GET /api/v1/Admin/get-all-employees-by-orgid/700
 ```
 
-> **"Employee" is the procedure's definition, not the API's** — `dbo.Signup`
-> filtered on `RoleID = 2`. That does **not** line up with
-> [`RoleType`](#roletype), where `2` is `Manager`. The two vocabularies genuinely
-> differ and nothing reconciles them; the endpoint returns whatever the procedure
-> considers an employee.
+> **This is everyone in the organisation, not just employees.** Until
+> 2026-09-22 the procedure filtered `dbo.Signup` on `RoleID = 2`; that predicate
+> is now commented out, so administrators and managers appear in the grid and
+> in its head-count summary alongside employees. The only filters left are the
+> organisation and `isdelete = 0`, which excludes soft-deleted people.
+>
+> The endpoint's route and field names still say "employee" — they predate the
+> change. If the role filter comes back, note for then: `RoleID = 2` meant
+> "employee" to the procedure, which does **not** line up with
+> [`RoleType`](#roletype), where `2` is `Manager`. The two vocabularies
+> genuinely differ and nothing reconciles them.
 
 #### Success response — `200 OK`
 

@@ -83,16 +83,23 @@ public interface IAdminRepository
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Returns every employee in one organisation, by executing
+    /// Returns everyone in one organisation, by executing
     /// <c>dbo.spc_GetEmployeeListByPOrgID</c>.
     /// <para>
-    /// The procedure decides what "employee" means - it filters
-    /// <c>dbo.Signup</c> on <c>RoleID = 2</c> - and computes the contracted and
-    /// logged weekly time itself. Nothing here re-derives any of that; the rows
-    /// come back as the procedure produced them.
+    /// <b>"Everyone", not "every employee".</b> The procedure filtered
+    /// <c>dbo.Signup</c> on <c>RoleID = 2</c> until 2026-09-22, when that
+    /// predicate was commented out; it now selects on the organisation and
+    /// <c>isdelete = 0</c> alone, so administrators and managers are in these
+    /// rows too. The name of this method is the one it was given when the filter
+    /// existed.
     /// </para>
     /// <para>
-    /// An employee with no timesheet setup is <b>included</b>, with a null
+    /// The procedure computes the contracted and logged weekly time itself.
+    /// Nothing here re-derives any of that; the rows come back as the procedure
+    /// produced them.
+    /// </para>
+    /// <para>
+    /// Somebody with no timesheet setup is <b>included</b>, with a null
     /// <c>SetupID</c>: the procedure LEFT JOINs the setup table. Counting those
     /// is the service's job, not this one's.
     /// </para>

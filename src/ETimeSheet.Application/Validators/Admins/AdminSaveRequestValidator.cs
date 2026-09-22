@@ -13,11 +13,20 @@ namespace ETimeSheet.Application.Validators.Admins;
 /// <c>AdminService</c>.
 /// </para>
 /// <para>
-/// <b>The three time fields are deliberately absent.</b> They arrive as
-/// <c>hh:mm:ss</c> strings and are read by <c>AdminService</c> through
+/// <b>The three time fields are deliberately absent</b>, including the two that
+/// are now mandatory. They arrive as <c>hh:mm:ss</c> strings and are read by
+/// <c>AdminService</c> through
 /// <see cref="ETimeSheet.Shared.Utilities.TimeOfDay"/>, so that one parser
 /// decides what a time of day is for the whole API. Re-checking the format here
 /// would be a second opinion that can drift from the first.
+/// </para>
+/// <para>
+/// That covers their being required too, and their ranges.
+/// <c>TimeOfDay.Parse</c> already fails a missing value with a message keyed on
+/// the field, and "between 00:00:00 and 23:00:00" cannot be stated without the
+/// parsed <see cref="System.TimeSpan"/> - so both live beside the parse, in the
+/// service (CLAUDE.md §12). A <c>NotEmpty</c> here would be a second answer to
+/// a question already answered.
 /// </para>
 /// </summary>
 public class AdminSaveRequestValidator : AbstractValidator<AdminSaveRequest>
@@ -35,10 +44,17 @@ public class AdminSaveRequestValidator : AbstractValidator<AdminSaveRequest>
             .GreaterThan(0)
             .WithMessage("CreatedBy is required: the row records who created or changed it.");
 
-        // Optional foreign keys: absent is fine, present-but-nonsense is not.
+        // Mandatory since 2026-09-22, and every one of these is a pair of rules
+        // rather than one: the caller is told which of "you left it out" and
+        // "you sent something out of range" happened, and a null never reaches
+        // the range rule to be reported as a nonsense value.
+        RuleFor(request => request.OrganizationId)
+            .NotNull()
+            .WithMessage("OrganizationId is required.");
+
         RuleFor(request => request.OrganizationId!.Value)
             .GreaterThan(0)
-            .WithMessage("OrganizationId must be greater than 0 when it is supplied.")
+            .WithMessage("OrganizationId must be greater than 0.")
             // OverridePropertyName, not WithName: without it the client is told
             // the field is called "OrganizationId.Value" - a C# detail, and not
             // a field it ever sent. WithName only changes the {PropertyName}
@@ -48,9 +64,21 @@ public class AdminSaveRequestValidator : AbstractValidator<AdminSaveRequest>
             .OverridePropertyName(nameof(AdminSaveRequest.OrganizationId))
             .When(request => request.OrganizationId.HasValue);
 
+        RuleFor(request => request.ContractType)
+            .NotNull()
+            .WithMessage("ContractType is required.");
+
+        // An exact membership test, not "greater than 0". The column's
+        // vocabulary is fixed at two values by spc_GetEmployeeListByPOrgID,
+        // which spells 1 and 2 out and returns null for anything else - so a 3
+        // is not an unnamed contract, it is a row nothing downstream can read.
         RuleFor(request => request.ContractType!.Value)
-            .GreaterThan(0)
-            .WithMessage("ContractType must be greater than 0 when it is supplied.")
+            .Must(contractType =>
+                contractType == Constants.TimesheetMasterSetup.ContractType.FullTime ||
+                contractType == Constants.TimesheetMasterSetup.ContractType.PartTime)
+            .WithMessage(
+                $"ContractType must be {Constants.TimesheetMasterSetup.ContractType.FullTime} (Full Time) " +
+                $"or {Constants.TimesheetMasterSetup.ContractType.PartTime} (Part Time).")
             .OverridePropertyName(nameof(AdminSaveRequest.ContractType))
             .When(request => request.ContractType.HasValue);
 
@@ -71,26 +99,27 @@ public class AdminSaveRequestValidator : AbstractValidator<AdminSaveRequest>
             .OverridePropertyName(nameof(AdminSaveRequest.CountryId))
             .When(request => request.CountryId.HasValue);
 
-        // Shape only, and shape is now the ONLY check this field gets: the save
-        // stores whatever arrives, so nothing downstream will notice a zone that
-        // its country does not have, or one that is not an IANA id at all. These
-        // two rules are the whole guard - a value that was sent has to be a real
-        // value and has to fit the nvarchar(100) column.
+        // Mandatory since 2026-09-22, and mandatory means a VALUE: NotEmpty
+        // rejects null, "" and whitespace alike, so "I sent the field" is not
+        // the same as "I sent a time zone".
         //
-        // Deliberately still not a format or membership rule. Both need
-        // dbo.Country or the system's zone database, and a validator may not
-        // read either (CLAUDE.md §12); the caller owns that consistency and
-        // builds its choice from get-country-list-with-timezones.
-        RuleFor(request => request.TimeZone!)
+        // Shape is still the only check it gets. The save stores whatever
+        // arrives, so nothing downstream will notice a zone its country does not
+        // have, or one that is not an IANA id at all - and neither can be
+        // checked here, because both need dbo.Country or the system's zone
+        // database and a validator may not read either (CLAUDE.md §12). The
+        // caller owns that consistency and builds its choice from
+        // get-country-list-with-timezones.
+        RuleFor(request => request.TimeZone)
             .NotEmpty()
-            .WithMessage("TimeZone must not be blank when it is supplied; leave it out instead.")
+            .WithMessage("TimeZone is required.")
             .MaximumLength(100)
-            .WithMessage("TimeZone must be 100 characters or fewer.")
-            .OverridePropertyName(nameof(AdminSaveRequest.TimeZone))
-            .When(request => request.TimeZone is not null);
+            .WithMessage("TimeZone must be 100 characters or fewer.");
 
-        // MaxTimeInHrs, MaxTimInMins and TimeEntryLockAt are not validated here.
-        // See the class summary: AdminService reads all three through TimeOfDay.
+        // MaxTimeInHrs, MaxTimInMins and TimeEntryLockAt are not validated here,
+        // not even for presence. See the class summary: AdminService reads all
+        // three through TimeOfDay, which is also what enforces that the first
+        // two are required and what checks their ranges.
 
         // Day ids. These became dbo.DayMaster.DayID references on 2026-09-17,
         // which is what makes an exact range checkable at all: the lookup holds
@@ -102,11 +131,19 @@ public class AdminSaveRequestValidator : AbstractValidator<AdminSaveRequest>
         // The check is a range, not a database lookup: a validator may not read
         // the database (see CLAUDE.md §12), and the seven rows are fixed
         // reference data that ships with the schema.
+        RuleFor(request => request.StartDay)
+            .NotNull()
+            .WithMessage("StartDay is required.");
+
         RuleFor(request => request.StartDay!.Value)
             .InclusiveBetween(Constants.DayMaster.DayId.Monday, Constants.DayMaster.DayId.Sunday)
             .WithMessage(DayIdMessage("StartDay"))
             .OverridePropertyName(nameof(AdminSaveRequest.StartDay))
             .When(request => request.StartDay.HasValue);
+
+        RuleFor(request => request.EndDay)
+            .NotNull()
+            .WithMessage("EndDay is required.");
 
         RuleFor(request => request.EndDay!.Value)
             .InclusiveBetween(Constants.DayMaster.DayId.Monday, Constants.DayMaster.DayId.Sunday)
@@ -114,17 +151,18 @@ public class AdminSaveRequestValidator : AbstractValidator<AdminSaveRequest>
             .OverridePropertyName(nameof(AdminSaveRequest.EndDay))
             .When(request => request.EndDay.HasValue);
 
+        // ExceptionDay alone stays OPTIONAL: it is a day worked in addition to
+        // the normal week, and most setups do not have one.
         RuleFor(request => request.ExceptionDay!.Value)
             .InclusiveBetween(Constants.DayMaster.DayId.Monday, Constants.DayMaster.DayId.Sunday)
             .WithMessage(DayIdMessage("ExceptionDay"))
             .OverridePropertyName(nameof(AdminSaveRequest.ExceptionDay))
             .When(request => request.ExceptionDay.HasValue);
 
-        // A week needs both ends or neither: one alone cannot be interpreted.
-        RuleFor(request => request)
-            .Must(request => request.StartDay.HasValue == request.EndDay.HasValue)
-            .WithMessage("StartDay and EndDay must be supplied together.")
-            .WithName("StartDay");
+        // The old "StartDay and EndDay must be supplied together" rule is gone.
+        // Both are mandatory now, so it could never fail on its own - it would
+        // only ever have added a second, vaguer message beside the NotNull that
+        // already named the field the caller actually left out.
     }
 
     /// <summary>

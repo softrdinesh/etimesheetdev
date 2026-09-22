@@ -104,11 +104,85 @@ public class AdminService : IAdminService
     /// that was actually sent can fail.
     /// </para>
     /// </summary>
-    /// <exception cref="ValidationException">A time field was sent and is not <c>hh:mm:ss</c>.</exception>
-    private static TimesheetSetupTimes ReadTimes(AdminSaveRequest request) => new(
-        TimeOfDay.ParseOptional(request.MaxTimeInHrs, nameof(AdminSaveRequest.MaxTimeInHrs)),
-        TimeOfDay.ParseOptional(request.MaxTimInMins, nameof(AdminSaveRequest.MaxTimInMins)),
-        TimeOfDay.ParseOptional(request.TimeEntryLockAt, nameof(AdminSaveRequest.TimeEntryLockAt)));
+    /// <exception cref="ValidationException">
+    /// A required time field is missing; a time field is not <c>hh:mm:ss</c>; or
+    /// one of the two bounded fields is outside its range.
+    /// </exception>
+    private static TimesheetSetupTimes ReadTimes(AdminSaveRequest request)
+    {
+        // Parse, not ParseOptional: both became mandatory on 2026-09-22, and
+        // Parse is what says so - it fails a missing value with a message keyed
+        // on the field. That is the whole reason the validator says nothing
+        // about these (CLAUDE.md §12).
+        var maxTimeInHrs = TimeOfDay.Parse(
+            request.MaxTimeInHrs,
+            nameof(AdminSaveRequest.MaxTimeInHrs));
+
+        var maxTimInMins = TimeOfDay.Parse(
+            request.MaxTimInMins,
+            nameof(AdminSaveRequest.MaxTimInMins));
+
+        // The ranges are narrower than "a time of day", and they are checked
+        // here because they cannot be stated without the parsed TimeSpan.
+        RequireInRange(
+            maxTimeInHrs,
+            MaxTimeInHrsUpperBound,
+            nameof(AdminSaveRequest.MaxTimeInHrs));
+
+        // 00:59:00, not 00:59:59: this column carries the MINUTES half of a
+        // daily maximum - the remainder that goes with MaxTimeInHrs - so an
+        // hour component would be double-counting and a seconds component is
+        // finer than anything that reads it. spc_GetEmployeeListByPOrgID takes
+        // DATEPART(MINUTE, ...) of it and nothing else.
+        RequireInRange(
+            maxTimInMins,
+            MaxTimInMinsUpperBound,
+            nameof(AdminSaveRequest.MaxTimInMins));
+
+        // Still optional, and still ParseOptional: absent is null and fine,
+        // present-but-malformed is a 400.
+        var timeEntryLockAt = TimeOfDay.ParseOptional(
+            request.TimeEntryLockAt,
+            nameof(AdminSaveRequest.TimeEntryLockAt));
+
+        return new TimesheetSetupTimes(maxTimeInHrs, maxTimInMins, timeEntryLockAt);
+    }
+
+    /// <summary>
+    /// Inclusive upper bound for <c>MaxTimeInHrs</c> - the daily maximum's hours
+    /// half. 23:00:00, not 23:59:59: a whole number of hours is what this column
+    /// means, and the minutes travel separately in <c>MaxTimInMins</c>.
+    /// </summary>
+    private static readonly TimeSpan MaxTimeInHrsUpperBound = new(23, 0, 0);
+
+    /// <summary>
+    /// Inclusive upper bound for <c>MaxTimInMins</c> - the minutes that go with
+    /// <see cref="MaxTimeInHrsUpperBound"/>. 00:59:00, so it can never carry an
+    /// hour of its own.
+    /// </summary>
+    private static readonly TimeSpan MaxTimInMinsUpperBound = new(0, 59, 0);
+
+    /// <summary>
+    /// Fails a parsed time that is outside <c>00:00:00</c>..<paramref name="upperBound"/>
+    /// inclusive.
+    /// <para>
+    /// The lower bound is not a parameter because it is always midnight, and
+    /// <see cref="TimeOfDay"/> has already refused anything negative - so this
+    /// only has the top end left to check. The message quotes both ends in the
+    /// same <c>hh:mm:ss</c> the caller sent, rather than describing them, so
+    /// there is nothing to translate before fixing the payload.
+    /// </para>
+    /// </summary>
+    private static void RequireInRange(TimeSpan value, TimeSpan upperBound, string field)
+    {
+        if (value > upperBound)
+        {
+            throw new ValidationException(
+                field,
+                $"{field} must be between \"{TimeSpan.Zero:hh\\:mm\\:ss}\" and " +
+                $"\"{upperBound:hh\\:mm\\:ss}\".");
+        }
+    }
 
     public async Task<AdminResponse?> GetByUserIdAsync(
         int userId,

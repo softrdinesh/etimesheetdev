@@ -341,11 +341,15 @@ public class ETimeSheetApiFactory : WebApplicationFactory<Program>
 
         foreach (var employee in employees)
         {
+            // isdelete is written explicitly rather than left to the column's
+            // default. spc_GetEmployeeListByPOrgID filters on "isdelete = 0", so
+            // a row that got the wrong value here would simply not come back and
+            // the test would read as though the endpoint had lost it.
             await dbContext.Database.ExecuteSqlInterpolatedAsync($@"
                 SET IDENTITY_INSERT dbo.Signup ON;
-                INSERT INTO dbo.Signup (UserID, Name, Email, RoleID, OrganizationID)
+                INSERT INTO dbo.Signup (UserID, Name, Email, RoleID, OrganizationID, isdelete)
                 VALUES ({employee.UserId}, {employee.Name}, {employee.Email},
-                        {employee.RoleId}, {employee.OrganizationId});
+                        {employee.RoleId}, {employee.OrganizationId}, {employee.IsDelete});
                 SET IDENTITY_INSERT dbo.Signup OFF;");
         }
     }

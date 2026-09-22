@@ -3,6 +3,11 @@
     Recorded: 2026-09-19 (body as handed over by the database owner)
     Revised:  2026-09-21 - s.CountryID added as the last column of the SELECT.
               Nothing else in the body changed.
+    Revised:  2026-09-22 - WHERE clause only, two changes:
+                * s.RoleID = 2 COMMENTED OUT - the list is no longer filtered
+                  by role, so every Signup row in the organisation is returned.
+                * AND s.isdelete = 0 added - soft-deleted people are excluded.
+              The SELECT list is untouched, so no mapping changes.
 
     Every employee in one organisation, with their contracted time per week,
     what they have logged in the CURRENT Monday-Sunday week, and how far through
@@ -21,10 +26,22 @@
 
     Things worth knowing before changing this:
 
-      - "Employee" is Signup.RoleID = 2, decided here and nowhere else. That
-        does NOT agree with ETimeSheet.Shared.Enums.RoleType, where 2 is Manager.
-        The two vocabularies genuinely differ; the API does not reconcile them,
-        it takes whatever rows this returns.
+      - THERE IS NO LONGER A ROLE FILTER. Until 2026-09-22 this selected only
+        Signup.RoleID = 2, and the endpoint was "the organisation's employees".
+        The predicate is now commented out rather than deleted, so the intent to
+        bring it back is legible - but while it is commented out the endpoint
+        returns EVERY non-deleted person in the organisation, administrators and
+        managers included. Anything describing this read as "employees" is
+        describing what it used to do.
+
+        Left as a comment, not removed, because that is how it was handed over.
+        Do not "tidy" it away: the line is the record of a decision that may be
+        reversed, and deleting it would lose that.
+
+      - s.isdelete = 0 is the only other predicate besides the organisation.
+        The column is NOT modelled by the API - there is no Signup entity - so
+        nothing in C# knows it exists except this procedure and the recorded
+        schema file.
 
       - LEFT JOIN to TimesheetMasterSetup, so an employee with NO setup is still
         returned, with SetupID null and every expected-time column null. The
@@ -295,8 +312,9 @@ BEGIN
     -- =========================================================
     -- Employee filter
     -- =========================================================
-    WHERE s.RoleID = 2
-      AND s.OrganizationID = @POrgID;
+    WHERE -- s.RoleID = 2 AND 
+        s.OrganizationID = @POrgID
+        AND s.isdelete = 0;
 
 END;
 GO
