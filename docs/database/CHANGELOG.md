@@ -17,6 +17,46 @@ Newest first.
 
 ---
 
+## 2026-09-22 - `spc_GetEmployeeListByPOrgID`: role filter off, soft-delete filter on
+
+Applied by the database owner. The `WHERE` clause changed, and nothing else —
+the `SELECT` list is untouched, so no C# mapping, entity or DTO moved.
+
+```sql
+-- before
+WHERE s.RoleID = 2
+  AND s.OrganizationID = @POrgID;
+
+-- after
+WHERE -- s.RoleID = 2 AND
+    s.OrganizationID = @POrgID
+    AND s.isdelete = 0;
+```
+
+**The endpoint's meaning changed.** `GET /api/v1/Admin/get-all-employees-by-orgid/{orgID}`
+no longer returns "the organisation's employees" — it returns **every
+non-deleted person in the organisation**, whatever their role. Administrators
+and managers now appear in the grid and in its head-count summary. Anything
+still calling this read "the employee list" is describing what it used to do.
+
+The predicate is **commented out, not deleted**, which is how it was handed
+over. Left that way deliberately: it records a decision that may be reversed.
+
+`schema/dbo.Signup.sql` gained **`isdelete`** as a result — the partial
+recording now covers seven columns rather than six. Without it the integration
+container fails at run time with `Invalid column name 'isdelete'`, because the
+procedure compiles against a table that has no such column (SQL Server defers
+name resolution) and only breaks when it runs.
+
+> **Two things to confirm with the owner.** Is the live `isdelete` nullable? It
+> is recorded here as `bit NOT NULL DEFAULT 0`, and if the real column is
+> nullable and holds `NULL` for anyone, those people are invisible to the
+> endpoint — `NULL = 0` is `UNKNOWN`, not true. And is dropping the role filter
+> intended to be permanent, or is this temporary while something else is sorted
+> out?
+
+---
+
 ## 2026-09-21 - `dbo.Signup` recorded, PARTIALLY
 
 `schema/dbo.Signup.sql` is new, and is **not** the live table's DDL - it

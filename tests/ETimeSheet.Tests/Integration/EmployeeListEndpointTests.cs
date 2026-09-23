@@ -71,17 +71,46 @@ public class EmployeeListEndpointTests : IntegrationTestBase
     }
 
     /// <summary>
-    /// The procedure decides what an employee is - <c>Signup.RoleID = 2</c> -
-    /// and anybody else in the same organisation is not in this list.
+    /// <b>Role no longer filters this list.</b> The procedure's
+    /// <c>Signup.RoleID = 2</c> predicate was commented out on 2026-09-22, so
+    /// everybody in the organisation comes back whatever their role.
+    /// <para>
+    /// This test asserted the opposite until that change, and is inverted rather
+    /// than deleted: the endpoint's meaning moved from "the organisation's
+    /// employees" to "everyone in the organisation", and that is worth a test
+    /// stating out loud. If the filter is restored, this is the test that should
+    /// fail first.
+    /// </para>
     /// </summary>
     [Fact]
-    public async Task ExcludesPeopleWhoAreNotInTheEmployeeRole()
+    public async Task IncludesPeopleWhoAreNotInTheEmployeeRole()
     {
         await Factory.SeedEmployeesAsync(
             EmployeeListTestData.Employee(EmployeeListTestData.FullTimeUserId),
             EmployeeListTestData.Employee(
                 EmployeeListTestData.NonEmployeeUserId,
                 roleId: EmployeeListTestData.SignupNonEmployeeRoleId));
+
+        var result = await GetAsync(EmployeeListTestData.OrganizationId);
+
+        Assert.Equal(
+            new[] { EmployeeListTestData.FullTimeUserId, EmployeeListTestData.NonEmployeeUserId },
+            result.Employees.Select(employee => employee.UserId).OrderBy(id => id));
+    }
+
+    /// <summary>
+    /// A soft-deleted <c>dbo.Signup</c> row is excluded - the other half of the
+    /// 2026-09-22 change, and the reason the recorded schema had to gain an
+    /// <c>isdelete</c> column.
+    /// </summary>
+    [Fact]
+    public async Task ExcludesPeopleWhoseSignupIsSoftDeleted()
+    {
+        await Factory.SeedEmployeesAsync(
+            EmployeeListTestData.Employee(EmployeeListTestData.FullTimeUserId),
+            EmployeeListTestData.Employee(
+                EmployeeListTestData.DeletedUserId,
+                isDelete: true));
 
         var result = await GetAsync(EmployeeListTestData.OrganizationId);
 

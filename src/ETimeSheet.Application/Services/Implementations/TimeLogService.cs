@@ -669,7 +669,7 @@ public class TimeLogService : ITimeLogService
         return duration > TimeSpan.Zero ? duration : null;
     }
 
-    public async Task<TimesheetMasterSetupResponse> GetTimesheetMasterSetupByUserIdAsync(
+    public async Task<TimesheetMasterSetupResponse?> GetTimesheetMasterSetupByUserIdAsync(
         int userId,
         CancellationToken cancellationToken = default)
     {
@@ -679,11 +679,18 @@ public class TimeLogService : ITimeLogService
 
         if (setups.Count == 0)
         {
-            // A missing setup is a 404 rather than an empty 200: "this user has
-            // no configured limits" is a different answer from "here are their
-            // limits", and a caller that treated absent as zero would apply a
-            // maximum of nothing.
-            throw NotFoundException.For("Timesheet setup for user", userId);
+            // Null, which the controller turns into a 200 carrying
+            // success: true and data: null. A read that found nothing has not
+            // failed - it has answered - and an envelope saying success: false
+            // tells a client to look for a mistake it did not make.
+            //
+            // Still not the same answer as an empty setup, though, and the
+            // contract keeps them apart: data: null means "no setup row",
+            // whereas a row whose columns happen to be null comes back as an
+            // object. A caller must not read null as "no limits configured, log
+            // what you like" - the write path enforces the limits itself, and
+            // refuses a user who has no setup at all.
+            return null;
         }
 
         if (setups.Count > 1)

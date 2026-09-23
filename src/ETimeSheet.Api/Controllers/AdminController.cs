@@ -44,25 +44,23 @@ public class AdminController : ControllerBase
     /// which happened.
     /// </para>
     /// <para>
-    /// <b>The time zone is resolved, not accepted.</b> <c>countryId</c> is
-    /// required, and the country's own <c>TimeZone</c> list decides: a country
-    /// with a single zone supplies it and <c>timeZone</c> in the payload is
-    /// ignored, while a country with several - the United States, Australia,
-    /// Canada - requires <c>timeZone</c> and requires it to be one of theirs.
-    /// The saved row therefore never holds a zone its country does not have.
+    /// <b><c>countryId</c> and <c>timeZone</c> are stored exactly as sent.</b>
+    /// Neither is looked up or derived - <c>dbo.Country</c> is not read on this
+    /// path at all - so whatever the payload carries is what the row ends up
+    /// with. <c>countryId</c> is required; <c>timeZone</c> is optional, and a
+    /// blank one is rejected rather than stored.
+    /// </para>
+    /// <para>
+    /// It follows that <b>nothing stops a setup holding a zone its country does
+    /// not have</b>. The caller owns that consistency;
+    /// <c>get-country-list-with-timezones</c> is there to build the choice from.
     /// </para>
     /// </summary>
-    /// <response code="200">The setup as it now stands, including the resolved <c>timeZone</c>.</response>
-    /// <response code="400">
-    /// The payload failed validation; or the country spans several time zones
-    /// and <c>timeZone</c> named none of them; or the country carries no time
-    /// zone at all.
-    /// </response>
-    /// <response code="404">No country has the <c>countryId</c> sent.</response>
+    /// <response code="200">The setup as it now stands.</response>
+    /// <response code="400">The payload failed validation.</response>
     [HttpPost("save-user-timesheet-setup")]
     [ProducesResponseType(typeof(ApiResponse<AdminResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> SaveUserTimesheetSetup(
         [FromBody] AdminSaveRequest request,
         CancellationToken cancellationToken)
@@ -79,11 +77,35 @@ public class AdminController : ControllerBase
     /// <summary>
     /// Returns the timesheet setup belonging to one user. A user has at most
     /// one, so this is a single setup rather than a list.
+    /// <para>
+    /// <b>A user with no setup is a 200, not a 404</b> - <c>success: true</c>
+    /// with <c>data: null</c> and a message saying so, including when theirs was
+    /// soft-deleted. Finding an unconfigured employee is one of the reasons to
+    /// call this, and it is an answer rather than an error.
+    /// </para>
+    /// <para>
+    /// The country comes back three ways: <c>countryId</c> as stored,
+    /// <c>countryName</c> looked up from <c>dbo.Country</c>, and
+    /// <c>countryWithTimeZone</c> - the name and the zone joined as
+    /// <c>"United States-America/New_York"</c>. That last one holds the same
+    /// string <c>get-country-list-with-timezones</c> returns as its
+    /// <c>optionValue</c> for the same pairing, so a screen can preselect its
+    /// country picker with one comparison instead of reassembling the label.
+    /// </para>
+    /// <para>
+    /// <c>countryName</c> and <c>countryWithTimeZone</c> are <b>derived on the
+    /// way out</b> and stored nowhere. A setup naming a country that does not
+    /// exist - which the save permits, since it stores <c>countryId</c>
+    /// unchecked - comes back with a null <c>countryName</c> and the bare zone
+    /// as its <c>countryWithTimeZone</c>, rather than an error.
+    /// </para>
     /// </summary>
-    /// <response code="404">The user has no setup - including one that was deleted.</response>
+    /// <response code="200">
+    /// The user's setup, or <c>null</c> when they have none. Check <c>data</c>,
+    /// not the status code.
+    /// </response>
     [HttpGet("get-user-timesheet-setup/{userID:int:min(1)}")]
     [ProducesResponseType(typeof(ApiResponse<AdminResponse>), StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetUserTimesheetSetup(
         // Spelled userID, matching the route token character for character.
         // Swagger UI substitutes path parameters case-sensitively, so a
@@ -94,7 +116,12 @@ public class AdminController : ControllerBase
         CancellationToken cancellationToken)
     {
         var result = await _adminService.GetByUserIdAsync(userID, cancellationToken);
-        return Ok(ApiResponse.Ok(result));
+
+        // The message is what distinguishes "nothing there" from "here it is",
+        // now that both are success: true.
+        return Ok(result is null
+            ? ApiResponse.Ok(result, "This user has no timesheet setup.")
+            : ApiResponse.Ok(result));
     }
 
     /// <summary>
@@ -137,44 +164,45 @@ public class AdminController : ControllerBase
     }
 
     /// <summary>
-    /// Returns the time zones one country has, as a plain list of IANA ids.
+    /// Returns every country paired with each of its time zones - the list a
+    /// setup screen's country picker binds to.
     /// <para>
-    /// The country itself is not echoed back - the caller passed its id in, so
-    /// it already has it. <c>data</c> is the array of zones and nothing else.
+    /// <b>One entry per time zone, not one per country.</b>
+    /// <c>dbo.Country.TimeZone</c> holds a country's IANA zones comma-separated,
+    /// and this unpacks the whole lookup: the United Kingdom is one entry, the
+    /// United States is twenty-nine, and all of them repeat the <b>same</b>
+    /// <c>countryId</c>.
     /// </para>
     /// <para>
-    /// <c>dbo.Country.TimeZone</c> holds them comma-separated - one id for most
-    /// countries, several for the United States, Australia, Canada, Brazil and
-    /// the rest that span more than one. This unpacks that column so a setup
-    /// screen can decide whether to ask the user at all: <b>one</b> entry means
-    /// do not ask, because <c>save-user-timesheet-setup</c> will use it whatever
-    /// the payload says; <b>several</b> means the save requires <c>timeZone</c>
-    /// and requires it to be one of these.
+    /// Each entry carries the parts <b>and</b> the label: <c>countryId</c>,
+    /// <c>countryName</c> and <c>timeZone</c> on their own, plus
+    /// <c>optionValue</c> - the two joined with a hyphen,
+    /// <c>"United States-America/New_York"</c> - for a dropdown to display. So
+    /// a client shows <c>optionValue</c> and sends <c>countryId</c> and
+    /// <c>timeZone</c> straight back to <c>save-user-timesheet-setup</c>,
+    /// without taking a label apart.
     /// </para>
     /// <para>
-    /// The list is in the column's own order, so the first entry is the
-    /// country's primary zone and is the sensible one to preselect. A country
-    /// with nothing recorded comes back with an empty list, not a 404 - the
-    /// country exists, it simply has no zones yet.
+    /// It takes no parameter, and that is the point: this replaced a read that
+    /// wanted a country id, which could only be called once a country had
+    /// already been chosen. The client needs the list in order to build the
+    /// choice, so it is one call at screen load rather than one per click.
+    /// </para>
+    /// <para>
+    /// A country with no zone recorded is <b>absent</b> from the list:
+    /// <c>save-user-timesheet-setup</c> refuses one, and a picker should only
+    /// hold answers that work. Countries come back ordered by name, and each
+    /// country's zones in the order its column lists them - so the first entry
+    /// for a country is its primary zone.
     /// </para>
     /// </summary>
-    /// <param name="countryID">The country whose time zones to list.</param>
-    /// <response code="200">The country's time zones, possibly an empty list.</response>
-    /// <response code="400">No country id, or one that is not greater than zero.</response>
-    /// <response code="404">No country has that id.</response>
-    [HttpGet("get-country-timezones-by-countryid/{countryID:int}")]
-    [ProducesResponseType(typeof(ApiResponse<IReadOnlyList<string>>), StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> GetCountryTimeZonesByCountryId(
-        // Spelled countryID, matching the route token character for character -
-        // see GetUserTimesheetSetup above for why the casing matters in Swagger
-        // UI. Constrained to :int but not :min(1), so a 0 reaches the service
-        // and is answered with a 400 that says what is wrong.
-        [FromRoute] int countryID,
+    /// <response code="200">Every country/time-zone pairing.</response>
+    [HttpGet("get-country-list-with-timezones")]
+    [ProducesResponseType(typeof(ApiResponse<IReadOnlyList<CountryTimeZoneResponse>>), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetCountryListWithTimeZones(
         CancellationToken cancellationToken)
     {
-        var result = await _adminService.GetCountryTimeZonesAsync(countryID, cancellationToken);
+        var result = await _adminService.GetCountryListWithTimeZonesAsync(cancellationToken);
         return Ok(ApiResponse.Ok(result));
     }
 

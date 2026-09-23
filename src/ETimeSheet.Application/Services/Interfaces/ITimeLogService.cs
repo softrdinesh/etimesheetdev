@@ -22,12 +22,30 @@ public interface ITimeLogService
     /// <summary>
     /// Returns the timesheet setup that applies to one user - their maximum
     /// loggable time, contract type and the bounds of their timesheet week - via
-    /// the <c>spc_GetTimesheetMasterSetupByUserID</c> stored procedure.
+    /// the <c>spc_GetTimesheetMasterSetupByUserID</c> stored procedure, or
+    /// <see langword="null"/> when the user has no setup row.
+    /// <para>
+    /// <b>Null is an answer here, not a failure.</b> "This user has not been set
+    /// up" is a true, useful statement about the database, and the caller asked
+    /// a question that has been answered - so it reaches the client as a 200
+    /// with <c>success: true</c> and <c>data: null</c>, not as a 404. Nothing
+    /// went wrong: the request was well formed, it was authorised, it ran, and
+    /// the answer is that there is no row.
+    /// </para>
+    /// <para>
+    /// This is <i>not</i> the null-as-failure that CLAUDE.md §6 forbids. That
+    /// rule is about signalling an <b>error</b> by returning null instead of
+    /// throwing, and every error this method can hit still throws. Null means
+    /// exactly one thing and it is a fact, not a problem.
+    /// </para>
+    /// <para>
+    /// The write path is unaffected and still refuses a user with no setup:
+    /// <see cref="SaveTimeLogAsync"/> reads the same procedure itself rather
+    /// than through this method, because for a write the absence of a setup
+    /// genuinely is a reason not to proceed.
+    /// </para>
     /// </summary>
-    /// <exception cref="ETimeSheet.Shared.Exceptions.NotFoundException">
-    /// The user has no setup row, which surfaces as a 404.
-    /// </exception>
-    Task<TimesheetMasterSetupResponse> GetTimesheetMasterSetupByUserIdAsync(
+    Task<TimesheetMasterSetupResponse?> GetTimesheetMasterSetupByUserIdAsync(
         int userId,
         CancellationToken cancellationToken = default);
 

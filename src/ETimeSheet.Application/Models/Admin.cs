@@ -51,44 +51,72 @@ public class AdminSaveRequest
     public int UserId { get; set; }
 
     /// <summary>
-    /// Maximum time loggable, as a string in <c>hh:mm:ss</c> rather than a
-    /// number: 8 hours is <c>"08:00:00"</c>. The column is <c>time(7)</c>, so
-    /// the value must be inside a single day.
+    /// The hours half of the daily maximum, as a string in <c>hh:mm:ss</c>
+    /// rather than a number: 8 hours is <c>"08:00:00"</c>.
+    /// <b>Required</b>, and between <c>"00:00:00"</c> and <c>"23:00:00"</c>
+    /// inclusive - a whole day's worth of hours is the most this can mean, and
+    /// the minutes travel separately in <see cref="MaxTimInMins"/>.
     /// <para>
     /// A string rather than a <c>TimeSpan</c>, as on every time input in this
     /// API: the contract is one exact format, and <c>AdminService</c> is what
-    /// reads it. See <see cref="ETimeSheet.Shared.Utilities.TimeOfDay"/>.
+    /// reads it - including the required-ness and the range, neither of which
+    /// can be stated without parsing. See
+    /// <see cref="ETimeSheet.Shared.Utilities.TimeOfDay"/>.
     /// </para>
     /// </summary>
+    /// <example>08:00:00</example>
     public string? MaxTimeInHrs { get; set; }
 
-    /// <summary>Companion to <see cref="MaxTimeInHrs"/>, also a <c>time(7)</c> and also <c>hh:mm:ss</c>.</summary>
+    /// <summary>
+    /// The minutes that go with <see cref="MaxTimeInHrs"/> - the remainder, not
+    /// a second quantity. <b>Required</b>, and between <c>"00:00:00"</c> and
+    /// <c>"00:59:00"</c> inclusive, so it can never carry an hour of its own and
+    /// double-count.
+    /// </summary>
+    /// <example>00:30:00</example>
     public string? MaxTimInMins { get; set; }
 
+    /// <summary>The organisation this setup belongs to. <b>Required</b>, and greater than 0.</summary>
     public int? OrganizationId { get; set; }
 
+    /// <summary>
+    /// The contract. <b>Required</b>, and exactly <c>1</c> (Full Time) or
+    /// <c>2</c> (Part Time) - the vocabulary is fixed at two values by
+    /// <c>spc_GetEmployeeListByPOrgID</c>, which names those and returns null
+    /// for anything else.
+    /// </summary>
     public int? ContractType { get; set; }
 
     /// <summary>
     /// First day of the timesheet week - a <c>dbo.DayMaster.DayID</c>: 1 =
     /// Monday, 2 = Tuesday ... 7 = Sunday. Send 1, not <c>"MO"</c>; the column
     /// stopped being a two-letter code on 2026-09-17.
+    /// <b>Required</b>, and between 1 and 7.
     /// </summary>
     public int? StartDay { get; set; }
 
-    /// <summary>Last day of the timesheet week. A day id, as <see cref="StartDay"/>. Send it with <see cref="StartDay"/> or not at all.</summary>
+    /// <summary>
+    /// Last day of the timesheet week. A day id, as <see cref="StartDay"/>.
+    /// <b>Required</b>, and between 1 and 7.
+    /// </summary>
     public int? EndDay { get; set; }
 
     /// <summary>
     /// A day worked in addition to the normal week - also a
     /// <c>dbo.DayMaster.DayID</c>. Send 7 for Sunday, not <c>"SUN"</c>.
+    /// <b>Optional</b> - the only one of the three day fields that is, because
+    /// most setups have no exception day at all. Between 1 and 7 when sent.
     /// </summary>
     public int? ExceptionDay { get; set; }
 
     /// <summary>
     /// The country this setup belongs to - a <c>dbo.Country.ID</c>.
-    /// <b>Required</b>, despite being declared nullable: every user has a
-    /// country, and it is what <see cref="TimeZone"/> is resolved against.
+    /// <b>Required</b>, despite being declared nullable.
+    /// <para>
+    /// <b>Stored exactly as sent.</b> The id is not looked up and its existence
+    /// is not checked - <c>dbo.Country</c> is not read on the save path at all -
+    /// so an id no country has will be written to the row.
+    /// </para>
     /// <para>
     /// Nullable in C# only so that omitting it is answered with a 400 naming
     /// <c>CountryId</c>, rather than an untyped model-binding error or a silent
@@ -99,34 +127,35 @@ public class AdminSaveRequest
 
     /// <summary>
     /// The IANA time zone for this setup - <b>one</b> id, such as
-    /// <c>"America/New_York"</c>. Whether it is needed depends on
-    /// <see cref="CountryId"/>:
-    /// <list type="bullet">
-    /// <item>
-    /// <description>
-    /// The country has <b>one</b> time zone - the United Kingdom, Germany, India:
-    /// leave this out. The country's zone is stored, and a value sent here is
-    /// ignored, because there is only one answer the country can have.
-    /// </description>
-    /// </item>
-    /// <item>
-    /// <description>
-    /// The country has <b>several</b> - the United States, Australia, Canada,
-    /// Brazil: this is required, and must be one of them. Anything else is a 400.
-    /// </description>
-    /// </item>
-    /// </list>
+    /// <c>"America/New_York"</c>. <b>Required</b>, and required to have a
+    /// value: null, <c>""</c> and whitespace are all refused, so sending the
+    /// field is not the same as sending a zone. Maximum 100 characters, the
+    /// column's width.
     /// <para>
-    /// The list to choose from is <c>dbo.Country.TimeZone</c>, comma-separated,
-    /// with the country's primary zone first. Matching ignores case and
-    /// surrounding spaces, but what gets stored is the country's own spelling -
-    /// IANA ids are case-sensitive to every library that will later consume one.
+    /// <b>Stored exactly as sent.</b> It is not resolved from
+    /// <see cref="CountryId"/>, not matched against the country's zone list, and
+    /// not checked for being a real IANA id. Presence and length are the only
+    /// rules it gets.
+    /// </para>
+    /// <para>
+    /// So <b>the caller owns the pairing</b> - nothing here will stop a setup
+    /// holding a zone its country does not have, or a misspelling that
+    /// <see cref="TimeZoneInfo.FindSystemTimeZoneById"/> later rejects. Build
+    /// the choice from <c>get-country-list-with-timezones</c>, which returns
+    /// each country's zones already spelled the way the lookup spells them, and
+    /// send its <c>timeZone</c> back verbatim.
     /// </para>
     /// </summary>
     /// <example>America/New_York</example>
     public string? TimeZone { get; set; }
 
-    /// <summary>Time of day after which entry is locked, as <c>hh:mm:ss</c> - for example <c>"18:00:00"</c>.</summary>
+    /// <summary>
+    /// Time of day after which entry is locked, as <c>hh:mm:ss</c> - for example
+    /// <c>"18:00:00"</c>. <b>Optional</b>: leave it out and the setup has no
+    /// cut-off. Any time of day, <c>"00:00:00"</c> to <c>"23:59:59"</c> - it is
+    /// a moment in the day rather than a duration, so neither of the narrower
+    /// bounds above applies to it.
+    /// </summary>
     public string? TimeEntryLockAt { get; set; }
 
     // CanUserLoggedPreDayTime is deliberately absent: it is not a column on
@@ -218,11 +247,51 @@ public class AdminResponse
     public int? CountryId { get; init; }
 
     /// <summary>
-    /// The IANA time zone stored for this setup - always exactly one id, and
-    /// always one the country in <see cref="CountryId"/> actually has, because
-    /// the save resolves it rather than taking the payload's word for it.
+    /// The name of the country in <see cref="CountryId"/>, looked up from
+    /// <c>dbo.Country</c> - <c>"United States"</c>.
+    /// <para>
+    /// <see langword="null"/> when the setup names no country, and also when it
+    /// names one that <b>does not exist</b>: the save stores <c>CountryId</c>
+    /// without checking it, so a row can hold an id the lookup has no row for. A
+    /// null here beside a non-null <see cref="CountryId"/> means exactly that,
+    /// and is worth surfacing rather than hiding.
+    /// </para>
+    /// </summary>
+    public string? CountryName { get; init; }
+
+    /// <summary>
+    /// The IANA time zone stored for this setup - exactly one id, as the save
+    /// payload sent it.
+    /// <para>
+    /// <b>Not guaranteed to be one the country in <see cref="CountryId"/>
+    /// has.</b> The save stores what it is given and cross-checks nothing, so
+    /// this and <see cref="CountryId"/> can disagree.
+    /// </para>
     /// </summary>
     public string? TimeZone { get; init; }
+
+    /// <summary>
+    /// The country and the zone joined with a hyphen -
+    /// <c>"United States-America/New_York"</c>. The label to display, and the
+    /// value to match a country picker's selection against.
+    /// <para>
+    /// <b>Byte-for-byte the same string as
+    /// <see cref="CountryTimeZoneResponse.OptionValue"/></b> for the same
+    /// pairing, which is the point: a screen loads the picker from
+    /// <c>get-country-list-with-timezones</c>, loads the setup from here, and
+    /// preselects the entry whose value matches - one string comparison, no
+    /// reassembly. The two properties are spelled differently and hold the same
+    /// thing; only the value has to match, and one shared joiner guarantees it
+    /// does.
+    /// </para>
+    /// <para>
+    /// Whichever parts exist are what gets joined, so there is never a dangling
+    /// hyphen: a country with no zone is just the name, an unknown or absent
+    /// country with a zone is just the zone, and a setup with neither is
+    /// <see langword="null"/>.
+    /// </para>
+    /// </summary>
+    public string? CountryWithTimeZone { get; init; }
 
     public TimeSpan? TimeEntryLockAt { get; init; }
 
@@ -479,6 +548,75 @@ public class EmployeeListDetail
 }
 
 /// <summary>
+/// One selectable country/time-zone pairing, as the setup screen's country
+/// picker wants it.
+/// <para>
+/// <b>One row per zone, not one row per country.</b> <c>dbo.Country.TimeZone</c>
+/// packs a country's IANA zones into one comma-separated column, and this
+/// response unpacks it: the United Kingdom is a single row, the United States is
+/// twenty-nine, all of them carrying the <b>same</b>
+/// <see cref="CountryId"/>. That is deliberate - it lets a client bind a flat
+/// list straight to a dropdown, with no nested shape to expand and no second
+/// call to find out which countries need a choice made.
+/// </para>
+/// <para>
+/// <see cref="CountryId"/> is therefore <b>not unique</b> in the list. What
+/// identifies a row is the country and the zone together - which is exactly
+/// what <see cref="OptionValue"/> is.
+/// </para>
+/// <para>
+/// The parts come back <b>separately as well as joined</b>. The client never
+/// has to take a composed label apart to find the values it must send back:
+/// <see cref="CountryId"/> and <see cref="TimeZone"/> are the two fields
+/// <c>save-user-timesheet-setup</c> wants, and they are here verbatim.
+/// </para>
+/// </summary>
+public class CountryTimeZoneResponse
+{
+    /// <summary>
+    /// The <c>dbo.Country.ID</c> - what a save sends back as its
+    /// <c>countryId</c>. Repeated across every row of a multi-zone country.
+    /// </summary>
+    public int CountryId { get; set; }
+
+    /// <summary>
+    /// The country's name on its own - <c>"United States"</c> - straight from
+    /// <c>dbo.Country.Name</c>. Empty for the handful of rows whose name column
+    /// is null; the column is nullable on that table.
+    /// </summary>
+    public string CountryName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// The IANA zone id on its own - <c>"America/New_York"</c> - and the value
+    /// to send as <c>timeZone</c> on <c>save-user-timesheet-setup</c>.
+    /// <para>
+    /// The country's own spelling, as the column records it, because IANA ids
+    /// are case-sensitive to every library that will later look one up.
+    /// </para>
+    /// </summary>
+    public string TimeZone { get; set; } = string.Empty;
+
+    /// <summary>
+    /// The two above joined with a hyphen -
+    /// <c>"United States-America/New_York"</c> - for a dropdown to display and
+    /// to key a selection on.
+    /// <para>
+    /// Composed here rather than left to the client so every screen shows a
+    /// multi-zone country the same way, and so the text a user picked can be
+    /// compared as one value. It is a <b>label</b>: send
+    /// <see cref="CountryId"/> and <see cref="TimeZone"/> back to the save, not
+    /// a substring of this.
+    /// </para>
+    /// <para>
+    /// A country with no name yields the bare zone rather than a label with a
+    /// leading hyphen - such a row is broken reference data either way, and a
+    /// dangling separator just looks like the API dropped something.
+    /// </para>
+    /// </summary>
+    public string OptionValue { get; set; } = string.Empty;
+}
+
+/// <summary>
 /// The three <c>time(7)</c> columns of <c>dbo.TimesheetMasterSetup</c>, parsed
 /// out of the <c>hh:mm:ss</c> strings the save payload carries.
 /// <para>
@@ -490,8 +628,13 @@ public class EmployeeListDetail
 /// inserting, updating or reviving, and the same parsed value is what every
 /// branch writes.
 /// </para>
+/// <para>
+/// The first two are <b>not nullable</b>, unlike the columns they land in:
+/// they became required fields on 2026-09-22, so by the time this exists both
+/// have a value. Only <see cref="TimeEntryLockAt"/> can still be absent.
+/// </para>
 /// </summary>
 internal readonly record struct TimesheetSetupTimes(
-    TimeSpan? MaxTimeInHrs,
-    TimeSpan? MaxTimInMins,
+    TimeSpan MaxTimeInHrs,
+    TimeSpan MaxTimInMins,
     TimeSpan? TimeEntryLockAt);

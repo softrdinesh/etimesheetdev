@@ -28,34 +28,53 @@ public interface IAdminService
     /// end up with two setups.
     /// </para>
     /// <para>
-    /// <b>The time zone is resolved from the country</b> rather than taken from
-    /// the payload. <c>CountryId</c> is required; the country's zone list is
-    /// what decides. One zone and it is used outright, the payload's
-    /// <c>TimeZone</c> being ignored; several and the payload must name one of
-    /// them. A saved row can therefore never hold a zone its country does not
-    /// have.
+    /// <b><c>CountryId</c> and <c>TimeZone</c> are stored exactly as sent.</b>
+    /// Neither is looked up, derived or cross-checked: no read of
+    /// <c>dbo.Country</c> happens on this path at all, and the pair the caller
+    /// sends is the pair the row ends up with.
+    /// </para>
+    /// <para>
+    /// An earlier version resolved <c>TimeZone</c> from the country - ignoring
+    /// the payload's value for a single-zone country and rejecting one that was
+    /// not on a multi-zone country's list. That is gone. <b>Nothing now stops a
+    /// setup holding a zone its country does not have</b>, so the caller owns
+    /// that consistency; <see cref="GetCountryListWithTimeZonesAsync"/> exists
+    /// to build the choice from.
     /// </para>
     /// </summary>
     /// <exception cref="ETimeSheet.Shared.Exceptions.ValidationException">
-    /// No <c>CountryId</c>; or the country spans several time zones and
-    /// <c>TimeZone</c> named none of them.
-    /// </exception>
-    /// <exception cref="ETimeSheet.Shared.Exceptions.NotFoundException">
-    /// No country has that id. This is the one "not found" a save can produce,
-    /// and it is about the country, never the setup.
-    /// </exception>
-    /// <exception cref="ETimeSheet.Shared.Exceptions.BusinessException">
-    /// The country exists but has no time zone configured.
+    /// The payload is malformed - a missing <c>CountryId</c>, or a time field
+    /// that is not <c>hh:mm:ss</c>. Shape only; no rule here reads the database.
     /// </exception>
     Task<AdminResponse> SaveAsync(
         AdminSaveRequest request,
         CancellationToken cancellationToken = default);
 
-    /// <summary>Returns the timesheet setup belonging to one user.</summary>
-    /// <exception cref="ETimeSheet.Shared.Exceptions.NotFoundException">
-    /// The user has no setup - including the case where theirs was soft-deleted.
-    /// </exception>
-    Task<AdminResponse> GetByUserIdAsync(
+    /// <summary>
+    /// Returns the timesheet setup belonging to one user, or
+    /// <see langword="null"/> when they have none - including the case where
+    /// theirs was soft-deleted.
+    /// <para>
+    /// <b>Null is an answer, not a failure.</b> The question "what is this
+    /// user's setup?" has been answered truthfully: there isn't one. It reaches
+    /// the client as a 200 with <c>success: true</c> and <c>data: null</c>,
+    /// because nothing went wrong - the request was well formed, it ran, and
+    /// the database has no row. Reserve <c>success: false</c> for a caller who
+    /// has something to fix.
+    /// </para>
+    /// <para>
+    /// Not the null-as-failure CLAUDE.md §6 forbids: that rule is about
+    /// signalling an <b>error</b> by returning null rather than throwing, and
+    /// every error this method can hit still throws. Here null carries exactly
+    /// one meaning, and it is a fact about the data.
+    /// </para>
+    /// <para>
+    /// It pairs with <see cref="SaveAsync"/>, which needs no distinction
+    /// between insert and update: a client can read this, get null, and send
+    /// the same save payload it would have sent anyway.
+    /// </para>
+    /// </summary>
+    Task<AdminResponse?> GetByUserIdAsync(
         int userId,
         CancellationToken cancellationToken = default);
 
@@ -90,40 +109,48 @@ public interface IAdminService
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Returns the time zones one country has - nothing else - unpacked from
-    /// the comma-separated <c>dbo.Country.TimeZone</c> column.
+    /// Returns every country/time-zone pairing there is - <b>one entry per time
+    /// zone</b>, not one per country - for the setup screen's country picker.
     /// <para>
-    /// Just the zones, because the caller already holds the country: it passed
-    /// the id in to get here, and echoing the name and code back would be a
-    /// second, unasked-for copy of a lookup row the client can read for itself.
+    /// <c>dbo.Country.TimeZone</c> packs a country's IANA zones into one
+    /// comma-separated column, and this unpacks the whole table: the United
+    /// Kingdom contributes one entry, the United States twenty-nine, every one
+    /// of them carrying the same <c>CountryId</c>. So <c>CountryId</c> repeats,
+    /// deliberately, and the caller binds a flat list to a dropdown without
+    /// having to expand a nested shape or ask a second question.
     /// </para>
     /// <para>
-    /// The setup screen's companion to <see cref="SaveAsync"/>: it answers
-    /// "must I ask the user to choose a time zone, and from what?" before the
-    /// save is attempted. One zone back means do not ask - the save will use it
-    /// whatever the payload says. Several means the save requires
-    /// <c>TimeZone</c> and requires it to be one of these. The two read the same
-    /// column through the same splitter, so the picker cannot offer a value the
-    /// save will refuse.
+    /// Each entry carries the country id, the country name and the zone
+    /// separately, plus the two joined with a hyphen as <c>OptionValue</c> for
+    /// display. Both, deliberately: the label is what a dropdown shows and keys
+    /// a selection on, while the separate fields are what
+    /// <see cref="SaveAsync"/> wants back - so a client never has to split a
+    /// label to build its next request.
     /// </para>
     /// <para>
-    /// A country whose <c>TimeZone</c> column is empty comes back with an empty
-    /// list rather than an error. This is a read: reporting what is there is
-    /// more useful than refusing to answer, and it is the save's job to stop an
-    /// unusable country being stored against a setup.
+    /// It replaced a per-country read that took an id and answered with bare
+    /// zone strings. That read could only be made <i>after</i> a country had
+    /// been chosen, which is backwards: the client needs the list to build the
+    /// choice with. One call now, at screen load, instead of one per country
+    /// the user clicks.
+    /// </para>
+    /// <para>
+    /// <see cref="SaveAsync"/>'s companion, and the two read the same column
+    /// through the same splitter - so the picker cannot offer a pairing the
+    /// save will refuse. <b>A country with no zone recorded contributes
+    /// nothing</b>, because the save answers 400 for one and a picker should
+    /// hold only answers that work.
+    /// </para>
+    /// <para>
+    /// No paging and no filter: <c>dbo.Country</c> is a bounded reference list,
+    /// and a picker wants all of it at once.
     /// </para>
     /// </summary>
     /// <returns>
-    /// The country's IANA zone ids, in the order the column lists them - so the
-    /// first is its primary zone. Empty when the country has none recorded.
+    /// The pairings, countries ordered by name and each country's zones in the
+    /// order its column lists them - so a country's primary zone comes first.
+    /// Empty only if the lookup itself holds no zones at all.
     /// </returns>
-    /// <exception cref="ETimeSheet.Shared.Exceptions.ValidationException">
-    /// <paramref name="countryId"/> is not a positive id.
-    /// </exception>
-    /// <exception cref="ETimeSheet.Shared.Exceptions.NotFoundException">
-    /// No country has that id.
-    /// </exception>
-    Task<IReadOnlyList<string>> GetCountryTimeZonesAsync(
-        int countryId,
+    Task<IReadOnlyList<CountryTimeZoneResponse>> GetCountryListWithTimeZonesAsync(
         CancellationToken cancellationToken = default);
 }
