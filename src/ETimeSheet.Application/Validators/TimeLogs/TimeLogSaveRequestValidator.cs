@@ -47,6 +47,13 @@ public class TimeLogSaveRequestValidator : AbstractValidator<TimeLogSaveRequest>
             .GreaterThan(0)
             .WithMessage("TaskId is required: time is always logged against a task.");
 
+        // NotNull, because the property is a bool? precisely so that "not sent"
+        // survives binding. The column stays nullable for older rows; a new or
+        // edited entry always says which task list its TaskId came from.
+        RuleFor(request => request.IsProjectTask)
+            .NotNull()
+            .WithMessage("IsProjectTask is required: true for a project task, false for a sprint task.");
+
         RuleFor(request => request.CreatedBy)
             .GreaterThan(0)
             .WithMessage("CreatedBy is required: the row records who logged or edited the time.");

@@ -59,7 +59,10 @@ public class TimeLogSaveRequest
     /// <c>true</c> when <see cref="TaskId"/> is a project task, <c>false</c>
     /// when it is a sprint task - the two lists
     /// <c>get-user-task-list-by-userid</c> returns, whose ids can coincide.
-    /// Optional; stored as sent, null included.
+    /// <b>Required.</b> Nullable here only so that a missing value can be told
+    /// apart from <c>false</c> and refused - a plain <c>bool</c> would bind an
+    /// omitted field as <c>false</c> and silently call every such task a
+    /// sprint task.
     /// </summary>
     public bool? IsProjectTask { get; set; }
 
