@@ -26,37 +26,13 @@ using ETimeSheet.Shared.Enums;
 namespace ETimeSheet.Application.Models;
 
 /// <summary>
-/// Body of the time logged details request. Everything the query needs travels
-/// in the payload; nothing is taken from the route or the query string.
-/// <para>
-/// <c>UserId</c> is supplied by the caller. It would normally be taken from the
-/// authenticated principal rather than trusted from the request; authentication
-/// is switched off for now, so this is deliberately temporary.
-/// </para>
-/// </summary>
-public class TimeLoggedDetailsForTaskRequest
-{
-    public int UserId { get; set; }
-
-    public int TaskId { get; set; }
-
-    /// <summary>
-    /// Inclusive lower bound on the entry's <c>StartDate</c>. A calendar date,
-    /// not an instant - the column is <c>date</c>.
-    /// </summary>
-    public DateTime StartDate { get; set; }
-
-    /// <summary>Inclusive upper bound on the entry's <c>StartDate</c>.</summary>
-    public DateTime EndDate { get; set; }
-}
-
-/// <summary>
 /// Body of the "log my time" request - one block of work an employee recorded
 /// against one task.
 /// <para>
-/// This is an <b>insert only</b>. There is no sheet id, because the caller is
-/// logging new time rather than correcting an entry; editing an existing one is
-/// a separate operation and is not built yet.
+/// <b>Adds or edits.</b> With <see cref="TimeLogId"/> left out or zero, a new
+/// entry is created. With the id of an existing entry, that entry is
+/// overwritten with this payload, under the same rules as a new one - plus the
+/// rule that the entry as it stands must still be open to change.
 /// </para>
 /// <para>
 /// <c>UserId</c> is supplied by the caller and would normally come from the
@@ -67,11 +43,25 @@ public class TimeLoggedDetailsForTaskRequest
 /// </summary>
 public class TimeLogSaveRequest
 {
+    /// <summary>
+    /// The entry to edit - its <c>SheetID</c>, the <c>sheetId</c> a save
+    /// returns. Zero or left out creates a new entry instead.
+    /// </summary>
+    public int TimeLogId { get; set; }
+
     /// <summary>The employee the time belongs to. Required - it is also what selects the timesheet setup the entry is validated against.</summary>
     public int UserId { get; set; }
 
     /// <summary>The task the work was done on. Required.</summary>
     public int TaskId { get; set; }
+
+    /// <summary>
+    /// <c>true</c> when <see cref="TaskId"/> is a project task, <c>false</c>
+    /// when it is a sprint task - the two lists
+    /// <c>get-user-task-list-by-userid</c> returns, whose ids can coincide.
+    /// Optional; stored as sent, null included.
+    /// </summary>
+    public bool? IsProjectTask { get; set; }
 
     /// <summary>What was worked on. Optional, and unbounded - the column is <c>nvarchar(max)</c>.</summary>
     public string? Description { get; set; }
@@ -121,7 +111,9 @@ public class TimeLogSaveRequest
     /// <summary>
     /// The user recording the entry. Usually the same person as
     /// <see cref="UserId"/>, but not necessarily - a manager may log on someone's
-    /// behalf, and the row should say who actually did it.
+    /// behalf, and the row should say who actually did it. Written to
+    /// <c>CreatedBy</c> on an add and to <c>UpdatedBy</c> on an edit; an edit
+    /// never changes who created the entry.
     /// <para>
     /// <b>Temporary</b>, as on <c>AdminSaveRequest.CreatedBy</c>: this
     /// belongs in the token, and it moves there the moment JWT is switched back
@@ -140,6 +132,12 @@ public class TimeLoggedDetailResponse
     public int SheetId { get; init; }
 
     public string? SheetCode { get; init; }
+
+    /// <summary>The task the entry is logged against. Null on a row with no task.</summary>
+    public int? TaskId { get; init; }
+
+    /// <summary>Whether the task is a project task. Null on rows written before the column existed.</summary>
+    public bool? IsProjectTask { get; init; }
 
     public string? Description { get; init; }
 
@@ -169,47 +167,6 @@ public class TimeLoggedDetailResponse
 }
 
 /// <summary>
-/// Totals for the requested period. <b>All three are in hours</b>, decimal, so
-/// seven and a half hours is <c>7.5</c> rather than <c>07:30:00</c>.
-/// </summary>
-public class TimeLoggedSummaryResponse
-{
-    /// <summary>Sum of the returned entries' durations.</summary>
-    public decimal TotalWorkInHours { get; init; }
-
-    /// <summary>
-    /// What the user was expected to log over the period, from their
-    /// <c>TimesheetMasterSetup</c> row. Zero when they have no setup.
-    /// </summary>
-    public decimal TotalExpected { get; init; }
-
-    /// <summary>
-    /// <see cref="TotalExpected"/> minus <see cref="TotalWorkInHours"/>.
-    /// Negative when the user logged more than expected, which is information
-    /// rather than an error, so it is not clamped to zero.
-    /// </summary>
-    public decimal TotalRemaining { get; init; }
-}
-
-/// <summary>
-/// What the time logged details endpoint returns: the totals for the period,
-/// then the entries they were derived from.
-/// <para>
-/// <b>Property order matters here.</b> System.Text.Json writes properties in
-/// declaration order, so <see cref="Summary"/> is declared first to put the
-/// totals at the top of the payload - where they can be read without scrolling
-/// past a long <see cref="Details"/> array.
-/// </para>
-/// </summary>
-public class TimeLoggedDetailsForTaskResponse
-{
-    public TimeLoggedSummaryResponse Summary { get; init; } = new();
-
-    public IReadOnlyCollection<TimeLoggedDetailResponse> Details { get; init; } =
-        Array.Empty<TimeLoggedDetailResponse>();
-}
-
-/// <summary>
 /// One row of <c>dbo.TimeLog</c> as the API returns it - the entry exactly as it
 /// was stored, so a caller that has just logged time can show it back without a
 /// second request.
@@ -228,6 +185,9 @@ public class TimeLogResponse
     public string? SheetCode { get; set; }
 
     public int? TaskId { get; set; }
+
+    /// <summary>Whether the task is a project task. Null on rows written before the column existed.</summary>
+    public bool? IsProjectTask { get; set; }
 
     public string? Description { get; set; }
 
@@ -257,6 +217,12 @@ public class TimeLogResponse
     public int? CreatedBy { get; set; }
 
     public DateTime? CreateDate { get; set; }
+
+    /// <summary>Who last edited the entry. Null until it has been edited.</summary>
+    public int? UpdatedBy { get; set; }
+
+    /// <summary>When the entry was last edited, UTC. Null until it has been edited.</summary>
+    public DateTime? UpdateDate { get; set; }
 }
 
 /// <summary>
@@ -309,11 +275,42 @@ public class TimesheetMasterSetupResponse
 }
 
 /// <summary>
+/// One task in <see cref="UserTaskListResponse"/> - an id and a name, whether
+/// it is a project task or a sprint task.
+/// <para>
+/// The id is only unique <b>within its own list</b>. A project task's
+/// <c>TaskId</c> is a <c>dbo.TaskMaster.TaskID</c> and a sprint task's is a
+/// <c>dbo.SprintTaskManagement.SprintTaskID</c>, so the same number can
+/// appear in both lists and mean two different tasks.
+/// </para>
+/// </summary>
+public class UserTaskResponse
+{
+    public int TaskId { get; init; }
+
+    public string? TaskName { get; init; }
+}
+
+/// <summary>
+/// What the user task list endpoint returns: the tasks one user owns, split
+/// the way <c>spc_GetUsersTaskList</c> splits them. Both lists are always
+/// present, and empty rather than null when the user owns none.
+/// </summary>
+public class UserTaskListResponse
+{
+    public IReadOnlyCollection<UserTaskResponse> ProjectTasks { get; init; } =
+        Array.Empty<UserTaskResponse>();
+
+    public IReadOnlyCollection<UserTaskResponse> SprintTasks { get; init; } =
+        Array.Empty<UserTaskResponse>();
+}
+
+/// <summary>
 /// One row of the result set returned by <c>dbo.spc_GetTimeLoggedDetailsForTask</c>.
 /// <para>
 /// This is a keyless type: it is not a table, it has no identity and it is never
 /// tracked or written. It exists solely to give the procedure's SELECT list a
-/// shape EF Core can materialise, which is why it carries exactly the eight
+/// shape EF Core can materialise, which is why it carries exactly the twelve
 /// columns the procedure returns - no more.
 /// </para>
 /// </summary>
@@ -353,6 +350,15 @@ public class TimeLoggedDetail
     /// summary totals are built from.
     /// </summary>
     public int? TotalWorkingMinutes { get; set; }
+
+    /// <summary>The <c>TaskID</c> column - returned by the procedure since 2026-09-25.</summary>
+    public int? TaskId { get; set; }
+
+    /// <summary>
+    /// The <c>IsProjectTask</c> column, a nullable <c>bit</c> - added to the
+    /// procedure on 2026-09-24. Null on rows written before the column existed.
+    /// </summary>
+    public bool? IsProjectTask { get; set; }
 }
 
 /// <summary>
@@ -430,4 +436,36 @@ public class TimesheetMasterSetupDetail
     /// cut-off is measured on.
     /// </summary>
     public string? TimeZone { get; set; }
+}
+
+/// <summary>
+/// One row of either result set returned by <c>dbo.spc_GetUsersTaskList</c>.
+/// Both sets select <c>TaskID</c> and <c>Taskname</c> - the sprint set aliases
+/// <c>SprintTaskID</c> to <c>TaskID</c> - so one shape serves both.
+/// <para>
+/// Not a keyless <c>DbSet</c> like the other procedure rows: EF Core reads only
+/// the first result set of a batch, so <c>TimeLogRepository</c> reads these by
+/// column name itself.
+/// </para>
+/// </summary>
+public class UserTaskListItem
+{
+    public int TaskId { get; set; }
+
+    public string? TaskName { get; set; }
+}
+
+/// <summary>
+/// Both result sets of <c>dbo.spc_GetUsersTaskList</c>, kept apart in the
+/// order the procedure returns them.
+/// </summary>
+public class UserTaskList
+{
+    /// <summary>The first result set - <c>dbo.TaskMaster</c>.</summary>
+    public IReadOnlyList<UserTaskListItem> ProjectTasks { get; set; } =
+        Array.Empty<UserTaskListItem>();
+
+    /// <summary>The second result set - <c>dbo.SprintTaskManagement</c>.</summary>
+    public IReadOnlyList<UserTaskListItem> SprintTasks { get; set; } =
+        Array.Empty<UserTaskListItem>();
 }

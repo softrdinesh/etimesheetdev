@@ -1,6 +1,9 @@
 /*
     Table: dbo.TimeLog
     Recorded: 2026-09-14
+    Revised:  2026-09-24 - IsProjectTask bit NULL added by the database owner.
+              Mapped by the entity the same day; written by the save, not
+              read by any procedure.
 
     A record of the table as it exists in the database. This file is
     documentation and a test fixture input - it is never executed against a real
@@ -12,7 +15,7 @@
 
     Written by:
       src/ETimeSheet.Infrastructure/Repositories/TimeLogRepository.cs
-      (insert only, via POST /api/v1/TimeLog/save-employee-time-log)
+      (insert and update, via POST /api/v1/TimeLog/save-employee-time-log)
 
     Column meanings that are not obvious from the type:
       - Status    1 = Save, 2 = Draft. No other value is in use.
@@ -20,6 +23,9 @@
                   TimeLogStatus enum.
       - IsDeleted 1 = deleted. Any other value counts as live, which is how
                   spc_GetTimeLoggedDetailsForTask tests it (IsDeleted <> 1).
+      - IsProjectTask
+                  Added 2026-09-24. Nullable, no default recorded. Its meaning,
+                  and what NULL stands for, have not been stated by the owner.
 
     UNCONFIRMED, assumed by the mapping - correct these if the real table differs:
       - SheetID is an IDENTITY column.
@@ -50,6 +56,7 @@ CREATE TABLE dbo.TimeLog
     UserID        int             NULL,
     UpdatedBy     int             NULL,
     UpdateDate    datetime        NULL,
+    IsProjectTask bit             NULL,          -- added 2026-09-24
 
     CONSTRAINT PK_TimeLog PRIMARY KEY CLUSTERED (SheetID)
 );

@@ -71,6 +71,10 @@ public class TimeLogConfiguration : IEntityTypeConfiguration<TimeLog>
             .HasColumnName("Status")
             .HasConversion<int?>();
 
+        // bit NULL, added 2026-09-24 - a nullable bool maps to it as is.
+        builder.Property(timeLog => timeLog.IsProjectTask)
+            .HasColumnName("IsProjectTask");
+
         // Audit columns, named as the existing schema names them.
         builder.Property(timeLog => timeLog.CreatedBy)
             .HasColumnName("CreatedBy");

@@ -36,21 +36,19 @@ public class TimeLogController : ControllerBase
     }
 
     /// <summary>
-    /// Returns every entry the given user logged against the given task within a
-    /// date range, plus the totals for that period.
+    /// Returns every entry the given user has logged, across all tasks and all
+    /// dates, newest first - most recently logged at the top.
     /// <para>
-    /// A POST rather than a GET because every argument travels in the payload;
-    /// nothing is taken from the route or the query string.
+    /// A user with no entries is a 200 with an empty list, not a 404.
     /// </para>
     /// </summary>
-    [HttpPost("get-time-logged-details")]
-    [ProducesResponseType(typeof(ApiResponse<TimeLoggedDetailsForTaskResponse>), StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    public async Task<IActionResult> GetTimeLoggedDetails(
-        [FromBody] TimeLoggedDetailsForTaskRequest request,
+    [HttpGet("get-logged-time-list/{userId:int:min(1)}")]
+    [ProducesResponseType(typeof(ApiResponse<IReadOnlyCollection<TimeLoggedDetailResponse>>), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetLoggedTimeList(
+        [FromRoute] int userId,
         CancellationToken cancellationToken)
     {
-        var result = await _timeLogService.GetTimeLoggedDetailsForTaskAsync(request, cancellationToken);
+        var result = await _timeLogService.GetLoggedTimeListByUserIdAsync(userId, cancellationToken);
         return Ok(ApiResponse.Ok(result));
     }
 
@@ -85,6 +83,24 @@ public class TimeLogController : ControllerBase
     }
 
     /// <summary>
+    /// Returns the tasks the given user owns, as two separate lists:
+    /// <c>projectTasks</c> and <c>sprintTasks</c>.
+    /// <para>
+    /// A user who owns no tasks gets a 200 with both lists empty. A task id is
+    /// unique only within its own list - the two come from different tables.
+    /// </para>
+    /// </summary>
+    [HttpGet("get-user-task-list-by-userid/{userId:int:min(1)}")]
+    [ProducesResponseType(typeof(ApiResponse<UserTaskListResponse>), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetUserTaskListByUserId(
+        [FromRoute] int userId,
+        CancellationToken cancellationToken)
+    {
+        var result = await _timeLogService.GetUserTaskListByUserIdAsync(userId, cancellationToken);
+        return Ok(ApiResponse.Ok(result));
+    }
+
+    /// <summary>
     /// Logs one block of time for an employee.
     /// <para>
     /// The entry is checked against that user's timesheet setup before it is
@@ -102,23 +118,28 @@ public class TimeLogController : ControllerBase
     /// before it; that needs an administrator. Both rejections are 400s.
     /// </para>
     /// <para>
-    /// Insert only: this creates an entry and returns it with its generated
-    /// <c>sheetId</c>. Correcting an existing entry is a separate operation and
-    /// is not built yet.
+    /// <b>Adds or edits.</b> A <c>timeLogId</c> of zero, or none, creates an
+    /// entry and returns it with its generated <c>sheetId</c>. The
+    /// <c>sheetId</c> of an existing entry edits that entry instead, under the
+    /// same rules - and the cut-off applies to the entry as it stands as well
+    /// as to the new values, so after the cut-off a block that started before
+    /// it can be neither changed nor moved.
     /// </para>
     /// </summary>
     /// <response code="200">The entry as it was stored.</response>
     /// <response code="400">The payload failed validation, or the entry breaks one of the setup's rules.</response>
+    /// <response code="404"><c>timeLogId</c> names no live entry.</response>
     /// <response code="409">The entry overlaps one the user already has that day.</response>
     [HttpPost("save-employee-time-log")]
     [ProducesResponseType(typeof(ApiResponse<TimeLogResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> SaveEmployeeTimeLog(
         [FromBody] TimeLogSaveRequest request,
         CancellationToken cancellationToken)
     {
         var result = await _timeLogService.SaveTimeLogAsync(request, cancellationToken);
-        return Ok(ApiResponse.Ok(result, "Time logged."));
+        return Ok(ApiResponse.Ok(result, request.TimeLogId > 0 ? "Time log updated." : "Time logged."));
     }
 }

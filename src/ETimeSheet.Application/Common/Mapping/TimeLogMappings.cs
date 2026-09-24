@@ -16,6 +16,8 @@ internal static class TimeLogMappings
     {
         SheetId = detail.SheetId,
         SheetCode = detail.SheetCode,
+        TaskId = detail.TaskId,
+        IsProjectTask = detail.IsProjectTask,
         Description = detail.Description,
         StartDate = detail.StartDate,
         StartTime = detail.StartTime,
@@ -47,6 +49,18 @@ internal static class TimeLogMappings
         TimeZone = setup.TimeZone
     };
 
+    internal static UserTaskResponse ToResponse(this UserTaskListItem task) => new()
+    {
+        TaskId = task.TaskId,
+        TaskName = task.TaskName
+    };
+
+    internal static UserTaskListResponse ToResponse(this UserTaskList tasks) => new()
+    {
+        ProjectTasks = tasks.ProjectTasks.Select(ToResponse).ToArray(),
+        SprintTasks = tasks.SprintTasks.Select(ToResponse).ToArray()
+    };
+
     /// <summary>
     /// Projects a saved entry back to the caller.
     /// <para>
@@ -61,6 +75,7 @@ internal static class TimeLogMappings
         SheetId = timeLog.SheetId,
         SheetCode = timeLog.SheetCode,
         TaskId = timeLog.TaskId,
+        IsProjectTask = timeLog.IsProjectTask,
         Description = timeLog.Description,
         UserId = timeLog.UserId,
         StartDate = timeLog.StartDate,
@@ -71,6 +86,8 @@ internal static class TimeLogMappings
         StatusName = timeLog.Status?.ToString() ?? string.Empty,
         TotalWorkingHours = totalWorkingHours,
         CreatedBy = timeLog.CreatedBy,
-        CreateDate = timeLog.CreateDate
+        CreateDate = timeLog.CreateDate,
+        UpdatedBy = timeLog.UpdatedBy,
+        UpdateDate = timeLog.UpdateDate
     };
 }

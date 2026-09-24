@@ -78,7 +78,7 @@ public class Context : DbContext
 
     /// <summary>
     /// Result set of <c>dbo.spc_GetTimeLoggedDetailsForTask</c> - every entry
-    /// one user logged against one task. The procedure filters out deleted rows.
+    /// one user has logged, newest first. The procedure filters out deleted rows.
     /// </summary>
     public DbSet<TimeLoggedDetail> spc_GetTimeLoggedDetailsForTask { get; set; } = null!;
 
@@ -94,6 +94,11 @@ public class Context : DbContext
     /// logged in the current Monday-Sunday week.
     /// </summary>
     public DbSet<EmployeeListDetail> spc_GetEmployeeListByPOrgID { get; set; } = null!;
+
+    // dbo.spc_GetUsersTaskList has NO DbSet, deliberately. It returns two
+    // result sets and EF Core materialises only the first, so
+    // TimeLogRepository.GetUserTaskListByUserIdAsync runs it on this context's
+    // connection and reads both sets itself.
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -138,6 +143,10 @@ public class Context : DbContext
             // when any of the four date/time columns behind DATEDIFF is null.
             detail.Property(row => row.TotalWorkingHours).HasColumnName("TotalWorkingHours");
             detail.Property(row => row.TotalWorkingMinutes).HasColumnName("TotalWorkingMinutes");
+
+            // Added to the procedure 2026-09-25 and 2026-09-24 respectively.
+            detail.Property(row => row.TaskId).HasColumnName("TaskID");
+            detail.Property(row => row.IsProjectTask).HasColumnName("IsProjectTask");
         });
 
         modelBuilder.Entity<TimesheetMasterSetupDetail>(setup =>

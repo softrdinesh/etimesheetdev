@@ -12,11 +12,12 @@ namespace ETimeSheet.Application.Services.Interfaces;
 public interface ITimeLogService
 {
     /// <summary>
-    /// Returns the entries one user logged against one task, via the
-    /// <c>spc_GetTimeLoggedDetailsForTask</c> stored procedure.
+    /// Returns every live entry one user has logged, across all tasks and all
+    /// dates, newest first, via the <c>spc_GetTimeLoggedDetailsForTask</c>
+    /// stored procedure. A user with no entries gets an empty list.
     /// </summary>
-    Task<TimeLoggedDetailsForTaskResponse> GetTimeLoggedDetailsForTaskAsync(
-        TimeLoggedDetailsForTaskRequest request,
+    Task<IReadOnlyCollection<TimeLoggedDetailResponse>> GetLoggedTimeListByUserIdAsync(
+        int userId,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -50,8 +51,24 @@ public interface ITimeLogService
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Records one block of work for an employee, after checking it against the
-    /// timesheet setup that applies to them.
+    /// Returns the tasks one user owns, as two separate lists - project tasks
+    /// and sprint tasks - via the <c>spc_GetUsersTaskList</c> stored procedure.
+    /// A user who owns none gets two empty lists, not an error.
+    /// </summary>
+    Task<UserTaskListResponse> GetUserTaskListByUserIdAsync(
+        int userId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Records one block of work for an employee - or, when the request names an
+    /// existing entry in <c>TimeLogId</c>, overwrites that entry - after checking
+    /// it against the timesheet setup that applies to them.
+    /// <para>
+    /// An edit faces every rule an add does, and one more: the entry as it
+    /// stands must itself still be open. Before the day's cut-off every entry
+    /// can be changed; after it, one that starts before the cut-off cannot -
+    /// neither in place nor by moving it later.
+    /// </para>
     /// <para>
     /// The setup drives four of the rules - the working week, whether
     /// back-dating is still open, the cut-off time for it and the daily maximum -
@@ -65,6 +82,9 @@ public interface ITimeLogService
     /// </exception>
     /// <exception cref="ETimeSheet.Shared.Exceptions.ConflictException">
     /// The entry overlaps one the user already has that day, which surfaces as a 409.
+    /// </exception>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.NotFoundException">
+    /// <c>TimeLogId</c> names no live entry, which surfaces as a 404.
     /// </exception>
     Task<TimeLogResponse> SaveTimeLogAsync(
         TimeLogSaveRequest request,

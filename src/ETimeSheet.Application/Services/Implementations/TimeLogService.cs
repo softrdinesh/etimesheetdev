@@ -60,114 +60,24 @@ public class TimeLogService : ITimeLogService
         _logger = logger;
     }
 
-    public async Task<TimeLoggedDetailsForTaskResponse> GetTimeLoggedDetailsForTaskAsync(
-        TimeLoggedDetailsForTaskRequest request,
+    public async Task<IReadOnlyCollection<TimeLoggedDetailResponse>> GetLoggedTimeListByUserIdAsync(
+        int userId,
         CancellationToken cancellationToken = default)
     {
         // No authorisation check and no current-user lookup: authentication is
         // switched off for this project for now, so the owner is whoever the
-        // request names. When JWT is turned back on, the user id must come from
-        // the token rather than the payload.
-        var details = await _timeLogRepository.GetTimeLoggedDetailsForTaskAsync(
-            request.UserId,
-            request.TaskId,
-            request.StartDate,
-            request.EndDate,
-            cancellationToken);
-
-        var setups = await _timeLogRepository.GetTimesheetMasterSetupByUserIdAsync(
-            request.UserId,
-            cancellationToken);
-
-        var summary = BuildSummary(details, setups.FirstOrDefault(), request);
+        // route names. When JWT is turned back on, the user id must come from
+        // the token rather than the route.
+        var details = await _timeLogRepository.GetTimeLoggedDetailsByUserIdAsync(userId, cancellationToken);
 
         _logger.LogDebug(
-            "Returned {Count} time logged details for user {UserId}, task {TaskId} " +
-            "between {StartDate:yyyy-MM-dd} and {EndDate:yyyy-MM-dd}.",
+            "Returned {Count} time log entries for user {UserId}.",
             details.Count,
-            request.UserId,
-            request.TaskId,
-            request.StartDate,
-            request.EndDate);
+            userId);
 
-        return new TimeLoggedDetailsForTaskResponse
-        {
-            Summary = summary,
-            Details = details.ToResponses()
-        };
-    }
-
-    /// <summary>
-    /// Totals the period: what was worked, what was expected, what is left.
-    /// </summary>
-    private TimeLoggedSummaryResponse BuildSummary(
-        IReadOnlyList<TimeLoggedDetail> details,
-        TimesheetMasterSetupDetail? setup,
-        TimeLoggedDetailsForTaskRequest request)
-    {
-        var expected = ExpectedFor(setup, request);
-        var workedHours = WorkedHours(details);
-
-        return new TimeLoggedSummaryResponse
-        {
-            TotalWorkInHours = workedHours,
-            TotalExpected = expected,
-            TotalRemaining = decimal.Round(expected - workedHours, 2)
-        };
-    }
-
-    /// <summary>
-    /// Total hours worked across the returned entries.
-    /// <para>
-    /// Summed from <c>TotalWorkingMinutes</c>, which the procedure computes with
-    /// <c>DATEDIFF</c> over both the date and the time - so an entry running
-    /// past midnight measures correctly rather than coming out negative. Minutes
-    /// rather than the procedure's <c>TotalWorkingHours</c> because those are
-    /// already rounded to two places, and summing rounded values compounds the
-    /// error; this rounds once, at the end.
-    /// </para>
-    /// <para>
-    /// A null contributes nothing (the entry is missing one of its ends), and so
-    /// does a negative, which means inconsistent data rather than time running
-    /// backwards - counting it would silently reduce the total.
-    /// </para>
-    /// </summary>
-    private static decimal WorkedHours(IReadOnlyList<TimeLoggedDetail> details)
-    {
-        var minutes = details.Sum(detail =>
-            detail.TotalWorkingMinutes is > 0 ? detail.TotalWorkingMinutes.Value : 0);
-
-        return decimal.Round(minutes / 60m, 2);
-    }
-
-    /// <summary>
-    /// What the user was expected to log across the requested period.
-    /// <para>
-    /// <b>This counts every calendar day in the range</b>, inclusive, multiplied
-    /// by the daily maximum from <c>TimesheetMasterSetup.MaxTimeinhrs</c>. It
-    /// does NOT yet exclude non-working days. That is now possible - StartDay
-    /// and EndDay became <c>dbo.DayMaster.DayID</c> values on 2026-09-17, so the
-    /// week is unambiguous - but changing what "expected" means would silently
-    /// change every figure this endpoint has already reported. It is a decision
-    /// to take deliberately, not a side effect of a column type change.
-    /// </para>
-    /// <para>
-    /// A user with no setup row expects zero, rather than the request failing -
-    /// the entries are still worth returning.
-    /// </para>
-    /// </summary>
-    private static decimal ExpectedFor(
-        TimesheetMasterSetupDetail? setup,
-        TimeLoggedDetailsForTaskRequest request)
-    {
-        if (setup?.MaxTimeLoggedByUserInHours is not { } dailyMaximum)
-        {
-            return 0m;
-        }
-
-        var days = (request.EndDate.Date - request.StartDate.Date).Days + 1;
-
-        return days <= 0 ? 0m : decimal.Round(ToHours(dailyMaximum) * days, 2);
+        // Newest first, as the procedure orders them - by CreateDate, i.e. when
+        // the entry was logged, not the day it was logged against.
+        return details.ToResponses();
     }
 
     private static decimal ToHours(TimeSpan value) =>
@@ -209,6 +119,13 @@ public class TimeLogService : ITimeLogService
         // authentication is switched off for this project for now, so the entry
         // belongs to whoever the request names. When JWT is turned back on, the
         // user id must come from the token rather than the payload.
+        //
+        // An edit names the entry it changes. Loaded first, before any rule
+        // runs, because two of the rules below need to know what it was.
+        var original = request.TimeLogId > 0
+            ? await LoadForEditAsync(request, cancellationToken)
+            : null;
+
         var setup = await _adminRepository.GetByUserIdAsync(request.UserId, cancellationToken)
             ?? throw new BusinessException(
                 $"User '{request.UserId}' has no timesheet setup, so there are no limits to check this " +
@@ -219,22 +136,123 @@ public class TimeLogService : ITimeLogService
         // cut-off written as 19:00 means seven in the evening where they are.
         var clock = ClockFor(setup, request.UserId);
 
+        // An edit has to pass the same cut-off TWICE: once for where the entry
+        // is now, and once for where it is going. Checking only the new values
+        // would let a locked 19:00 block be dragged to 22:00 after the cut-off
+        // - which is editing locked time, just with a different end result.
+        if (original is not null)
+        {
+            await RequireEntryIsStillEditableAsync(original, setup, clock, cancellationToken);
+        }
+
         await RequireDateIsOpenForLoggingAsync(request.UserId, loggedOn, setup, clock, cancellationToken);
         RequireWorkingDay(loggedOn, setup);
         RequireEntryIsNotPastTheCutOff(startTime, setup, clock);
 
-        var existing = await _timeLogRepository.GetForUserOnDateAsync(
-            request.UserId,
-            loggedOn,
-            cancellationToken);
+        // The entry being edited is left out of its own day: it is about to be
+        // replaced, so it can neither overlap the new values nor count twice
+        // towards the daily maximum.
+        var existing = (await _timeLogRepository.GetForUserOnDateAsync(
+                request.UserId,
+                loggedOn,
+                cancellationToken))
+            .Where(entry => entry.SheetId != original?.SheetId)
+            .ToList();
 
         RequireNoOverlap(existing, startsAt, endsAt);
         RequireWithinDailyMaximum(existing, duration, loggedOn, setup);
 
+        var saved = original is null
+            ? await AddTimeLogAsync(request, loggedOn, startTime, endTime, cancellationToken)
+            : await UpdateTimeLogAsync(original, request, loggedOn, startTime, endTime, cancellationToken);
+
+        _logger.LogInformation(
+            "Time log {SheetId} {Action} for user {UserId} on task {TaskId}: {Hours} hours on " +
+            "{LoggedOn:yyyy-MM-dd}, status {Status}, by user {ActingUser}.",
+            saved.SheetId,
+            original is null ? "recorded" : "edited",
+            request.UserId,
+            request.TaskId,
+            ToHours(duration),
+            loggedOn,
+            request.Status,
+            request.CreatedBy);
+
+        return saved.ToResponse(ToHours(duration));
+    }
+
+    /// <summary>
+    /// Loads the entry an edit names, tracked, and confirms it belongs to the
+    /// user the request is for.
+    /// <para>
+    /// The owner check matters even with authentication off: every rule is
+    /// judged against <b>the request's</b> user - their setup, their day, their
+    /// other entries - and an entry owned by someone else would be validated
+    /// against the wrong person's limits and then moved into their timesheet.
+    /// </para>
+    /// </summary>
+    private async Task<TimeLog> LoadForEditAsync(
+        TimeLogSaveRequest request,
+        CancellationToken cancellationToken)
+    {
+        var original = await _timeLogRepository.GetForUpdateAsync(request.TimeLogId, cancellationToken)
+            ?? throw NotFoundException.For("Time log", request.TimeLogId);
+
+        if (original.UserId != request.UserId)
+        {
+            throw new BusinessException(
+                $"Time log '{request.TimeLogId}' does not belong to user '{request.UserId}', so it " +
+                "cannot be edited as theirs.");
+        }
+
+        return original;
+    }
+
+    /// <summary>
+    /// Rejects an edit to an entry that is already locked where it stands.
+    /// <para>
+    /// The same two rules a new entry faces, applied to the entry's
+    /// <b>current</b> date and start: its day must still be open, and once the
+    /// cut-off has passed, a block that started before it can no longer be
+    /// changed. Before the cut-off, every entry of the day can be edited.
+    /// </para>
+    /// <para>
+    /// A half-recorded entry is judged on whatever it has - no stored date means
+    /// no day to be locked, and no stored start means nothing to place against
+    /// the cut-off - so the edit that completes it is not refused for the gap
+    /// it is fixing.
+    /// </para>
+    /// </summary>
+    private async Task RequireEntryIsStillEditableAsync(
+        TimeLog original,
+        TimesheetMasterSetup setup,
+        EmployeeClock clock,
+        CancellationToken cancellationToken)
+    {
+        if (original.StartDate is { } originalDate)
+        {
+            await RequireDateIsOpenForLoggingAsync(
+                original.UserId ?? 0, originalDate.Date, setup, clock, cancellationToken);
+        }
+
+        if (original.StartTime is { } originalStart)
+        {
+            RequireEntryIsNotPastTheCutOff(originalStart, setup, clock);
+        }
+    }
+
+    private async Task<TimeLog> AddTimeLogAsync(
+        TimeLogSaveRequest request,
+        DateTime loggedOn,
+        TimeSpan startTime,
+        TimeSpan endTime,
+        CancellationToken cancellationToken)
+    {
         var timeLog = new TimeLog
         {
             UserId = request.UserId,
             TaskId = request.TaskId,
+            IsProjectTask = request.IsProjectTask,
             Description = request.Description,
 
             // Generated, never supplied. Read as late as possible - after every
@@ -259,20 +277,41 @@ public class TimeLogService : ITimeLogService
             CreatedBy = request.CreatedBy
         };
 
-        var saved = await _timeLogRepository.AddAsync(timeLog, cancellationToken);
+        return await _timeLogRepository.AddAsync(timeLog, cancellationToken);
+    }
 
-        _logger.LogInformation(
-            "Time log {SheetId} recorded for user {UserId} on task {TaskId}: {Hours} hours on " +
-            "{LoggedOn:yyyy-MM-dd}, status {Status}, logged by user {CreatedBy}.",
-            saved.SheetId,
-            request.UserId,
-            request.TaskId,
-            ToHours(duration),
-            loggedOn,
-            request.Status,
-            request.CreatedBy);
+    /// <summary>
+    /// Overwrites the edited entry with the payload.
+    /// <para>
+    /// What an edit leaves alone is as deliberate as what it changes: the
+    /// <c>SheetCode</c> stays, because a code names one entry for life; the
+    /// <c>UserId</c> stays, because the owner check already required it to
+    /// match; and <c>CreatedBy</c> / <c>CreateDate</c> stay, because they say
+    /// who created the entry, not who last touched it.
+    /// </para>
+    /// </summary>
+    private async Task<TimeLog> UpdateTimeLogAsync(
+        TimeLog original,
+        TimeLogSaveRequest request,
+        DateTime loggedOn,
+        TimeSpan startTime,
+        TimeSpan endTime,
+        CancellationToken cancellationToken)
+    {
+        original.TaskId = request.TaskId;
+        original.IsProjectTask = request.IsProjectTask;
+        original.Description = request.Description;
+        original.StartDate = loggedOn;
+        original.EndDate = request.EndDate?.Date ?? loggedOn;
+        original.StartTime = startTime;
+        original.EndTime = endTime;
+        original.Status = request.Status;
 
-        return saved.ToResponse(ToHours(duration));
+        // As CreatedBy on an add: the interceptor stamps UpdateDate, but has
+        // no authenticated user to record while authentication is off.
+        original.UpdatedBy = request.CreatedBy;
+
+        return await _timeLogRepository.UpdateAsync(original, cancellationToken);
     }
 
     // ---- sheet code generation -------------------------------------------
@@ -706,5 +745,22 @@ public class TimeLogService : ITimeLogService
         }
 
         return setups[0].ToResponse();
+    }
+
+    public async Task<UserTaskListResponse> GetUserTaskListByUserIdAsync(
+        int userId,
+        CancellationToken cancellationToken = default)
+    {
+        // No authorisation check, as on the other reads: authentication is
+        // switched off for now, so the user is whoever the route names.
+        var tasks = await _timeLogRepository.GetUserTaskListByUserIdAsync(userId, cancellationToken);
+
+        _logger.LogDebug(
+            "Returned {ProjectCount} project tasks and {SprintCount} sprint tasks for user {UserId}.",
+            tasks.ProjectTasks.Count,
+            tasks.SprintTasks.Count,
+            userId);
+
+        return tasks.ToResponse();
     }
 }

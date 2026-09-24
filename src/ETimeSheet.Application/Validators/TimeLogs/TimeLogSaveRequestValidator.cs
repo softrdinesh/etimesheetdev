@@ -33,6 +33,12 @@ public class TimeLogSaveRequestValidator : AbstractValidator<TimeLogSaveRequest>
 
     public TimeLogSaveRequestValidator()
     {
+        // Zero means "add"; anything above it names the entry to edit. Whether
+        // that entry exists is the service's question, not this one's.
+        RuleFor(request => request.TimeLogId)
+            .GreaterThanOrEqualTo(0)
+            .WithMessage("TimeLogId must be 0 to add an entry, or the id of the entry to edit.");
+
         RuleFor(request => request.UserId)
             .GreaterThan(0)
             .WithMessage("UserId is required: an entry must belong to an employee.");
@@ -43,7 +49,7 @@ public class TimeLogSaveRequestValidator : AbstractValidator<TimeLogSaveRequest>
 
         RuleFor(request => request.CreatedBy)
             .GreaterThan(0)
-            .WithMessage("CreatedBy is required: the row records who logged the time.");
+            .WithMessage("CreatedBy is required: the row records who logged or edited the time.");
 
         RuleFor(request => request.StartDate)
             .NotEmpty()
