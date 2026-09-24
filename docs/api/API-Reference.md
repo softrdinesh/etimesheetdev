@@ -3,7 +3,7 @@
 Every endpoint the API exposes today, with its purpose, input payload, success
 response and failure responses — each with a worked example.
 
-Generated from the code on branch `develop` (2026-09-21). If you change a
+Generated from the code on branch `develop` (2026-09-25). If you change a
 controller, DTO or validator, change this file with it.
 
 ---
@@ -18,15 +18,16 @@ controller, DTO or validator, change this file with it.
   - [Empty results are successes](#empty-results-are-successes)
   - [Error contract](#error-contract)
 - [TimeLog](#timelog)
-  - [POST /api/v1/TimeLog/get-time-logged-details](#1-post-apiv1timelogget-time-logged-details)
-  - [GET /api/v1/TimeLog/get-timesheet-setup-by-user/{userId}](#2-get-apiv1timelogget-timesheet-setup-by-useruserid)
-  - [POST /api/v1/TimeLog/save-employee-time-log](#3-post-apiv1timelogsave-employee-time-log)
+  - [Logged Time List](#1-logged-time-list)
+  - [Employee Timesheet Setup](#2-employee-timesheet-setup)
+  - [Save Time Log (Add / Edit)](#3-save-time-log-add--edit)
+  - [Task List](#4-task-list)
 - [Admin](#admin)
-  - [POST /api/v1/Admin/save-user-timesheet-setup](#4-post-apiv1adminsave-user-timesheet-setup)
-  - [GET /api/v1/Admin/get-user-timesheet-setup/{userID}](#5-get-apiv1adminget-user-timesheet-setupuserid)
-  - [POST /api/v1/Admin/delete-timesheet-setup](#6-post-apiv1admindelete-timesheet-setup)
-  - [GET /api/v1/Admin/get-all-employees-by-orgid/{orgID}](#7-get-apiv1adminget-all-employees-by-orgidorgid)
-  - [GET /api/v1/Admin/get-country-list-with-timezones](#8-get-apiv1adminget-country-list-with-timezones)
+  - [Save Timesheet Setup](#5-save-timesheet-setup)
+  - [Admin Timesheet Setup](#6-admin-timesheet-setup)
+  - [Delete Timesheet Setup](#7-delete-timesheet-setup)
+  - [Employee List](#8-employee-list)
+  - [Country Time Zone List](#9-country-time-zone-list)
 - [Health endpoints](#health-endpoints)
 - [Enumerations](#enumerations)
 - [Endpoint summary table](#endpoint-summary-table)
@@ -109,7 +110,7 @@ not been set up yet is often the *reason* the screen was opened.
 | Returns a **list** | `success: true`, `data: []` |
 | Returns an **object** | `success: true`, `data: null`, and a `message` saying so |
 
-So **branch on `data`, not on the status code**, for endpoints 2, 5 and 8.
+So **branch on `data`, not on the status code**, for Logged Time List, Employee Timesheet Setup, Task List, Admin Timesheet Setup and Country Time Zone List.
 
 This does not soften the **write** endpoints. Asking to delete a setup that does
 not exist, or to save one against a country id that does not exist, is a failed
@@ -206,60 +207,39 @@ Service: `TimeLogService` · Prefix: `/api/v1/TimeLog`
 
 ---
 
-### 1. POST `/api/v1/TimeLog/get-time-logged-details`
+### 1. Logged Time List
 
-**Purpose** — Return every entry a user logged against one task within a date
-range, together with the totals for that period: what they worked, what was
-expected of them, and what is left.
+`GET /api/v1/TimeLog/get-logged-time-list/{userId}`
 
-A POST rather than a GET because every argument travels in the body; nothing is
-read from the route or query string.
+**Purpose** — Return every entry a user has logged, across all tasks and all
+dates, **most recently logged first** (the procedure orders by `CreateDate`,
+not by the day the time was logged against). Soft-deleted entries are left out.
 
-#### Request body — `TimeLoggedDetailsForTaskRequest`
+Replaced `POST /api/v1/TimeLog/get-time-logged-details` on 2026-09-25. There is
+no task filter, no date range and no `summary` block any more.
 
-| Field | Type | Required | Rules | Notes |
-|---|---|---|---|---|
-| `userId` | int | yes | `> 0` | **Temporary** — moves to the token when auth is on |
-| `taskId` | int | yes | `> 0` | The task the time was logged against |
-| `startDate` | date | yes | not empty | Inclusive lower bound on the entry's `StartDate` |
-| `endDate` | date | yes | not empty, `>= startDate` | Inclusive upper bound |
+#### Route parameter
+
+| Parameter | Type | Rules | Notes |
+|---|---|---|---|
+| `userId` | int | `>= 1` (route constraint) | **Temporary** — moves to the token when auth is on |
 
 #### Example request
 
-```json
-{
-  "userId": 101,
-  "taskId": 55,
-  "startDate": "2026-09-14T00:00:00",
-  "endDate": "2026-09-18T00:00:00"
-}
+```
+GET https://localhost:7041/api/v1/TimeLog/get-logged-time-list/101
 ```
 
 #### Success response — `200 OK`
 
-`data` is a `TimeLoggedDetailsForTaskResponse`. `summary` is written first,
-deliberately, so the totals are readable without scrolling past the details.
-
-**`summary`** — `TimeLoggedSummaryResponse`, all three values in **decimal
-hours** (7½ hours is `7.5`, not `"07:30:00"`):
+`data` is an array of `TimeLoggedDetailResponse`:
 
 | Field | Type | Meaning |
 |---|---|---|
-| `totalWorkInHours` | decimal | Sum of the returned entries' durations |
-| `totalExpected` | decimal | Daily maximum from the user's setup × every calendar day in the range, inclusive. `0` when the user has no setup |
-| `totalRemaining` | decimal | `totalExpected - totalWorkInHours`. **Goes negative** when the user logged more than expected — that is information, not an error, so it is not clamped |
-
-> `totalExpected` counts *every calendar day*, not working days only. Excluding
-> non-working days became possible on 2026-09-17, when `startDay`/`endDay` became
-> `DayMaster` day ids, but changing the figure would silently restate every total
-> already reported — so it is left as a deliberate decision.
-
-**`details[]`** — `TimeLoggedDetailResponse`:
-
-| Field | Type | Meaning |
-|---|---|---|
-| `sheetId` | int | The entry's key |
+| `sheetId` | int | The entry's key — send it as `timeLogId` to edit the entry |
 | `sheetCode` | string? | The entry's generated reference — `T0001`, `T0002`, … Null on rows created before generation existed, or holding a hand-entered reference |
+| `taskId` | int? | The task the time was logged against |
+| `isProjectTask` | bool? | `true` for a project task, `false` for a sprint task; null on rows written before the column existed |
 | `description` | string? | What was worked on |
 | `startDate` | date? | Day the work started |
 | `startTime` | string? | Clock time it started, `hh:mm:ss` |
@@ -276,89 +256,62 @@ hours** (7½ hours is `7.5`, not `"07:30:00"`):
 {
   "success": true,
   "message": "",
-  "data": {
-    "summary": {
-      "totalWorkInHours": 22.50,
-      "totalExpected": 40.00,
-      "totalRemaining": 17.50
+  "data": [
+    {
+      "sheetId": 8815,
+      "sheetCode": null,
+      "taskId": 55,
+      "isProjectTask": null,
+      "description": "Code review and follow-up fixes.",
+      "startDate": "2026-09-15T00:00:00",
+      "startTime": "10:00:00",
+      "endDate": "2026-09-15T00:00:00",
+      "endTime": "18:00:00",
+      "status": "Draft",
+      "statusName": "Draft",
+      "totalWorkingHours": 8.00,
+      "totalWorkingMinutes": 480
     },
-    "details": [
-      {
-        "sheetId": 8812,
-        "sheetCode": "TS-00121",
-        "description": "Implemented the save-employee-time-log endpoint.",
-        "startDate": "2026-09-14T00:00:00",
-        "startTime": "09:00:00",
-        "endDate": "2026-09-14T00:00:00",
-        "endTime": "12:30:00",
-        "status": "Save",
-        "statusName": "Save",
-        "totalWorkingHours": 3.50,
-        "totalWorkingMinutes": 210
-      },
-      {
-        "sheetId": 8815,
-        "sheetCode": null,
-        "description": "Code review and follow-up fixes.",
-        "startDate": "2026-09-15T00:00:00",
-        "startTime": "10:00:00",
-        "endDate": "2026-09-15T00:00:00",
-        "endTime": "18:00:00",
-        "status": "Draft",
-        "statusName": "Draft",
-        "totalWorkingHours": 8.00,
-        "totalWorkingMinutes": 480
-      }
-    ]
-  },
+    {
+      "sheetId": 8812,
+      "sheetCode": "T0121",
+      "taskId": 55,
+      "isProjectTask": true,
+      "description": "Implemented the save-employee-time-log endpoint.",
+      "startDate": "2026-09-14T00:00:00",
+      "startTime": "09:00:00",
+      "endDate": "2026-09-14T00:00:00",
+      "endTime": "12:30:00",
+      "status": "Save",
+      "statusName": "Save",
+      "totalWorkingHours": 3.50,
+      "totalWorkingMinutes": 210
+    }
+  ],
   "errors": []
 }
 ```
 
-`sheetCode` is `null` on the second entry rather than missing: every field is
-written on every row, so a client can index into the response without checking
-whether a key exists.
+`sheetCode` and `isProjectTask` are `null` on the first entry rather than
+missing: every field is written on every row, so a client can index into the
+response without checking whether a key exists.
 
 #### Empty result
 
-A user with no matching entries is **not** an error. You get a `200` with an
-empty `details` array and zeroed totals:
-
-```json
-{
-  "success": true,
-  "message": "",
-  "data": {
-    "summary": { "totalWorkInHours": 0, "totalExpected": 0, "totalRemaining": 0 },
-    "details": []
-  },
-  "errors": []
-}
-```
+A user with no entries is **not** an error — a `200` with `data: []`.
 
 #### Error responses
 
-| Status | Cause | Example `message` / `errors` |
+| Status | Cause | Notes |
 |---|---|---|
-| **400** | Shape validation | `"UserId: 'User Id' must be greater than '0'."` |
-| **400** | Range inverted | `"EndDate: The end of the range must not be earlier than its start."` |
+| **404** | `userId` is not a positive integer | Route constraint — the route does not match, so there is no envelope |
 | **500** | Unhandled defect | generic message + correlation id |
-
-```json
-{
-  "success": false,
-  "message": "One or more validation errors occurred.",
-  "data": null,
-  "errors": [
-    "TaskId: 'Task Id' must be greater than '0'.",
-    "EndDate: The end of the range must not be earlier than its start."
-  ]
-}
-```
 
 ---
 
-### 2. GET `/api/v1/TimeLog/get-timesheet-setup-by-user/{userId}`
+### 2. Employee Timesheet Setup
+
+`GET /api/v1/TimeLog/get-timesheet-setup-by-user/{userId}`
 
 **Purpose** — Return the timesheet setup that governs one user: their maximum
 loggable time, contract type, the bounds of their timesheet week, whether they
@@ -455,7 +408,7 @@ row, since the procedure inner-joins the two and either absence returns nothing.
 
 > **`data: null` is not "no limits — log whatever you like."** It means the user
 > has not been configured, and
-> [endpoint 3](#3-post-apiv1timelogsave-employee-time-log) refuses to log time
+> [Save Time Log](#3-save-time-log-add--edit) refuses to log time
 > for such a user. Do not read absent as zero, or as unlimited. A setup that
 > *exists* but has empty columns comes back as an **object** with nulls inside
 > it, which is a different answer again.
@@ -472,13 +425,21 @@ row, since the procedure inner-joins the two and either absence returns nothing.
 
 ---
 
-### 3. POST `/api/v1/TimeLog/save-employee-time-log`
+### 3. Save Time Log (Add / Edit)
 
-**Purpose** — Log one block of time for an employee.
+`POST /api/v1/TimeLog/save-employee-time-log`
 
-**Insert only.** The entry is created and returned with its generated `sheetId`.
-Correcting an existing entry is a separate operation and is not built yet — there
-is no sheet id in the payload.
+**Purpose** — Log one block of time for an employee, or edit one they already
+logged. One endpoint, one payload, for both:
+
+| `timeLogId` | What happens |
+|---|---|
+| `0`, or left out | A new entry is **added** and returned with its generated `sheetId` and `sheetCode` |
+| the `sheetId` of a live entry | That entry is **edited** — overwritten with the payload — and returned |
+
+An edit is checked against **every rule an add is**, plus one more: the entry
+*as it stands* must still be open to change. See
+[Editing, and the cut-off](#editing-and-the-cut-off).
 
 Before the row is stored it is checked against the user's timesheet setup (their
 working week, whether they may still back-date, their daily maximum) and against
@@ -489,15 +450,17 @@ the entries they already have that day, so two blocks cannot cover the same hour
 
 | Field | Type | Required | Rules | Notes |
 |---|---|---|---|---|
-| `userId` | int | yes | `> 0` | The employee the time belongs to; also selects the setup it is validated against. **Temporary** |
+| `timeLogId` | int | no | `>= 0` | `0` or omitted adds an entry. The `sheetId` of an existing entry edits it |
+| `userId` | int | yes | `> 0` | The employee the time belongs to; also selects the setup it is validated against. On an edit it must be the entry's owner. **Temporary** |
 | `taskId` | int | yes | `> 0` | Time is always logged against a task |
+| `isProjectTask` | bool | yes | `true` or `false`; not `null`, not omitted | `true` when `taskId` is a project task, `false` when it is a sprint task — the two lists [Task List](#4-task-list) returns, whose ids can coincide |
 | `description` | string? | no | unbounded (`nvarchar(max)`) | What was worked on |
 | `startDate` | date | yes | not empty | Day the work started. Time part ignored |
 | `endDate` | date? | no | `>= startDate` and `<= startDate + 1 day` | Defaults to `startDate`. Exists only for a shift running past midnight |
 | `startTime` | string | yes | `hh:mm:ss`, `00:00:00`–`23:59:59` | Clock time it started — e.g. `"09:00:00"` |
 | `endTime` | string | yes | `hh:mm:ss`, `00:00:00`–`23:59:59`, and after `startTime` once both dates are counted | Clock time it ended |
 | `status` | enum | yes | `1`/`"Save"` or `2`/`"Draft"` | An entry with no status is neither saved nor drafted |
-| `createdBy` | int | yes | `> 0` | Who is recording the entry — not necessarily `userId`, since a manager may log on someone's behalf. **Temporary** |
+| `createdBy` | int | yes | `> 0` | Who is recording the entry — not necessarily `userId`, since a manager may log on someone's behalf. Written to `createdBy` on an add and to **`updatedBy` on an edit**; an edit never changes who created the entry. **Temporary** |
 
 > **`sheetCode` is not in the payload.** The service generates it — see below.
 > Sending one is ignored: the property does not exist on the request.
@@ -541,12 +504,14 @@ Two details worth knowing:
 - **A rejected request consumes nothing.** The code is read after every rule has
   passed, so a 400 or a 409 leaves no gap in the sequence.
 
-#### Example request — ordinary entry
+#### Example request — add an entry
 
 ```json
 {
+  "timeLogId": 0,
   "userId": 101,
   "taskId": 55,
+  "isProjectTask": true,
   "description": "Implemented the save-employee-time-log endpoint.",
   "startDate": "2026-09-16T00:00:00",
   "startTime": "09:00:00",
@@ -574,16 +539,40 @@ Two details worth knowing:
 
 `status` accepts the number as well as the name.
 
+#### Example request — edit an entry
+
+```json
+{
+  "timeLogId": 8931,
+  "userId": 101,
+  "taskId": 55,
+  "isProjectTask": true,
+  "description": "Implemented the save endpoint, and its edit path.",
+  "startDate": "2026-09-16T00:00:00",
+  "startTime": "09:00:00",
+  "endTime": "13:00:00",
+  "status": "Save",
+  "createdBy": 101
+}
+```
+
+Send the **whole** entry, not just what changed: an edit overwrites every field
+in the payload, so a field left out is cleared (or, for `endDate`, reset to
+`startDate`).
+
 #### Success response — `200 OK`
 
 `data` is a `TimeLogResponse` — the entry exactly as it was stored, so a client
-that has just logged time can display it back without a second request.
+that has just logged time can display it back without a second request. The
+`message` says which happened: `"Time logged."` for an add, `"Time log
+updated."` for an edit.
 
 | Field | Type | Meaning |
 |---|---|---|
-| `sheetId` | int | The generated key — the one field the caller could not have known |
-| `sheetCode` | string? | **Generated by the service** — `T0001`, `T0002`, … The caller does not send one and cannot choose one |
+| `sheetId` | int | The entry's key — generated on an add; send it back as `timeLogId` to edit |
+| `sheetCode` | string? | **Generated by the service** on an add — `T0001`, `T0002`, … The caller does not send one and cannot choose one. An edit keeps the entry's code |
 | `taskId` | int? | As sent |
+| `isProjectTask` | bool? | As sent. Nullable only because rows logged before the column existed hold `null` |
 | `description` | string? | As sent |
 | `userId` | int? | As sent |
 | `startDate` | date? | As sent, date only |
@@ -593,8 +582,10 @@ that has just logged time can display it back without a second request.
 | `status` | enum? | `"Save"` or `"Draft"` |
 | `statusName` | string | The status spelled out, so clients need not carry the numbers |
 | `totalWorkingHours` | decimal | Duration in hours, 2 dp. Computed across both ends including dates, so an overnight entry measures correctly instead of coming out negative |
-| `createdBy` | int? | As sent |
-| `createDate` | datetime? | When the row was stamped |
+| `createdBy` | int? | Who added the entry. Unchanged by an edit |
+| `createDate` | datetime? | When the entry was added, UTC. Unchanged by an edit |
+| `updatedBy` | int? | Who last edited the entry — `createdBy` from the edit's payload. `null` until it has been edited |
+| `updateDate` | datetime? | When the entry was last edited, UTC. `null` until it has been edited |
 
 #### Example response
 
@@ -606,6 +597,7 @@ that has just logged time can display it back without a second request.
     "sheetId": 8931,
     "sheetCode": "T0007",
     "taskId": 55,
+    "isProjectTask": true,
     "description": "Implemented the save-employee-time-log endpoint.",
     "userId": 101,
     "startDate": "2026-09-16T00:00:00",
@@ -616,7 +608,9 @@ that has just logged time can display it back without a second request.
     "statusName": "Save",
     "totalWorkingHours": 3.50,
     "createdBy": 101,
-    "createDate": "2026-09-16T11:04:22.117"
+    "createDate": "2026-09-16T11:04:22.117",
+    "updatedBy": null,
+    "updateDate": null
   },
   "errors": []
 }
@@ -628,9 +622,11 @@ that has just logged time can display it back without a second request.
 
 | Trigger | Message |
 |---|---|
+| `timeLogId < 0` | `TimeLogId must be 0 to add an entry, or the id of the entry to edit.` |
 | `userId <= 0` | `UserId is required: an entry must belong to an employee.` |
 | `taskId <= 0` | `TaskId is required: time is always logged against a task.` |
-| `createdBy <= 0` | `CreatedBy is required: the row records who logged the time.` |
+| `isProjectTask` missing or `null` | `IsProjectTask is required: true for a project task, false for a sprint task.` |
+| `createdBy <= 0` | `CreatedBy is required: the row records who logged or edited the time.` |
 | `startDate` empty | `StartDate is required.` |
 | `status` not 1 or 2 | `Status must be 1 (Save) or 2 (Draft).` |
 | `endDate` before `startDate` | `EndDate must not be earlier than StartDate.` |
@@ -678,6 +674,7 @@ A time failure arrives on its own, from the service:
 
 | Rule | Example message |
 |---|---|
+| Edit names someone else's entry | `Time log '8931' does not belong to user '102', so it cannot be edited as theirs.` |
 | No setup for the user | `User '4242' has no timesheet setup, so there are no limits to check this entry against. An administrator has to create one before they can log time.` |
 | Future date | `Time cannot be logged against 2026-12-01 because it has not happened yet.` |
 | Back-dating not permitted | `User '101' is not allowed to log time against an earlier day, so 2026-09-10 cannot be used.` |
@@ -699,6 +696,18 @@ The daily maximum counts **every live entry on that date, drafts included** — 
 draft still occupies the time, and excluding drafts would let a user reach any
 total by drafting first.
 
+**404 — the entry to edit does not exist** — `timeLogId` names no row, or a
+soft-deleted one (a deleted entry cannot be edited back to life):
+
+```json
+{
+  "success": false,
+  "message": "Time log '8931' was not found.",
+  "data": null,
+  "errors": []
+}
+```
+
 **409 — overlap** with an entry already stored that day:
 
 ```json
@@ -713,7 +722,8 @@ total by drafting first.
 A conflict rather than a validation error: the payload is well formed, and it is
 the rows already in the table that make it impossible. **Touching ends do not
 overlap** — an entry ending at 12:00 and the next starting at 12:00 are adjacent,
-which is how a day is normally filled in.
+which is how a day is normally filled in. On an edit, the entry being edited is
+left out of the check, so it cannot overlap itself.
 
 **500** — unhandled defect.
 
@@ -740,6 +750,32 @@ An entry's **start** is what places it, so a block running 20:00–23:00 began
 before a 21:00 cut-off and is refused with the rest of the evening; it is not
 split at the cut-off. A setup with no `timeEntryLockAt` has no deadline at all.
 
+#### Editing, and the cut-off
+
+**Before the cut-off, every entry of the day can be added or edited. After it,
+an entry that started before the cut-off can be neither added nor edited** —
+only entries starting after it can.
+
+An edit is therefore checked **twice**: once for where the entry *is*, and once
+for where it is *going*. Checking only the new values would let a locked 19:00
+block be dragged to 22:00 after a 21:00 cut-off — which is editing locked time
+with a different end result.
+
+| Local now | Entry is now | Edited to | Result |
+|---|---|---|---|
+| 19:00 | 17:00–18:00 | 17:00–18:30 | edited — the cut-off has not arrived |
+| 22:00 | 22:00–23:00 | 22:00–23:30 | edited — the entry is after the cut-off |
+| 22:00 | 22:00–23:00 | 19:00–20:00 | **400** — the new start is before the passed cut-off |
+| 22:00 | 19:00–20:00 | 22:00–23:00 | **400** — the entry as it stands is locked |
+| 22:00 | 19:00–20:00 | 19:00–20:30 | **400** — locked |
+
+The same applies to the date: editing an entry on an earlier day needs
+back-dating to be open for **both** its current date and its new one.
+
+A half-recorded entry is judged on what it has: with no stored date it has no
+day to be locked, and with no stored start nothing to place against the
+cut-off, so the edit that completes it is not refused for the gap it fixes.
+
 > **A missing or unrecognised `timeZone` falls back to UTC** and is logged as a
 > warning rather than refusing the entry — matching how the rest of this API
 > treats a half-filled setup. Every setup saved before the column existed is
@@ -754,18 +790,111 @@ employee logging the morning they are actually living through.
 Rules are applied in this order, and the first failure answers:
 
 1. Payload shape (FluentValidation) → **400**
-2. User has a timesheet setup → **400**
-3. Date is open for logging — not in the future; if back-dated, `canUserLoggedPreDayTime` is true and `timeEntryLockAt` has not passed **in the employee's zone** → **400**
-4. Date falls inside the timesheet week, or is the exception day → **400**
-5. The entry does not start before a `timeEntryLockAt` that has already passed **in the employee's zone** → **400**
-6. No overlap with existing entries that day → **409**
-7. Day stays within the daily maximum → **400**
+2. *Edit only:* `timeLogId` names a live entry → **404**, owned by `userId` → **400**
+3. User has a timesheet setup → **400**
+4. *Edit only:* the entry as it stands is still open — its current date passes rule 5 and its current start passes rule 7 → **400**
+5. Date is open for logging — not in the future; if back-dated, `canUserLoggedPreDayTime` is true and `timeEntryLockAt` has not passed **in the employee's zone** → **400**
+6. Date falls inside the timesheet week, or is the exception day → **400**
+7. The entry does not start before a `timeEntryLockAt` that has already passed **in the employee's zone** → **400**
+8. No overlap with existing entries that day, the edited entry excluded → **409**
+9. Day stays within the daily maximum, the edited entry excluded → **400**
 
 > A week that is not configured, or configured with codes the application does
 > not recognise, imposes **no** constraint — blocking an employee over a
 > half-filled setup they cannot fix would be worse. `exceptionDay` is allowed
 > **in addition** to the week, and the week may wrap (a Sunday-to-Thursday week
 > is normal in some of this data).
+
+---
+
+### 4. Task List
+
+`GET /api/v1/TimeLog/get-user-task-list-by-userid/{userId}`
+
+**Purpose** — Return the tasks a user owns, as **two separate lists**: project
+tasks and sprint tasks. This is what the time-entry screen picks a `taskId`
+from — send the list the task came from as `isProjectTask` on
+[Save Time Log](#3-save-time-log-add--edit).
+
+Backed by `spc_GetUsersTaskList`, which returns two result sets: project tasks
+from `dbo.TaskMaster`, then sprint tasks from `dbo.SprintTaskManagement`, each
+filtered on `Taskowner`.
+
+The route is matched without regard to case, so `…/get-user-task-list-by-userID/101`
+works too.
+
+#### Route parameters
+
+| Parameter | Type | Constraint |
+|---|---|---|
+| `userId` | int | `:int:min(1)` — a value below 1 does not match the route and returns **404** |
+
+No request body.
+
+#### Example request
+
+```http
+GET /api/v1/TimeLog/get-user-task-list-by-userid/101
+```
+
+#### Success response — `200 OK`
+
+`data` is a `UserTaskListResponse`:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `projectTasks` | `UserTaskResponse[]` | Tasks from `dbo.TaskMaster` the user owns |
+| `sprintTasks` | `UserTaskResponse[]` | Tasks from `dbo.SprintTaskManagement` the user owns |
+
+Each `UserTaskResponse`:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `taskId` | int | `TaskMaster.TaskID` in `projectTasks`; `SprintTaskManagement.SprintTaskID` in `sprintTasks` |
+| `taskName` | string? | The task's name |
+
+> **A `taskId` is unique only within its own list.** The two lists come from
+> different tables, so the same number can appear in both and mean two
+> different tasks. That is what `isProjectTask` on a time log disambiguates.
+
+#### Example response
+
+```json
+{
+  "success": true,
+  "message": "",
+  "data": {
+    "projectTasks": [
+      { "taskId": 55, "taskName": "Timesheet API" },
+      { "taskId": 61, "taskName": "Country time zones" }
+    ],
+    "sprintTasks": [
+      { "taskId": 55, "taskName": "Sprint 14 - code review" }
+    ]
+  },
+  "errors": []
+}
+```
+
+#### When the user owns no tasks
+
+**`200`**, with both lists empty — never `null`, and never a 404:
+
+```json
+{
+  "success": true,
+  "message": "",
+  "data": { "projectTasks": [], "sprintTasks": [] },
+  "errors": []
+}
+```
+
+#### Error responses
+
+| Status | Cause |
+|---|---|
+| **404** | `userId` below 1 — no route matches. This is routing, not "no data" |
+| **500** | Unhandled defect |
 
 ---
 
@@ -776,12 +905,14 @@ Service: `AdminService` · Prefix: `/api/v1/Admin`
 
 Administrative CRUD over `dbo.TimesheetMasterSetup`, plus the organisation's
 employee list. **This is the surface that most obviously needs a permission
-behind it** — it has none while authentication is off, and endpoint 7 returns a
+behind it** — it has none while authentication is off, and **Employee List** returns a
 whole organisation's staff list to anyone who asks.
 
 ---
 
-### 4. POST `/api/v1/Admin/save-user-timesheet-setup`
+### 5. Save Timesheet Setup
+
+`POST /api/v1/Admin/save-user-timesheet-setup`
 
 **Purpose** — Save a user's timesheet setup: adding or updating, whichever
 applies. One payload, one endpoint, for all three cases.
@@ -863,7 +994,7 @@ insert and on edit alike.
 | `timeZone: "  "` | **400** — blank is rejected rather than stored |
 
 So **the caller owns the pairing.** Build the choice from
-[endpoint 8](#8-get-apiv1adminget-country-list-with-timezones), which returns
+[Country Time Zone List](#9-country-time-zone-list), which returns
 every country/zone pair with the zone spelled the way `dbo.Country` spells it,
 and send its `countryId` and `timeZone` back unchanged.
 
@@ -876,7 +1007,7 @@ and send its `countryId` and `timeZone` back unchanged.
 
 > **A zone that names nothing real degrades quietly.** Nothing validates the id
 > against the system zone database, so a misspelling is stored happily and
-> [endpoint 3](#3-post-apiv1timelogsave-employee-time-log) then falls back to
+> [Save Time Log](#3-save-time-log-add--edit) then falls back to
 > **UTC** when it cannot resolve it — logging a warning, not failing. An
 > employee's cut-off would be judged on the wrong clock. Send ids from endpoint
 > 8 and this cannot happen.
@@ -948,7 +1079,7 @@ last changed a setup.
 | `countryId` | int? | Stored as sent |
 | `countryName` | string? | **Derived** — the country's name from `dbo.Country`. `null` when the setup names no country, **or names one that does not exist** |
 | `timeZone` | string? | The IANA zone id **exactly as it was sent** — not resolved, and not necessarily one the country has |
-| `countryWithTimeZone` | string? | **Derived** — `countryName` and `timeZone` joined with a hyphen, `"India-Asia/Kolkata"`. The same string [endpoint 8](#8-get-apiv1adminget-country-list-with-timezones) returns as `optionValue` for that pairing |
+| `countryWithTimeZone` | string? | **Derived** — `countryName` and `timeZone` joined with a hyphen, `"India-Asia/Kolkata"`. The same string [Country Time Zone List](#9-country-time-zone-list) returns as `optionValue` for that pairing |
 | `timeEntryLockAt` | string? | `hh:mm:ss`, measured in `timeZone` |
 | `createdBy` | int? | audit |
 | `createDate` | datetime? | audit |
@@ -1061,13 +1192,15 @@ error; `timeEntryLockAt` is still optional, and absent is simply `null`.
 
 ---
 
-### 5. GET `/api/v1/Admin/get-user-timesheet-setup/{userID}`
+### 6. Admin Timesheet Setup
+
+`GET /api/v1/Admin/get-user-timesheet-setup/{userID}`
 
 **Purpose** — Return the timesheet setup belonging to one user, in the
 administrative shape (whole row, audit columns included). A user has at most one,
 so this is a single object rather than a list.
 
-Compare with [endpoint 2](#2-get-apiv1timelogget-timesheet-setup-by-useruserid),
+Compare with [Employee Timesheet Setup](#2-employee-timesheet-setup),
 which returns the nine-column timesheet-screen projection for the same user.
 
 #### Route parameters
@@ -1092,7 +1225,7 @@ GET /api/v1/Admin/get-user-timesheet-setup/101
 #### Success response — `200 OK`
 
 `data` is an `AdminResponse` — same shape as
-[endpoint 4](#4-post-apiv1adminsave-user-timesheet-setup), including the two
+[Save Timesheet Setup](#5-save-timesheet-setup), including the two
 **derived** fields `countryName` and `countryWithTimeZone`.
 
 ```json
@@ -1135,12 +1268,12 @@ Neither derived field is stored; both are built on the way out from one lookup
 of `countryId`.
 
 `countryWithTimeZone` holds **exactly** the string
-[endpoint 8](#8-get-apiv1adminget-country-list-with-timezones) returns as
+[Country Time Zone List](#9-country-time-zone-list) returns as
 `optionValue` for the same pairing — the two are built by one shared joiner. So:
-load the picker from endpoint 8, load the setup from here, and preselect the
+load the picker from **Country Time Zone List**, load the setup from here, and preselect the
 entry whose `optionValue` equals this. One string comparison, no reassembly.
 
-> The names differ, the values do not. Endpoint 8 calls it `optionValue`
+> The names differ, the values do not. **Country Time Zone List** calls it `optionValue`
 > because it is a dropdown option; here it is `countryWithTimeZone` because it
 > describes the setup. Compare the values, never the key names.
 
@@ -1153,7 +1286,7 @@ Only the parts that exist are joined, so there is never a dangling hyphen:
 | A country but no zone | `"India"` | `"India"` |
 | Neither | `null` | `null` |
 
-> The second row is reachable: [endpoint 4](#4-post-apiv1adminsave-user-timesheet-setup)
+> The second row is reachable: [Save Timesheet Setup](#5-save-timesheet-setup)
 > stores `countryId` without checking it exists. A null `countryName` beside a
 > non-null `countryId` is the signal that the stored id has no matching row.
 
@@ -1173,7 +1306,7 @@ that was **soft-deleted**, which the global query filter hides.
 
 Finding an employee who has not been set up is one of the reasons to call this,
 so it is an answer rather than an error. Follow it with
-[endpoint 4](#4-post-apiv1adminsave-user-timesheet-setup), which needs no
+[Save Timesheet Setup](#5-save-timesheet-setup), which needs no
 insert/update distinction — send the same payload either way.
 
 #### Error responses
@@ -1185,7 +1318,9 @@ insert/update distinction — send the same payload either way.
 
 ---
 
-### 6. POST `/api/v1/Admin/delete-timesheet-setup`
+### 7. Delete Timesheet Setup
+
+`POST /api/v1/Admin/delete-timesheet-setup`
 
 **Purpose** — Soft-delete a timesheet setup. The row is **never** removed: it is
 marked `IsDelete = 1` and stamped with who deleted it and when, so the history
@@ -1264,12 +1399,14 @@ success:
 **500** — unhandled defect.
 
 > A deleted setup is not gone for good: saving that user's setup again
-> ([endpoint 4](#4-post-apiv1adminsave-user-timesheet-setup)) revives the
+> ([Save Timesheet Setup](#5-save-timesheet-setup)) revives the
 > same row and clears the delete stamps.
 
 ---
 
-### 7. GET `/api/v1/Admin/get-all-employees-by-orgid/{orgID}`
+### 8. Employee List
+
+`GET /api/v1/Admin/get-all-employees-by-orgid/{orgID}`
 
 **Purpose** — Every employee in one organisation, with their contracted time per
 week, what they have logged in the **current Monday–Sunday week**, progress
@@ -1344,7 +1481,7 @@ separately, so the totals can never disagree with the grid beneath them.
 > a half-filled one"; `countryId` comes from `dbo.Signup`, the side of the
 > `LEFT JOIN` that always exists, so a null means the **signup** names no
 > country. It is also not the same column as the `countryId` on
-> [endpoint 4](#4-post-apiv1adminsave-user-timesheet-setup)'s response, which is
+> [Save Timesheet Setup](#5-save-timesheet-setup)'s response, which is
 > `dbo.TimesheetMasterSetup.CountryID` — the two can hold different values.
 
 #### Example response
@@ -1447,7 +1584,9 @@ reaches the service and is told what is wrong with it:
 
 ---
 
-### 8. GET `/api/v1/Admin/get-country-list-with-timezones`
+### 9. Country Time Zone List
+
+`GET /api/v1/Admin/get-country-list-with-timezones`
 
 **Purpose** — Return every country paired with each of its time zones: the flat
 list a setup screen's country picker binds to.
@@ -1484,9 +1623,9 @@ GET /api/v1/Admin/get-country-list-with-timezones
 
 | Field | Type | Meaning |
 |---|---|---|
-| `countryId` | int | The `dbo.Country.ID` — send this back as `countryId` on [endpoint 4](#4-post-apiv1adminsave-user-timesheet-setup). Repeated across every entry of a multi-zone country |
+| `countryId` | int | The `dbo.Country.ID` — send this back as `countryId` on [Save Timesheet Setup](#5-save-timesheet-setup). Repeated across every entry of a multi-zone country |
 | `countryName` | string | The country's name on its own — `"United States"`. `""` for the rare row whose `Name` column is null |
-| `timeZone` | string | The IANA zone id on its own — `"America/New_York"`. Send this back as `timeZone` on endpoint 4 |
+| `timeZone` | string | The IANA zone id on its own — `"America/New_York"`. Send this back as `timeZone` on **Save Timesheet Setup** |
 | `optionValue` | string | The two joined with a hyphen — `"United States-America/New_York"`. The label to display and to key a selection on |
 
 ```json
@@ -1544,7 +1683,7 @@ and the sensible one to preselect.
 #### What is not in the list
 
 A country whose `TimeZone` column has never been filled in contributes **no
-entries at all**. [Endpoint 4](#4-post-apiv1adminsave-user-timesheet-setup)
+entries at all**. [Save Timesheet Setup](#5-save-timesheet-setup)
 answers 400 for such a country, and a picker should only hold answers that work.
 It is invisible here rather than unselectable — if a country is missing from
 this list, its `dbo.Country` row needs a time zone.
@@ -1643,17 +1782,18 @@ authentication is off.
 
 ## Endpoint summary table
 
-| # | Method | Route | Purpose | Request | Success `data` | Failures |
-|---|---|---|---|---|---|---|
-| 1 | POST | `/api/v1/TimeLog/get-time-logged-details` | Entries for a user + task in a date range, with totals | `TimeLoggedDetailsForTaskRequest` | `TimeLoggedDetailsForTaskResponse` | 400, 500 |
-| 2 | GET | `/api/v1/TimeLog/get-timesheet-setup-by-user/{userId}` | A user's timesheet limits, country and time zone (screen view) | route param | `TimesheetMasterSetupResponse`, or `null` when they have none | 500 |
-| 3 | POST | `/api/v1/TimeLog/save-employee-time-log` | Log one block of time (insert only) | `TimeLogSaveRequest` | `TimeLogResponse` | 400, 409, 500 |
-| 4 | POST | `/api/v1/Admin/save-user-timesheet-setup` | Add / update / revive a user's setup; stores `countryId` and `timeZone` as sent | `AdminSaveRequest` | `AdminResponse` | 400, 500 |
-| 5 | GET | `/api/v1/Admin/get-user-timesheet-setup/{userID}` | A user's setup (admin view, whole row + `countryName`/`countryWithTimeZone`) | route param | `AdminResponse`, or `null` when they have none | 500 |
-| 6 | POST | `/api/v1/Admin/delete-timesheet-setup` | Soft-delete a setup | `AdminDeleteRequest` | `null` | 400, 404, 500 |
-| 7 | GET | `/api/v1/Admin/get-all-employees-by-orgid/{orgID}` | An organisation's employees, countries + head-count totals | route param | `EmployeeListResponse` | 400, 500 |
-| 8 | GET | `/api/v1/Admin/get-country-list-with-timezones` | Every country paired with each of its time zones, one entry per zone | — | `CountryTimeZoneResponse[]` (`countryId`, `countryName`, `timeZone`, `optionValue`) | 500 |
-| — | GET | `/health`, `/health/live`, `/health/ready` | Liveness / readiness | — | *(unenveloped)* | 503 |
+| # | Name | Method | Route | Purpose | Request | Success `data` | Failures |
+|---|---|---|---|---|---|---|---|
+| 1 | Logged Time List | GET | `/api/v1/TimeLog/get-logged-time-list/{userId}` | Every entry a user has logged, newest first | route param | `TimeLoggedDetailResponse[]` | 500 |
+| 2 | Employee Timesheet Setup | GET | `/api/v1/TimeLog/get-timesheet-setup-by-user/{userId}` | A user's timesheet limits, country and time zone (screen view) | route param | `TimesheetMasterSetupResponse`, or `null` when they have none | 500 |
+| 3 | Save Time Log (Add / Edit) | POST | `/api/v1/TimeLog/save-employee-time-log` | Log a block of time, or edit one (`timeLogId > 0`) | `TimeLogSaveRequest` | `TimeLogResponse` | 400, 404, 409, 500 |
+| 4 | Task List | GET | `/api/v1/TimeLog/get-user-task-list-by-userid/{userId}` | A user's project tasks and sprint tasks, as two lists | route param | `UserTaskListResponse` | 500 |
+| 5 | Save Timesheet Setup | POST | `/api/v1/Admin/save-user-timesheet-setup` | Add / update / revive a user's setup; stores `countryId` and `timeZone` as sent | `AdminSaveRequest` | `AdminResponse` | 400, 500 |
+| 6 | Admin Timesheet Setup | GET | `/api/v1/Admin/get-user-timesheet-setup/{userID}` | A user's setup (admin view, whole row + `countryName`/`countryWithTimeZone`) | route param | `AdminResponse`, or `null` when they have none | 500 |
+| 7 | Delete Timesheet Setup | POST | `/api/v1/Admin/delete-timesheet-setup` | Soft-delete a setup | `AdminDeleteRequest` | `null` | 400, 404, 500 |
+| 8 | Employee List | GET | `/api/v1/Admin/get-all-employees-by-orgid/{orgID}` | An organisation's employees, countries + head-count totals | route param | `EmployeeListResponse` | 400, 500 |
+| 9 | Country Time Zone List | GET | `/api/v1/Admin/get-country-list-with-timezones` | Every country paired with each of its time zones, one entry per zone | — | `CountryTimeZoneResponse[]` (`countryId`, `countryName`, `timeZone`, `optionValue`) | 500 |
+| — | Health | GET | `/health`, `/health/live`, `/health/ready` | Liveness / readiness | — | *(unenveloped)* | 503 |
 
 ---
 
@@ -1664,14 +1804,14 @@ Documented so nobody has to rediscover them:
 1. **No authentication or authorization on any endpoint.** `userId`, `createdBy`
    and `deletedBy` are trusted from the payload. All three properties are marked
    temporary and disappear when JWT is switched back on.
-2. **`totalExpected` counts calendar days, not working days** — now possible to
-   change, since the day columns became `DayMaster` ids, but not changed, because
-   it would restate figures already reported.
+2. **Logged Time List has no paging and no date filter.** Since 2026-09-25
+   `spc_GetTimeLoggedDetailsForTask` takes only the user, so a user's whole
+   history comes back in one call and the response grows without bound.
 3. **No foreign key ties the setup's day columns to `dbo.DayMaster`.** A row can
    hold an id the lookup does not contain; the API treats such a value as "no
    week configured" rather than failing the read.
-4. **No update or delete for a time log entry.** `save-employee-time-log` is
-   insert-only.
+4. **No delete for a time log entry.** Save Time Log adds and edits; nothing
+   removes an entry.
 5. **The timesheet setup procedure does not guarantee uniqueness.** When a user
    has more than one row, the first is returned and a warning is logged.
 6. **`dbo.Signup` is only partially recorded.** `docs/database/schema/dbo.Signup.sql`
@@ -1683,7 +1823,7 @@ Documented so nobody has to rediscover them:
    exceed what every other read in the API reports for the same week.
 8. **`canUserLoggedPreDayTime` is computed on the database server's clock.**
    `spc_GetTimesheetMasterSetupByUserID` derives it from `GETDATE()`, so the
-   flag returned by endpoint 2 answers "has the cut-off passed *on the server*",
+   flag returned by **Employee Timesheet Setup** answers "has the cut-off passed *on the server*",
    not "where the employee is" — it will read wrong for anyone outside the
    server's zone. The write path is unaffected: it judges `timeEntryLockAt`
    itself in the employee's zone. Now that the procedure also returns
@@ -1709,3 +1849,7 @@ Documented so nobody has to rediscover them:
     existing rows hold nulls). Once that index exists, a collision becomes a
     failed insert rather than a silent duplicate, and the save can be made to
     retry.
+13. **Task List reads two tables that are not recorded.** `dbo.TaskMaster` and
+    `dbo.SprintTaskManagement` have never been scripted for this repository, so
+    the mapping assumes the ids are `int` and `Taskname` is text. A different
+    type fails the endpoint at run time.

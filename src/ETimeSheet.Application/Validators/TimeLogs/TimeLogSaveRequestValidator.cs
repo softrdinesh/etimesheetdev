@@ -33,6 +33,12 @@ public class TimeLogSaveRequestValidator : AbstractValidator<TimeLogSaveRequest>
 
     public TimeLogSaveRequestValidator()
     {
+        // Zero means "add"; anything above it names the entry to edit. Whether
+        // that entry exists is the service's question, not this one's.
+        RuleFor(request => request.TimeLogId)
+            .GreaterThanOrEqualTo(0)
+            .WithMessage("TimeLogId must be 0 to add an entry, or the id of the entry to edit.");
+
         RuleFor(request => request.UserId)
             .GreaterThan(0)
             .WithMessage("UserId is required: an entry must belong to an employee.");
@@ -41,9 +47,16 @@ public class TimeLogSaveRequestValidator : AbstractValidator<TimeLogSaveRequest>
             .GreaterThan(0)
             .WithMessage("TaskId is required: time is always logged against a task.");
 
+        // NotNull, because the property is a bool? precisely so that "not sent"
+        // survives binding. The column stays nullable for older rows; a new or
+        // edited entry always says which task list its TaskId came from.
+        RuleFor(request => request.IsProjectTask)
+            .NotNull()
+            .WithMessage("IsProjectTask is required: true for a project task, false for a sprint task.");
+
         RuleFor(request => request.CreatedBy)
             .GreaterThan(0)
-            .WithMessage("CreatedBy is required: the row records who logged the time.");
+            .WithMessage("CreatedBy is required: the row records who logged or edited the time.");
 
         RuleFor(request => request.StartDate)
             .NotEmpty()

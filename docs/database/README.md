@@ -50,7 +50,8 @@ docs/database/
 ├── procedures/                  one file per stored procedure / function
 │   ├── dbo.spc_GetEmployeeListByPOrgID.sql
 │   ├── dbo.spc_GetTimeLoggedDetailsForTask.sql
-│   └── dbo.spc_GetTimesheetMasterSetupByUserID.sql
+│   ├── dbo.spc_GetTimesheetMasterSetupByUserID.sql
+│   └── dbo.spc_GetUsersTaskList.sql
 └── data/                        one-off data scripts, run by hand, never by the tests
     └── dbo.Country_UpdateTimeZone.sql
 ```

@@ -7,7 +7,7 @@ namespace ETimeSheet.Application.Interfaces.Repositories;
 /// Data access contract for <see cref="TimeLog"/>. Every public operation of
 /// <c>TimeLogRepository</c> is declared here; private query helpers are not.
 /// <para>
-/// The two reads execute stored procedures; the write path uses the entity and
+/// The procedure reads execute stored procedures; the write path uses the entity and
 /// the change tracker. That split is the database's, not a preference: the
 /// procedures exist and are the agreed read contract, and there is no procedure
 /// for the insert.
@@ -20,14 +20,11 @@ namespace ETimeSheet.Application.Interfaces.Repositories;
 public interface ITimeLogRepository
 {
     /// <summary>
-    /// Returns the entries one user logged against one task, by executing
+    /// Returns every live entry one user has logged, newest first, by executing
     /// <c>dbo.spc_GetTimeLoggedDetailsForTask</c>.
     /// </summary>
-    Task<IReadOnlyList<TimeLoggedDetail>> GetTimeLoggedDetailsForTaskAsync(
+    Task<IReadOnlyList<TimeLoggedDetail>> GetTimeLoggedDetailsByUserIdAsync(
         int userId,
-        int taskId,
-        DateTime startDate,
-        DateTime endDate,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -40,6 +37,15 @@ public interface ITimeLogRepository
     /// </para>
     /// </summary>
     Task<IReadOnlyList<TimesheetMasterSetupDetail>> GetTimesheetMasterSetupByUserIdAsync(
+        int userId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns the project tasks and the sprint tasks one user owns, by
+    /// executing <c>dbo.spc_GetUsersTaskList</c> and reading both of its result
+    /// sets.
+    /// </summary>
+    Task<UserTaskList> GetUserTaskListByUserIdAsync(
         int userId,
         CancellationToken cancellationToken = default);
 
@@ -92,6 +98,23 @@ public interface ITimeLogRepository
     /// database-generated <c>SheetID</c> populated.
     /// </summary>
     Task<TimeLog> AddAsync(
+        TimeLog timeLog,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns one live entry, <b>tracked</b>, so that changes made to it are
+    /// written by <see cref="UpdateAsync"/>; or <see langword="null"/> when there
+    /// is no such entry. A soft-deleted entry counts as absent.
+    /// </summary>
+    Task<TimeLog?> GetForUpdateAsync(
+        int sheetId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Saves the changes made to an entry obtained from
+    /// <see cref="GetForUpdateAsync"/>, returning the same instance.
+    /// </summary>
+    Task<TimeLog> UpdateAsync(
         TimeLog timeLog,
         CancellationToken cancellationToken = default);
 }

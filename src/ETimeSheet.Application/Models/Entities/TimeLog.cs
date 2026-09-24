@@ -45,4 +45,12 @@ public class TimeLog : AuditableEntity
     /// <see cref="ETimeSheet.Shared.Utilities.Constants.TimeLog.Status"/>.</para>
     /// </summary>
     public TimeLogStatus? Status { get; set; }
+
+    /// <summary>
+    /// Whether <see cref="TaskId"/> is a project task (<c>dbo.TaskMaster</c>)
+    /// rather than a sprint task (<c>dbo.SprintTaskManagement</c>). The column
+    /// is a nullable <c>bit</c>, added 2026-09-24; rows written before then
+    /// hold null.
+    /// </summary>
+    public bool? IsProjectTask { get; set; }
 }
