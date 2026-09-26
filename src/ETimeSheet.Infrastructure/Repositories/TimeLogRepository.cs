@@ -46,6 +46,12 @@ public class TimeLogRepository : ITimeLogRepository
                 $"EXEC dbo.spc_GetTimesheetMasterSetupByUserID @PUserID = {userId}")
             .ToListAsync(cancellationToken);
 
+    public async Task<UserDashboardSummaryDetail?> GetUserDashboardSummaryByUserIdAsync(int userId,CancellationToken cancellationToken = default)
+    {
+        var rows = await _db.spc_GetUserDashboardSummaryByUserID.FromSqlInterpolated($"EXEC dbo.spc_GetUserDashboardSummaryByUserID @PUserID = {userId}").ToListAsync(cancellationToken);
+        return rows.FirstOrDefault();
+    }
+
     public async Task<UserTaskList> GetUserTaskListByUserIdAsync(
         int userId,
         CancellationToken cancellationToken = default)
@@ -156,18 +162,38 @@ public class TimeLogRepository : ITimeLogRepository
             // ignored on purpose: skipping those rows would reissue a code that
             // is already sitting in the table, invisible but present.
             .IgnoreQueryFilters()
-            // "T followed by digits and nothing else", evaluated in SQL Server
-            // rather than in memory. The first pattern requires the T and at
+            // "SHT followed by digits and nothing else", evaluated in SQL Server
+            // rather than in memory. The first pattern requires the SHT and at
             // least one digit; the second rejects anything non-numeric after the
-            // T, which is what keeps hand-entered references like "TS-00121" out
+            // SHT, which is what keeps hand-entered references like "TS-00121" out
             // of the sequence.
             .Where(timeLog => timeLog.SheetCode != null
-                && EF.Functions.Like(timeLog.SheetCode, "T[0-9]%")
-                && !EF.Functions.Like(timeLog.SheetCode.Substring(1), "%[^0-9]%"))
+                && EF.Functions.Like(timeLog.SheetCode, "SHT[0-9]%")
+                && !EF.Functions.Like(timeLog.SheetCode.Substring(3), "%[^0-9]%"))
             // Longest first, then greatest. LEN() before the text comparison is
-            // what makes T00001 outrank T9999 - see ITimeLogRepository.
+            // what makes SHT00001 outrank SHT9999 - see ITimeLogRepository.
             .OrderByDescending(timeLog => timeLog.SheetCode!.Length)
             .ThenByDescending(timeLog => timeLog.SheetCode)
+            .Select(timeLog => timeLog.SheetCode)
+            .FirstOrDefaultAsync(cancellationToken);
+
+    public async Task<string?> GetSheetCodeForUserBetweenAsync(
+        int userId,
+        DateTime from,
+        DateTime to,
+        int? excludeSheetId = null,
+        CancellationToken cancellationToken = default) =>
+        await _db.TimeLog
+            .AsNoTracking()
+            // As in GetLatestSheetCodeAsync: a deleted entry still owns its
+            // week's code, so the filter is ignored on purpose.
+            .IgnoreQueryFilters()
+            .Where(timeLog => timeLog.UserId == userId
+                && timeLog.StartDate >= from.Date
+                && timeLog.StartDate <= to.Date
+                && timeLog.SheetCode != null
+                && timeLog.SheetId != excludeSheetId)
+            .OrderBy(timeLog => timeLog.SheetId)
             .Select(timeLog => timeLog.SheetCode)
             .FirstOrDefaultAsync(cancellationToken);
 

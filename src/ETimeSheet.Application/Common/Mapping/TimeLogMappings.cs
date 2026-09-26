@@ -61,6 +61,23 @@ internal static class TimeLogMappings
         SprintTasks = tasks.SprintTasks.Select(ToResponse).ToArray()
     };
 
+    internal static UserDashboardSummaryResponse ToResponse(this UserDashboardSummaryDetail summary) => new()
+    {
+        UserId = summary.UserId,
+        Name = summary.Name,
+        WeekStartDate = summary.WeekStartDate,
+        WeekEndDate = summary.WeekEndDate,
+        TodayLoggedMinutes = summary.TodayLoggedMinutes,
+        TodayLoggedText = summary.TodayLoggedText,
+        WeekLoggedMinutes = summary.WeekLoggedMinutes,
+        WeekLoggedText = summary.WeekLoggedText,
+        WeekExpectedMinutes = summary.WeekExpectedMinutes,
+        WeekExpectedText = summary.WeekExpectedText,
+        WeekLoggedPercentage = summary.WeekLoggedPercentage,
+        WeekPendingMinutes = summary.WeekPendingMinutes,
+        WeekPendingText = summary.WeekPendingText
+    };
+
     /// <summary>
     /// Projects a saved entry back to the caller.
     /// <para>

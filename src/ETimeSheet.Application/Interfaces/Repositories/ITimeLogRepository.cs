@@ -50,6 +50,16 @@ public interface ITimeLogRepository
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Returns one user's dashboard figures by executing
+    /// <c>dbo.spc_GetUserDashboardSummaryByUserID</c>, or
+    /// <see langword="null"/> when the procedure returns no row - the user is
+    /// not in <c>dbo.Signup</c>, or is deleted there.
+    /// </summary>
+    Task<UserDashboardSummaryDetail?> GetUserDashboardSummaryByUserIdAsync(
+        int userId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Returns the live entries one user already has on one calendar day,
     /// untracked.
     /// <para>
@@ -74,13 +84,13 @@ public interface ITimeLogRepository
     /// <see langword="null"/> when none has ever been generated.
     /// <para>
     /// "Highest" is <b>longest first, then greatest</b>, because the codes grow
-    /// a digit when a width runs out: <c>T9999</c> is followed by <c>T00001</c>,
-    /// and a plain string comparison would call <c>T9999</c> the larger of the
+    /// a digit when a width runs out: <c>SHT9999</c> is followed by <c>SHT00001</c>,
+    /// and a plain string comparison would call <c>SHT9999</c> the larger of the
     /// two forever. Within one width the codes are zero-padded, so ordering them
     /// as text and as numbers is the same thing.
     /// </para>
     /// <para>
-    /// Only codes of the generated shape - <c>T</c> followed by digits and
+    /// Only codes of the generated shape - <c>SHT</c> followed by digits and
     /// nothing else - are considered. The table already holds hand-entered
     /// references such as <c>TS-00121</c>, and those name no position in the
     /// sequence.
@@ -92,6 +102,34 @@ public interface ITimeLogRepository
     /// </para>
     /// </summary>
     Task<string?> GetLatestSheetCodeAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns the sheet code a user's entries already carry for the dates
+    /// <paramref name="from"/> to <paramref name="to"/> inclusive - one
+    /// timesheet week - or <see langword="null"/> when none of their entries in
+    /// that range has a code yet.
+    /// <para>
+    /// The earliest entry's code wins (lowest <c>SheetID</c>), so the answer is
+    /// stable even for a week logged before codes were shared and holding
+    /// several.
+    /// </para>
+    /// <para>
+    /// <b>Soft-deleted rows are included deliberately.</b> A week whose first
+    /// entry was deleted keeps the code it was given, rather than the next entry
+    /// opening a second code for the same week.
+    /// </para>
+    /// <para>
+    /// <paramref name="excludeSheetId"/> leaves one entry out - the one being
+    /// edited - so an entry moved into another week does not find its own old
+    /// code there.
+    /// </para>
+    /// </summary>
+    Task<string?> GetSheetCodeForUserBetweenAsync(
+        int userId,
+        DateTime from,
+        DateTime to,
+        int? excludeSheetId = null,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Inserts a new entry and saves, returning the same instance with its

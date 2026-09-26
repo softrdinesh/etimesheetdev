@@ -89,4 +89,18 @@ public interface ITimeLogService
     Task<TimeLogResponse> SaveTimeLogAsync(
         TimeLogSaveRequest request,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns one user's dashboard summary - logged time today and this
+    /// timesheet week, the week's expected time, the percentage logged and the
+    /// time still pending - via <c>spc_GetUserDashboardSummaryByUserID</c>, or
+    /// <see langword="null"/> when the user does not exist or is deleted.
+    /// <para>
+    /// Null is an answer, as on <see cref="GetTimesheetMasterSetupByUserIdAsync"/>:
+    /// it reaches the client as a 200 with <c>data: null</c>.
+    /// </para>
+    /// </summary>
+    Task<UserDashboardSummaryResponse?> GetUserDashboardSummaryByUserIdAsync(
+        int userId,
+        CancellationToken cancellationToken = default);
 }

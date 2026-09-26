@@ -431,4 +431,32 @@ public class AdminService : IAdminService
 
         return await ToResponseAsync(setup, cancellationToken);
     }
+
+    public async Task<AdminDashboardSummaryResponse> GetAdminDashboardSummaryByOrganizationIdAsync(
+        int organizationId,
+        CancellationToken cancellationToken = default)
+    {
+        // As on the employee list: checked here rather than by a route
+        // constraint, so a caller who sends 0 is told what is wrong with it.
+        if (organizationId <= 0)
+        {
+            throw new ValidationException(
+                "orgID",
+                "orgID is required and must be greater than 0.");
+        }
+
+        // No authorisation check: authentication is switched off for now. Like
+        // the employee list, this is organisation-wide data and should gain a
+        // permission when JWT is turned back on.
+        var summary = await _adminRepository.GetAdminDashboardSummaryByOrganizationIdAsync(
+                organizationId,
+                cancellationToken)
+            // The procedure aggregates without GROUP BY, so it always returns
+            // one row. No row means the procedure has changed, not that the
+            // organisation is empty - a 500, not a made-up row of zeros.
+            ?? throw new InvalidOperationException(
+                $"spc_GetAdminDashboardSummaryByOrgID returned no row for organisation {organizationId}.");
+
+        return summary.ToResponse();
+    }
 }
