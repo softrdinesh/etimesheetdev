@@ -95,6 +95,19 @@ public class Context : DbContext
     /// </summary>
     public DbSet<EmployeeListDetail> spc_GetEmployeeListByPOrgID { get; set; } = null!;
 
+    /// <summary>
+    /// Result set of <c>dbo.spc_GetUserDashboardSummaryByUserID</c> - one
+    /// user's logged time today and this timesheet week, against what their
+    /// setup expects.
+    /// </summary>
+    public DbSet<UserDashboardSummaryDetail> spc_GetUserDashboardSummaryByUserID { get; set; } = null!;
+
+    /// <summary>
+    /// Result set of <c>dbo.spc_GetAdminDashboardSummaryByOrgID</c> - one
+    /// organisation's head counts and this week's logged and expected time.
+    /// </summary>
+    public DbSet<AdminDashboardSummaryDetail> spc_GetAdminDashboardSummaryByOrgID { get; set; } = null!;
+
     // dbo.spc_GetUsersTaskList has NO DbSet, deliberately. It returns two
     // result sets and EF Core materialises only the first, so
     // TimeLogRepository.GetUserTaskListByUserIdAsync runs it on this context's
@@ -214,6 +227,46 @@ public class Context : DbContext
             // Added to the procedure 2026-09-21. From the JOIN to dbo.Signup -
             // the employee's own country, not the setup row's CountryID.
             employee.Property(row => row.CountryId).HasColumnName("CountryID");
+        });
+
+        modelBuilder.Entity<UserDashboardSummaryDetail>(summary =>
+        {
+            summary.HasNoKey();
+            summary.ToView(null);
+
+            summary.Property(row => row.UserId).HasColumnName("UserID");
+            summary.Property(row => row.Name).HasColumnName("Name");
+            summary.Property(row => row.WeekStartDate).HasColumnName("WeekStartDate");
+            summary.Property(row => row.WeekEndDate).HasColumnName("WeekEndDate");
+            summary.Property(row => row.TodayLoggedMinutes).HasColumnName("TodayLoggedMinutes");
+            summary.Property(row => row.TodayLoggedText).HasColumnName("TodayLoggedText");
+            summary.Property(row => row.WeekLoggedMinutes).HasColumnName("WeekLoggedMinutes");
+            summary.Property(row => row.WeekLoggedText).HasColumnName("WeekLoggedText");
+            summary.Property(row => row.WeekExpectedMinutes).HasColumnName("WeekExpectedMinutes");
+            summary.Property(row => row.WeekExpectedText).HasColumnName("WeekExpectedText");
+            summary.Property(row => row.WeekLoggedPercentage).HasColumnName("WeekLoggedPercentage").HasPrecision(5, 2);
+            summary.Property(row => row.WeekPendingMinutes).HasColumnName("WeekPendingMinutes");
+            summary.Property(row => row.WeekPendingText).HasColumnName("WeekPendingText");
+        });
+
+        modelBuilder.Entity<AdminDashboardSummaryDetail>(summary =>
+        {
+            summary.HasNoKey();
+            summary.ToView(null);
+
+            summary.Property(row => row.OrganizationId).HasColumnName("OrganizationID");
+            summary.Property(row => row.TotalEmployees).HasColumnName("TotalEmployees");
+            summary.Property(row => row.TotalFullTimeEmployees).HasColumnName("TotalFullTimeEmployees");
+            summary.Property(row => row.TotalPartTimeEmployees).HasColumnName("TotalPartTimeEmployees");
+            summary.Property(row => row.WeekLoggedMinutes).HasColumnName("WeekLoggedMinutes");
+            summary.Property(row => row.WeekLoggedText).HasColumnName("WeekLoggedText");
+            summary.Property(row => row.WeekExpectedMinutes).HasColumnName("WeekExpectedMinutes");
+            summary.Property(row => row.WeekExpectedText).HasColumnName("WeekExpectedText");
+
+            // Static placeholders in the procedure - literal 0 until an
+            // approval workflow exists.
+            summary.Property(row => row.PendingTimesheets).HasColumnName("PendingTimesheets");
+            summary.Property(row => row.ApprovedTimesheets).HasColumnName("ApprovedTimesheets");
         });
     }
 }

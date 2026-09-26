@@ -74,6 +74,24 @@ internal static class TimesheetWeek
         Parse(dayId) is { } day ? day.ToString() : dayId?.ToString() ?? "not set";
 
     /// <summary>
+    /// The first day of the timesheet week <paramref name="date"/> falls in:
+    /// the latest date on or before it that is a <paramref name="weekStarts"/>.
+    /// <para>
+    /// A timesheet week is always seven calendar days from its start day, even
+    /// when the working span is shorter. A Monday-to-Friday week still owns the
+    /// Saturday and Sunday that follow it, so an entry on an exception day lands
+    /// in the same week as the working days around it rather than in a week of
+    /// its own.
+    /// </para>
+    /// </summary>
+    internal static DateTime StartOf(DateTime date, DayOfWeek weekStarts)
+    {
+        var daysSinceStart = ((int)date.DayOfWeek - (int)weekStarts + 7) % 7;
+
+        return date.Date.AddDays(-daysSinceStart);
+    }
+
+    /// <summary>
     /// Every day from <paramref name="start"/> to <paramref name="end"/>
     /// inclusive, walking forward through the week and wrapping past Saturday.
     /// <para>

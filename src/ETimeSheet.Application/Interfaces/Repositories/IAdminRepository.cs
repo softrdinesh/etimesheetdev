@@ -107,4 +107,14 @@ public interface IAdminRepository
     Task<IReadOnlyList<EmployeeListDetail>> GetEmployeeListByOrganizationIdAsync(
         int organizationId,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns one organisation's dashboard figures by executing
+    /// <c>dbo.spc_GetAdminDashboardSummaryByOrgID</c>, or
+    /// <see langword="null"/> if the procedure returns no row - which it is
+    /// written never to do.
+    /// </summary>
+    Task<AdminDashboardSummaryDetail?> GetAdminDashboardSummaryByOrganizationIdAsync(
+        int organizationId,
+        CancellationToken cancellationToken = default);
 }

@@ -210,4 +210,18 @@ internal static class AdminMappings
                     };
                 }))
             .ToArray();
+
+    internal static AdminDashboardSummaryResponse ToResponse(this AdminDashboardSummaryDetail summary) => new()
+    {
+        OrganizationId = summary.OrganizationId,
+        TotalEmployees = summary.TotalEmployees,
+        TotalFullTimeEmployees = summary.TotalFullTimeEmployees,
+        TotalPartTimeEmployees = summary.TotalPartTimeEmployees,
+        WeekLoggedMinutes = summary.WeekLoggedMinutes,
+        WeekLoggedText = summary.WeekLoggedText,
+        WeekExpectedMinutes = summary.WeekExpectedMinutes,
+        WeekExpectedText = summary.WeekExpectedText,
+        PendingTimesheets = summary.PendingTimesheets,
+        ApprovedTimesheets = summary.ApprovedTimesheets
+    };
 }
