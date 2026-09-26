@@ -164,6 +164,32 @@ public class AdminController : ControllerBase
     }
 
     /// <summary>
+    /// Returns the dashboard summary for one organisation: total, full-time and
+    /// part-time employees, this week's logged and expected time across all of
+    /// them, and the pending / approved timesheet counts.
+    /// <para>
+    /// "This week" is each employee's own timesheet week, starting on their
+    /// setup's <c>StartDay</c> (Monday when none). <c>pendingTimesheets</c> and
+    /// <c>approvedTimesheets</c> are static placeholders - always 0 for now.
+    /// </para>
+    /// </summary>
+    /// <param name="orgID">The organisation to summarise, as a route segment.</param>
+    /// <response code="200">The summary. An organisation with nobody in it is all zeros, not a 404.</response>
+    /// <response code="400">No organisation id, or one that is not greater than zero.</response>
+    [HttpGet("get-admin-dashboard-summary-by-orgID/{orgID:int}")]
+    [ProducesResponseType(typeof(ApiResponse<AdminDashboardSummaryResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> GetAdminDashboardSummaryByOrgId(
+        // :int without :min(1), as on get-all-employees-by-orgid: a 0 has to
+        // reach the service so it can answer 400 saying what is wrong.
+        [FromRoute] int orgID,
+        CancellationToken cancellationToken)
+    {
+        var result = await _adminService.GetAdminDashboardSummaryByOrganizationIdAsync(orgID, cancellationToken);
+        return Ok(ApiResponse.Ok(result));
+    }
+
+    /// <summary>
     /// Returns every country paired with each of its time zones - the list a
     /// setup screen's country picker binds to.
     /// <para>

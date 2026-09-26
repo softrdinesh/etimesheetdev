@@ -637,3 +637,76 @@ internal readonly record struct TimesheetSetupTimes(
     TimeSpan MaxTimeInHrs,
     TimeSpan MaxTimInMins,
     TimeSpan? TimeEntryLockAt);
+
+/// <summary>
+/// What the admin dashboard summary endpoint returns: one organisation's head
+/// counts and this week's logged and expected time across all its employees.
+/// <para>
+/// "This week" is each employee's own timesheet week, so the time totals are
+/// the sum of what each employee's own dashboard shows.
+/// </para>
+/// </summary>
+public class AdminDashboardSummaryResponse
+{
+    public int OrganizationId { get; init; }
+
+    /// <summary>Every non-deleted <c>dbo.Signup</c> row in the organisation, whatever their role.</summary>
+    public int TotalEmployees { get; init; }
+
+    /// <summary>
+    /// Employees with a live setup whose <c>ContractType</c> is Full Time.
+    /// Full time plus part time need not equal <see cref="TotalEmployees"/>:
+    /// an employee with no setup is in neither.
+    /// </summary>
+    public int TotalFullTimeEmployees { get; init; }
+
+    /// <summary>Employees with a live setup whose <c>ContractType</c> is Part Time.</summary>
+    public int TotalPartTimeEmployees { get; init; }
+
+    public int WeekLoggedMinutes { get; init; }
+
+    /// <summary>The same as <see cref="WeekLoggedMinutes"/>, as text - <c>"327h 30m"</c>.</summary>
+    public string? WeekLoggedText { get; init; }
+
+    /// <summary>An employee with no setup, or an incomplete one, contributes 0.</summary>
+    public int WeekExpectedMinutes { get; init; }
+
+    public string? WeekExpectedText { get; init; }
+
+    /// <summary><b>Static placeholder</b> - the procedure returns 0 until an approval workflow exists.</summary>
+    public int PendingTimesheets { get; init; }
+
+    /// <summary><b>Static placeholder</b> - the procedure returns 0 until an approval workflow exists.</summary>
+    public int ApprovedTimesheets { get; init; }
+}
+
+/// <summary>
+/// The one row returned by <c>dbo.spc_GetAdminDashboardSummaryByOrgID</c>.
+/// <para>
+/// A keyless type: never tracked, never written, shaped exactly like the
+/// procedure's SELECT list. The procedure always returns exactly one row -
+/// an organisation with nobody in it gets zeros - so every figure is non-null.
+/// </para>
+/// </summary>
+public class AdminDashboardSummaryDetail
+{
+    public int OrganizationId { get; set; }
+
+    public int TotalEmployees { get; set; }
+
+    public int TotalFullTimeEmployees { get; set; }
+
+    public int TotalPartTimeEmployees { get; set; }
+
+    public int WeekLoggedMinutes { get; set; }
+
+    public string? WeekLoggedText { get; set; }
+
+    public int WeekExpectedMinutes { get; set; }
+
+    public string? WeekExpectedText { get; set; }
+
+    public int PendingTimesheets { get; set; }
+
+    public int ApprovedTimesheets { get; set; }
+}

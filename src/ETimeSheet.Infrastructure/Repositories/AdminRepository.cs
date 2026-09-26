@@ -110,4 +110,19 @@ public class AdminRepository : IAdminRepository
             .FromSqlInterpolated(
                 $"EXEC dbo.spc_GetEmployeeListByPOrgID @POrgID = {organizationId}")
             .ToListAsync(cancellationToken);
+
+    public async Task<AdminDashboardSummaryDetail?> GetAdminDashboardSummaryByOrganizationIdAsync(
+        int organizationId,
+        CancellationToken cancellationToken = default)
+    {
+        // Materialised as a list, then the first row taken in memory:
+        // FirstOrDefault on the query would try to compose SELECT TOP(1) around
+        // the EXEC, which SQL Server cannot do.
+        var rows = await _db.spc_GetAdminDashboardSummaryByOrgID
+            .FromSqlInterpolated(
+                $"EXEC dbo.spc_GetAdminDashboardSummaryByOrgID @POrgID = {organizationId}")
+            .ToListAsync(cancellationToken);
+
+        return rows.FirstOrDefault();
+    }
 }

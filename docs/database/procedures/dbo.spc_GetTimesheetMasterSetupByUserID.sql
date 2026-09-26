@@ -34,16 +34,14 @@
       1. CanUserLoggedPreDayTime is measured on the DATABASE SERVER's clock.
          GETDATE() is the SQL Server's local time, so this flag answers "has the
          cut-off passed where the server is", not "where the employee is". The
-         API does not use it for that question: TimeLogService judges
-         TimeEntryLockAt itself, in the employee's zone, via EmployeeClock. This
-         flag is used only for the separate question of whether back-dating is
-         permitted at all.
+         API does not use it: TimeLogService judges TimeEntryLockAt itself, in
+         the employee's zone, via EmployeeClock.
 
       2. A NULL TimeEntryLockAt yields 0, not 1. The comparison against NULL is
          UNKNOWN, so the CASE falls to ELSE. A setup that has never had a
-         cut-off configured therefore reports "may not log pre-day time", and
-         the API - which treats a missing answer as "no" - refuses back-dating
-         for that user.
+         cut-off configured therefore reports "may not log pre-day time". The
+         save does not use this flag: it reads TimeEntryLockAt itself, and a
+         NULL there means no lock at all.
 
       3. The JOIN to dbo.Signup is an INNER JOIN, so a setup whose UserID has no
          matching Signup row returns NO ROWS at all, exactly as if the user had

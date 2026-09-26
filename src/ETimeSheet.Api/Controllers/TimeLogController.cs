@@ -101,6 +101,37 @@ public class TimeLogController : ControllerBase
     }
 
     /// <summary>
+    /// Returns the dashboard summary for the given user: time logged today and
+    /// this timesheet week, the week's expected time, the percentage logged and
+    /// the time still pending.
+    /// <para>
+    /// The week starts on the setup's <c>StartDay</c> (Monday when none) and runs
+    /// seven days. A user with no setup still gets their logged figures; the
+    /// expected, percentage and pending figures are then null.
+    /// </para>
+    /// <para>
+    /// <b>A user who does not exist, or is deleted, is a 200, not a 404</b> -
+    /// <c>success: true</c> with <c>data: null</c>, as on the setup read.
+    /// </para>
+    /// </summary>
+    /// <response code="200">
+    /// The summary, or <c>null</c> when the user does not exist. Check
+    /// <c>data</c>, not the status code.
+    /// </response>
+    [HttpGet("get-user-dashboard-summary-by-userID/{userId:int:min(1)}")]
+    [ProducesResponseType(typeof(ApiResponse<UserDashboardSummaryResponse>), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetUserDashboardSummaryByUserId(
+        [FromRoute] int userId,
+        CancellationToken cancellationToken)
+    {
+        var result = await _timeLogService.GetUserDashboardSummaryByUserIdAsync(userId, cancellationToken);
+
+        return Ok(result is null
+            ? ApiResponse.Ok(result, "This user was not found.")
+            : ApiResponse.Ok(result));
+    }
+
+    /// <summary>
     /// Logs one block of time for an employee.
     /// <para>
     /// The entry is checked against that user's timesheet setup before it is

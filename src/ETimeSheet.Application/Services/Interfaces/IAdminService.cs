@@ -153,4 +153,21 @@ public interface IAdminService
     /// </returns>
     Task<IReadOnlyList<CountryTimeZoneResponse>> GetCountryListWithTimeZonesAsync(
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns one organisation's dashboard summary - total, full-time and
+    /// part-time employees, this week's logged and expected time across all of
+    /// them, and the pending / approved timesheet counts - via
+    /// <c>spc_GetAdminDashboardSummaryByOrgID</c>.
+    /// <para>
+    /// An organisation with nobody in it is a summary of zeros, not a 404, as
+    /// on <see cref="GetEmployeeListByOrganizationIdAsync"/>.
+    /// </para>
+    /// </summary>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.ValidationException">
+    /// <paramref name="organizationId"/> is not a positive id.
+    /// </exception>
+    Task<AdminDashboardSummaryResponse> GetAdminDashboardSummaryByOrganizationIdAsync(
+        int organizationId,
+        CancellationToken cancellationToken = default);
 }

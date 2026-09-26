@@ -142,10 +142,10 @@ public class TimeLogService : ITimeLogService
         // - which is editing locked time, just with a different end result.
         if (original is not null)
         {
-            await RequireEntryIsStillEditableAsync(original, setup, clock, cancellationToken);
+            RequireEntryIsStillEditable(original, setup, clock);
         }
 
-        await RequireDateIsOpenForLoggingAsync(request.UserId, loggedOn, setup, clock, cancellationToken);
+        RequireDateIsOpenForLogging(loggedOn, setup, clock);
         RequireWorkingDay(loggedOn, setup);
         RequireEntryIsNotPastTheCutOff(startTime, setup, clock);
 
@@ -163,8 +163,8 @@ public class TimeLogService : ITimeLogService
         RequireWithinDailyMaximum(existing, duration, loggedOn, setup);
 
         var saved = original is null
-            ? await AddTimeLogAsync(request, loggedOn, startTime, endTime, cancellationToken)
-            : await UpdateTimeLogAsync(original, request, loggedOn, startTime, endTime, cancellationToken);
+            ? await AddTimeLogAsync(request, loggedOn, startTime, endTime, setup, cancellationToken)
+            : await UpdateTimeLogAsync(original, request, loggedOn, startTime, endTime, setup, cancellationToken);
 
         _logger.LogInformation(
             "Time log {SheetId} {Action} for user {UserId} on task {TaskId}: {Hours} hours on " +
@@ -222,17 +222,19 @@ public class TimeLogService : ITimeLogService
     /// the cut-off - so the edit that completes it is not refused for the gap
     /// it is fixing.
     /// </para>
+    /// <para>
+    /// With no <c>TimeEntryLockAt</c> nothing is ever locked, so every entry
+    /// stays editable.
+    /// </para>
     /// </summary>
-    private async Task RequireEntryIsStillEditableAsync(
+    private static void RequireEntryIsStillEditable(
         TimeLog original,
         TimesheetMasterSetup setup,
-        EmployeeClock clock,
-        CancellationToken cancellationToken)
+        EmployeeClock clock)
     {
         if (original.StartDate is { } originalDate)
         {
-            await RequireDateIsOpenForLoggingAsync(
-                original.UserId ?? 0, originalDate.Date, setup, clock, cancellationToken);
+            RequireDateIsOpenForLogging(originalDate.Date, setup, clock);
         }
 
         if (original.StartTime is { } originalStart)
@@ -246,6 +248,7 @@ public class TimeLogService : ITimeLogService
         DateTime loggedOn,
         TimeSpan startTime,
         TimeSpan endTime,
+        TimesheetMasterSetup setup,
         CancellationToken cancellationToken)
     {
         var timeLog = new TimeLog
@@ -255,11 +258,12 @@ public class TimeLogService : ITimeLogService
             IsProjectTask = request.IsProjectTask,
             Description = request.Description,
 
-            // Generated, never supplied. Read as late as possible - after every
-            // rule has passed - so a rejected request does not consume a number
-            // and leave a gap in the sequence.
-            SheetCode = NextSheetCode(
-                await _timeLogRepository.GetLatestSheetCodeAsync(cancellationToken)),
+            // Generated, never supplied, and shared by every entry the user
+            // logs in the same timesheet week. Read as late as possible - after
+            // every rule has passed - so a rejected request does not open a
+            // week's code and leave a gap in the sequence.
+            SheetCode = await SheetCodeForWeekAsync(
+                request.UserId, loggedOn, setup, excludeSheetId: null, cancellationToken),
             StartDate = loggedOn,
             // Always written, even when the caller left it out: a row with a
             // start date and no end date cannot have its duration computed, and
@@ -284,7 +288,8 @@ public class TimeLogService : ITimeLogService
     /// Overwrites the edited entry with the payload.
     /// <para>
     /// What an edit leaves alone is as deliberate as what it changes: the
-    /// <c>SheetCode</c> stays, because a code names one entry for life; the
+    /// <c>SheetCode</c> stays while the entry stays in its timesheet week, and
+    /// follows it when the edit moves it to another week; the
     /// <c>UserId</c> stays, because the owner check already required it to
     /// match; and <c>CreatedBy</c> / <c>CreateDate</c> stay, because they say
     /// who created the entry, not who last touched it.
@@ -296,8 +301,24 @@ public class TimeLogService : ITimeLogService
         DateTime loggedOn,
         TimeSpan startTime,
         TimeSpan endTime,
+        TimesheetMasterSetup setup,
         CancellationToken cancellationToken)
     {
+        // A code names a week, so an entry keeps its code only while it stays
+        // in the week it was logged in. Moved to another week - or never given
+        // a code at all - it takes that week's code, opening one if it is the
+        // first entry there. Its own row is left out of the lookup so it
+        // cannot find its old code in the new week.
+        var weekStarts = WeekStartOf(loggedOn, setup);
+
+        if (original.SheetCode is null ||
+            original.StartDate is not { } originalDate ||
+            WeekStartOf(originalDate, setup) != weekStarts)
+        {
+            original.SheetCode = await SheetCodeForWeekAsync(
+                original.UserId ?? request.UserId, loggedOn, setup, original.SheetId, cancellationToken);
+        }
+
         original.TaskId = request.TaskId;
         original.IsProjectTask = request.IsProjectTask;
         original.Description = request.Description;
@@ -316,12 +337,58 @@ public class TimeLogService : ITimeLogService
 
     // ---- sheet code generation -------------------------------------------
 
+    /// <summary>
+    /// The sheet code for the user's timesheet week containing
+    /// <paramref name="loggedOn"/>: the code their entries in that week already
+    /// carry, or the next code in the sequence when this is the week's first
+    /// entry.
+    /// <para>
+    /// A code is unique per user per week. With a Monday-to-Friday week, the
+    /// first entry of the week - whichever day it is logged against - opens a
+    /// code, every later entry up to the following Monday reuses it, and the
+    /// following Monday's week opens the next one.
+    /// </para>
+    /// </summary>
+    private async Task<string> SheetCodeForWeekAsync(
+        int userId,
+        DateTime loggedOn,
+        TimesheetMasterSetup setup,
+        int? excludeSheetId,
+        CancellationToken cancellationToken)
+    {
+        var weekStarts = WeekStartOf(loggedOn, setup);
+
+        var existing = await _timeLogRepository.GetSheetCodeForUserBetweenAsync(
+            userId,
+            weekStarts,
+            weekStarts.AddDays(6),
+            excludeSheetId,
+            cancellationToken);
+
+        return existing
+            ?? NextSheetCode(await _timeLogRepository.GetLatestSheetCodeAsync(cancellationToken));
+    }
+
+    /// <summary>
+    /// The first day of the timesheet week <paramref name="date"/> belongs to,
+    /// anchored on the setup's <c>StartDay</c>. A week is seven calendar days
+    /// from there, whatever <c>EndDay</c> says, so the days after the working
+    /// span - an exception day included - still belong to it.
+    /// <para>
+    /// A setup without a usable <c>StartDay</c> falls back to Monday, the first
+    /// day in <c>dbo.DayMaster</c>. The working-day rule imposes no constraint
+    /// in that case either; the code still needs a week to belong to.
+    /// </para>
+    /// </summary>
+    private static DateTime WeekStartOf(DateTime date, TimesheetMasterSetup setup) =>
+        TimesheetWeek.StartOf(date, TimesheetWeek.Parse(setup.StartDay) ?? DayOfWeek.Monday);
+
     /// <summary>The letter every generated sheet code starts with.</summary>
-    private const string SheetCodePrefix = "T";
+    private const string SheetCodePrefix = "SHT";
 
     /// <summary>
     /// How many digits the first generation uses, which is what makes the very
-    /// first code <c>T0001</c> rather than <c>T1</c>.
+    /// first code <c>SHT0001</c> rather than <c>SHT1</c>.
     /// </summary>
     private const int SheetCodeInitialDigits = 4;
 
@@ -335,23 +402,23 @@ public class TimeLogService : ITimeLogService
     /// <summary>
     /// The code that follows <paramref name="latest"/>.
     /// <para>
-    /// Codes run <c>T0001</c>, <c>T0002</c> … <c>T9999</c>. When a width runs
+    /// Codes run <c>SHT0001</c>, <c>SHT0002</c> … <c>SHT9999</c>. When a width runs
     /// out the sequence does not stop and does not overflow into a ragged
     /// number - it starts a <b>new generation one digit wider, back at one</b>:
-    /// <c>T9999</c> is followed by <c>T00001</c>, and <c>T99999</c> by
-    /// <c>T000001</c>.
+    /// <c>SHT9999</c> is followed by <c>SHT00001</c>, and <c>SHT99999</c> by
+    /// <c>SHT000001</c>.
     /// </para>
     /// <para>
     /// That is why the limit can never be reached. Each generation is 9x the
     /// previous one, and because the widths differ, no code from one generation
-    /// can ever equal a code from another - <c>T0001</c> and <c>T00001</c> are
-    /// different strings. The width simply grows on demand, up to the fourteen
-    /// digits the column can hold, which is a hundred million million codes.
+    /// can ever equal a code from another - <c>SHT0001</c> and <c>SHT00001</c> are
+    /// different strings. The width simply grows on demand, up to the twelve
+    /// digits the column can hold after the prefix, which is a million million codes.
     /// </para>
     /// <para>
     /// <paramref name="latest"/> is <see langword="null"/> when nothing has been
     /// generated yet - an empty table, or one holding only hand-entered
-    /// references - and the sequence starts at <c>T0001</c>.
+    /// references - and the sequence starts at <c>SHT0001</c>.
     /// </para>
     /// </summary>
     private static string NextSheetCode(string? latest)
@@ -376,7 +443,7 @@ public class TimeLogService : ITimeLogService
 
         // All nines at this width - 9999, 99999 - is the end of the generation.
         // The next one is a digit wider and begins again at 1, which is what
-        // makes T00001 follow T9999.
+        // makes SHT00001 follow SHT9999.
         if (number >= HighestAt(width))
         {
             return Format(1, width + 1);
@@ -403,7 +470,7 @@ public class TimeLogService : ITimeLogService
     /// </summary>
     /// <exception cref="BusinessException">
     /// The code would not fit the column. Unreachable in practice - it takes a
-    /// hundred million million entries - but truncation would silently duplicate
+    /// million million entries - but truncation would silently duplicate
     /// an existing code, so it fails loudly instead.
     /// </exception>
     private static string Format(long number, int width)
@@ -422,23 +489,26 @@ public class TimeLogService : ITimeLogService
 
     /// <summary>
     /// Rejects a date the user is not allowed to log against: the future
-    /// outright, and the past unless their setup still leaves it open.
+    /// outright, and an earlier day once the setup's cut-off has passed.
     /// <para>
-    /// Two separate permissions govern the past, and both have to hold.
-    /// <c>CanUserLoggedPreDayTime</c> says whether this user may back-date at
-    /// all; <c>TimeEntryLockAt</c> says how late in the day they may still do it.
-    /// The first is derived by <c>spc_GetTimesheetMasterSetupByUserID</c> and is
-    /// not a column, so it can only be had from the procedure - which is why
-    /// this is the one rule that reads the setup twice, and why it only does so
-    /// when the entry is actually back-dated.
+    /// <c>TimeEntryLockAt</c> is the only thing that locks the past. When it is
+    /// <see langword="null"/> there is no lock at all, and any earlier day can be
+    /// logged or edited at any time. When it holds a value, an earlier day stays
+    /// open until that time of day on the employee's clock, and is locked after
+    /// it.
+    /// </para>
+    /// <para>
+    /// <c>CanUserLoggedPreDayTime</c> from <c>spc_GetTimesheetMasterSetupByUserID</c>
+    /// is deliberately not consulted. The procedure derives it from the same
+    /// <c>TimeEntryLockAt</c>, but on the database server's clock rather than
+    /// the employee's, and reports 0 when the column is null - which would lock
+    /// every earlier day for a user who has no lock configured.
     /// </para>
     /// </summary>
-    private async Task RequireDateIsOpenForLoggingAsync(
-        int userId,
+    private static void RequireDateIsOpenForLogging(
         DateTime loggedOn,
         TimesheetMasterSetup setup,
-        EmployeeClock clock,
-        CancellationToken cancellationToken)
+        EmployeeClock clock)
     {
         // The employee's today, not the server's. They are different dates for
         // part of every day: at 09:00 in Auckland it is still yesterday in UTC,
@@ -455,17 +525,6 @@ public class TimeLogService : ITimeLogService
         if (loggedOn == today)
         {
             return;
-        }
-
-        var setups = await _timeLogRepository.GetTimesheetMasterSetupByUserIdAsync(userId, cancellationToken);
-
-        // Absent is treated as "no", not as "yes": the flag exists to restrict
-        // back-dating, and a missing answer is not permission to ignore it.
-        if (setups.FirstOrDefault()?.CanUserLoggedPreDayTime is not true)
-        {
-            throw new BusinessException(
-                $"User '{userId}' is not allowed to log time against an earlier day, so " +
-                $"{loggedOn:yyyy-MM-dd} cannot be used.");
         }
 
         if (setup.TimeEntryLockAt is { } lockedAt && clock.TimeOfDay > lockedAt)
@@ -762,5 +821,22 @@ public class TimeLogService : ITimeLogService
             userId);
 
         return tasks.ToResponse();
+    }
+
+    public async Task<UserDashboardSummaryResponse?> GetUserDashboardSummaryByUserIdAsync(
+        int userId,
+        CancellationToken cancellationToken = default)
+    {
+        // No authorisation check, as on the other reads: authentication is
+        // switched off for now, so the user is whoever the route names.
+        var summary = await _timeLogRepository.GetUserDashboardSummaryByUserIdAsync(userId, cancellationToken);
+
+        if (summary is null)
+        {
+            _logger.LogDebug("No dashboard summary for user {UserId}: not found or deleted.", userId);
+            return null;
+        }
+
+        return summary.ToResponse();
     }
 }
