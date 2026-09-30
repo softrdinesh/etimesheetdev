@@ -96,6 +96,7 @@ public static class InfrastructureServiceCollectionExtensions
         // request's DbContext and its change tracker.
         services.AddScoped<ITimeLogRepository, TimeLogRepository>();
         services.AddScoped<IAdminRepository, AdminRepository>();
+        services.AddScoped<ISheetSubmissionRepository, SheetSubmissionRepository>();
 
         // Not a feature repository: dbo.Country is a read-only lookup, and
         // AdminService reads it to resolve a setup's time zone.

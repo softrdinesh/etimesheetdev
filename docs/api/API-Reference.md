@@ -3,7 +3,7 @@
 Every endpoint the API exposes today, with its purpose, input payload, success
 response and failure responses — each with a worked example.
 
-Generated from the code on branch `fix/sheetcode-refactor` (2026-09-27). If you change a
+Generated from the code on branch `fix/sheetcode-refactor` (2026-10-01). If you change a
 controller, DTO or validator, change this file with it.
 
 ---
@@ -30,6 +30,11 @@ controller, DTO or validator, change this file with it.
   - [Employee List](#8-employee-list)
   - [Country Time Zone List](#9-country-time-zone-list)
   - [Admin Dashboard Summary](#11-admin-dashboard-summary)
+- [SheetSubmission](#sheetsubmission)
+  - [Submit Timesheet](#12-submit-timesheet)
+  - [Review Timesheet](#13-review-timesheet)
+  - [Current Week Sheet Details](#14-current-week-sheet-details)
+  - [Submitted Sheet List](#15-submitted-sheet-list)
 - [Health endpoints](#health-endpoints)
 - [Enumerations](#enumerations)
 - [Endpoint summary table](#endpoint-summary-table)
@@ -2013,6 +2018,448 @@ An organisation with nobody in it is **`200`** with every figure `0` — never a
 
 ---
 
+## SheetSubmission
+
+`SheetSubmissionController` — `api/v1/SheetSubmission`. Handing a week's
+timesheet in, reviewing it, and reading it back.
+
+A **sheet** is one user's timesheet week, named by the `sheetCode` every
+`dbo.TimeLog` entry in that week carries (see
+[The generated `sheetCode`](#the-generated-sheetcode)). Submitting it writes one
+row to `dbo.TimesheetSubmission`, keyed by that code; every status change —
+the submit itself, and every review — also writes one row to
+`dbo.TimeSheetSubmissionAuditLog`, in the **same transaction** as the change.
+See [`TimesheetSubmissionStatus`](#timesheetsubmissionstatus--the-statusid-column-of-dbotimesheetsubmission)
+for the status values.
+
+`orgId` is accepted by every endpoint here but **used only by the Submitted
+Sheet List**; `adminId` is not checked against any role. See
+[Known gaps](#known-gaps).
+
+---
+
+### 12. Submit Timesheet
+
+`POST /api/v1/SheetSubmission/submit-timesheet`
+
+**Purpose** — Submit one user's sheet. The totals are **not** in the payload:
+the service adds them up from the user's **saved** entries on the sheet, so a
+client can never submit a figure the entries do not support.
+
+- Only `Save` entries count — **drafts and deleted entries are excluded**, and
+  so is an entry missing any of its four date/time values.
+- Each entry counts from start date + start time to end date + end time, so an
+  overnight shift counts in full.
+- The row is written with `statusId = 1` (Submitted), `submittedBy = userId` and
+  `submittedDate` = now (UTC), and the same instant is written to the audit log.
+- A sheet is submitted **once**; a second submit is a 409.
+
+#### Request body — `SheetSubmissionRequest`
+
+| Field | Type | Required | Rules | Notes |
+|---|---|---|---|---|
+| `sheetCode` | string | yes | not empty, `<= 15` chars | Trimmed before use |
+| `userId` | int | yes | `> 0` | The submitter, whose entries are totalled. **Temporary** — comes from the token once auth is on |
+| `orgId` | int | no | — | **Accepted but not used** |
+
+#### Example request
+
+```json
+{
+  "sheetCode": "SHT00012",
+  "userId": 5,
+  "orgId": 3
+}
+```
+
+#### Success response — `200 OK`
+
+`data` is a `SheetSubmissionResponse` — the stored row:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `sheetCode` | string | The submitted sheet (`Timesheetcode`) |
+| `totalHours` | decimal | The **whole** total in hours, 2 places — `37.5` for 37h 30m |
+| `totalMins` | decimal | The **whole** total in minutes — `2250` for 37h 30m (not the leftover minutes) |
+| `submittedBy` | int | The submitter |
+| `submittedDate` | datetime | When, in UTC |
+| `statusId` | int? | `1` on a new submission |
+| `approvedBy` | int? | Set by an approving review |
+| `approvedDate` | datetime? | Set by an approving review |
+| `rejectedBy` | int? | Set by a rejecting review |
+| `rejectedDate` | datetime? | Set by a rejecting review |
+
+#### Example response
+
+```json
+{
+  "success": true,
+  "message": "Timesheet submitted.",
+  "data": {
+    "sheetCode": "SHT00012",
+    "totalHours": 37.5,
+    "totalMins": 2250,
+    "submittedBy": 5,
+    "submittedDate": "2026-10-02T17:04:11.203Z",
+    "statusId": 1,
+    "approvedBy": null,
+    "approvedDate": null,
+    "rejectedBy": null,
+    "rejectedDate": null
+  },
+  "errors": []
+}
+```
+
+#### Error responses
+
+**400 — shape validation:**
+
+| Trigger | Message |
+|---|---|
+| `sheetCode` missing or blank | `SheetCode is required.` |
+| `sheetCode` over 15 characters | `SheetCode must be 15 characters or fewer.` |
+| `userId <= 0` | `UserId is required and must be greater than 0.` |
+
+**400 — nothing to submit.** The user has no saved entry on the sheet — the code
+does not exist, belongs to someone else, or holds only drafts:
+
+```json
+{
+  "success": false,
+  "message": "User '5' has no saved time logged on timesheet 'SHT00012'.",
+  "data": null,
+  "errors": []
+}
+```
+
+**409 — already submitted.** Also returned for a **rejected** sheet — see
+[Known gaps](#known-gaps):
+
+```json
+{
+  "success": false,
+  "message": "Timesheet 'SHT00012' has already been submitted.",
+  "data": null,
+  "errors": []
+}
+```
+
+**500** — unhandled defect.
+
+---
+
+### 13. Review Timesheet
+
+`POST /api/v1/SheetSubmission/review-timesheet`
+
+**Purpose** — Approve or reject a submitted sheet. Sets the row's `statusId`,
+stamps the admin and the time, and writes an audit log entry — in one
+transaction.
+
+A sheet can be reviewed **any number of times**: a rejected sheet can be
+approved later, and the reverse. The row shows only the **latest** decision —
+approving clears `rejectedBy` / `rejectedDate`, rejecting clears `approvedBy` /
+`approvedDate` — and the audit log keeps every one of them, in order.
+
+#### Request body — `SheetSubmissionReviewRequest`
+
+| Field | Type | Required | Rules | Notes |
+|---|---|---|---|---|
+| `adminId` | int | yes | `> 0` | Written to `approvedBy` / `rejectedBy` and to the audit log's `CreatedBy`. **Not checked against any role** |
+| `sheetCode` | string | yes | not empty, `<= 15` chars | The submitted sheet. Trimmed before use |
+| `status` | int | yes | `2` or `3` **only** | `2` = Approved, `3` = Rejected. `1`, `0` (or missing) and anything else are a 400 |
+| `orgId` | int | no | — | **Accepted but not used** |
+
+#### Example request
+
+```json
+{
+  "adminId": 1,
+  "sheetCode": "SHT00012",
+  "status": 2,
+  "orgId": 3
+}
+```
+
+#### Success response — `200 OK`
+
+`data` is the `SheetSubmissionResponse` as it now stands — the same shape as
+[Submit Timesheet](#12-submit-timesheet). `message` is `Timesheet approved.` or
+`Timesheet rejected.`
+
+```json
+{
+  "success": true,
+  "message": "Timesheet approved.",
+  "data": {
+    "sheetCode": "SHT00012",
+    "totalHours": 37.5,
+    "totalMins": 2250,
+    "submittedBy": 5,
+    "submittedDate": "2026-10-02T17:04:11.203Z",
+    "statusId": 2,
+    "approvedBy": 1,
+    "approvedDate": "2026-10-03T09:15:42.870Z",
+    "rejectedBy": null,
+    "rejectedDate": null
+  },
+  "errors": []
+}
+```
+
+#### Error responses
+
+**400 — shape validation:**
+
+| Trigger | Message |
+|---|---|
+| `adminId <= 0` | `AdminId is required and must be greater than 0.` |
+| `sheetCode` missing or blank | `SheetCode is required.` |
+| `sheetCode` over 15 characters | `SheetCode must be 15 characters or fewer.` |
+| `status` not `2` or `3` | `Status must be 2 (Approved) or 3 (Rejected).` |
+
+```json
+{
+  "success": false,
+  "message": "One or more validation errors occurred.",
+  "data": null,
+  "errors": [
+    "Status: Status must be 2 (Approved) or 3 (Rejected)."
+  ]
+}
+```
+
+**404 — the sheet has not been submitted:**
+
+```json
+{
+  "success": false,
+  "message": "Timesheet 'SHT00012' has not been submitted.",
+  "data": null,
+  "errors": []
+}
+```
+
+**500** — unhandled defect.
+
+---
+
+### 14. Current Week Sheet Details
+
+`GET /api/v1/SheetSubmission/get-current-week-sheet-details/{userID}/{orgID}`
+
+**Purpose** — The user's current timesheet week, as their admin setup defines
+it: its dates and working days, its sheet code, and the hours worked against the
+hours expected.
+
+#### Route parameters
+
+| Parameter | Type | Constraint |
+|---|---|---|
+| `userID` | int | `:int:min(1)` — `0` or below matches no route (**404**) |
+| `orgID` | int | `:int` — **accepted but not used** |
+
+No request body.
+
+#### How the figures are worked out
+
+- **"Current"** is today in the time zone the user's setup names (UTC when
+  none, or when the zone is unrecognised) — the same week the time log save puts
+  today's entries in.
+- **`weekStartDate`** is the setup's `startDay` on or before today; Monday when
+  there is no usable setup.
+- **`weekEndDate`** is the setup's `endDay` after it — Friday for a
+  Monday-to-Friday setup — or six days after the start without a usable setup.
+  Note this differs from [User Dashboard Summary](#10-user-dashboard-summary),
+  whose `weekEndDate` is always start + 6.
+- **`sheetCode`** is the code the user's entries in the week carry. The code
+  spans all seven days whatever `endDay` says, so a weekend entry on a
+  Monday-to-Friday setup still counts toward `totalHoursWorked`.
+- **`totalHoursWorked`** counts **saved** entries on the sheet only — exactly
+  what [Submit Timesheet](#12-submit-timesheet) would record. The user dashboard
+  counts drafts too, so its figure can be higher.
+- **`totalHoursExpected`** is working days (`startDay`..`endDay`, wrapping past
+  Sunday) × daily time (`maxTimeinhrs` hours + minutes, plus the minutes of
+  `maxTiminmins`) — the dashboard's formula.
+- **`totalHoursDrift`** is worked − expected: negative when short, positive when
+  over.
+
+#### Success response — `200 OK`
+
+`data` is a `CurrentWeekSheetDetailResponse`:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `userId` | int | The user |
+| `sheetCode` | string? | This week's code; **`null`** when nothing is logged this week yet |
+| `weekStartDate` | datetime | First day of the week |
+| `weekEndDate` | datetime | Last working day of the week |
+| `startDay` | int? | The setup's `StartDay` as stored — 1 = Monday … 7 = Sunday; `null` with no setup |
+| `startDayName` | string? | Its name — `"Monday"`; `null` when `startDay` is null or not 1–7 |
+| `endDay` | int? | The setup's `EndDay` as stored |
+| `endDayName` | string? | Its name — `"Friday"` |
+| `totalHoursWorked` | decimal | Hours on the sheet, 2 places; `0` when there is no sheet yet |
+| `totalHoursExpected` | decimal? | Hours the setup expects; `null` without a complete setup |
+| `totalHoursDrift` | decimal? | Worked − expected; `null` whenever expected is |
+
+#### Example request
+
+```http
+GET /api/v1/SheetSubmission/get-current-week-sheet-details/5/3
+```
+
+#### Example response
+
+```json
+{
+  "success": true,
+  "message": "",
+  "data": {
+    "userId": 5,
+    "sheetCode": "SHT00012",
+    "weekStartDate": "2026-09-28T00:00:00",
+    "weekEndDate": "2026-10-02T00:00:00",
+    "startDay": 1,
+    "startDayName": "Monday",
+    "endDay": 5,
+    "endDayName": "Friday",
+    "totalHoursWorked": 30.5,
+    "totalHoursExpected": 40,
+    "totalHoursDrift": -9.5
+  },
+  "errors": []
+}
+```
+
+#### When the user has no setup, or has logged nothing
+
+Still **`200`** — never a 404:
+
+- **No setup:** a Monday-to-Sunday week; `startDay`, `startDayName`, `endDay`,
+  `endDayName`, `totalHoursExpected` and `totalHoursDrift` are `null`.
+- **Nothing logged this week:** `sheetCode` is `null` and `totalHoursWorked` is
+  `0`.
+
+#### Error responses
+
+| Status | Cause |
+|---|---|
+| **404** | `userID` is `0` or below, or not an integer — no route matches |
+| **500** | Unhandled defect |
+
+---
+
+### 15. Submitted Sheet List
+
+`POST /api/v1/SheetSubmission/get-submitted-sheet-list`
+
+**Purpose** — The admin's view of the sheets submitted in one organisation:
+one row per submission, newest first, for every user or for one.
+
+Backed by `dbo.spc_GetSubmittedSheetList`.
+
+#### Request body — `SubmittedSheetListRequest`
+
+| Field | Type | Required | Rules | Notes |
+|---|---|---|---|---|
+| `adminId` | int | yes | `> 0` | Passed to the procedure as `@PAdminID`. **Not checked yet** — the admin check is a placeholder |
+| `userId` | int | yes | `>= 0` | **`0` = every user** in the organisation; any other value = that user only |
+| `orgId` | int | yes | `> 0` | Filters on `dbo.Signup.OrganizationID` |
+
+#### How the figures are worked out
+
+The row carries the same week and hours fields as
+[Current Week Sheet Details](#14-current-week-sheet-details), with three
+deliberate differences:
+
+- **`totalHoursWorked`** is the `TotalHours` **submitted**, not a recount — it
+  stays what the user handed in even if the entries change afterwards.
+- **The week** is dated from the sheet's **earliest live entry**, anchored on the
+  setup's `startDay`. Both week dates are `null` when the sheet has no live entry
+  left.
+- **`totalHoursExpected` and `totalHoursDrift`** use the user's **current**
+  setup, so changing a setup changes them for older sheets too.
+
+#### Example request
+
+```json
+{
+  "adminId": 1,
+  "userId": 0,
+  "orgId": 3
+}
+```
+
+#### Success response — `200 OK`
+
+`data` is a `SubmittedSheetResponse[]`:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `userId` | int | The submitter |
+| `name` | string? | From `dbo.Signup` |
+| `email` | string? | From `dbo.Signup` |
+| `sheetCode` | string | The submitted sheet |
+| `weekStartDate` | datetime? | The setup's `startDay` on or before the sheet's earliest entry |
+| `weekEndDate` | datetime? | The setup's `endDay` after it |
+| `startDay` | int? | The setup's `StartDay` — 1 = Monday … 7 = Sunday |
+| `startDayName` | string? | Its name, from `dbo.DayMaster` |
+| `endDay` | int? | The setup's `EndDay` |
+| `endDayName` | string? | Its name, from `dbo.DayMaster` |
+| `totalHoursWorked` | decimal | Hours submitted |
+| `totalHoursExpected` | decimal? | Hours the current setup expects; `null` without a complete setup |
+| `totalHoursDrift` | decimal? | Worked − expected; `null` whenever expected is |
+| `status` | int? | 1 = Submitted, 2 = Approved, 3 = Rejected |
+| `statusText` | string? | The status as text. **Only `"Submitted"` today** — `null` for 2 and 3 until the procedure's `CASE` is extended |
+| `submittedDate` | datetime | When the sheet was submitted, in UTC |
+
+#### Example response
+
+```json
+{
+  "success": true,
+  "message": "",
+  "data": [
+    {
+      "userId": 5,
+      "name": "Jane Doe",
+      "email": "jane.doe@example.com",
+      "sheetCode": "SHT00012",
+      "weekStartDate": "2026-09-28T00:00:00",
+      "weekEndDate": "2026-10-02T00:00:00",
+      "startDay": 1,
+      "startDayName": "Monday",
+      "endDay": 5,
+      "endDayName": "Friday",
+      "totalHoursWorked": 37.5,
+      "totalHoursExpected": 40,
+      "totalHoursDrift": -2.5,
+      "status": 1,
+      "statusText": "Submitted",
+      "submittedDate": "2026-10-02T17:04:11.203"
+    }
+  ],
+  "errors": []
+}
+```
+
+Nothing submitted is **`200`** with `data: []` — never a 404.
+
+#### Error responses
+
+**400 — shape validation:**
+
+| Trigger | Message |
+|---|---|
+| `adminId <= 0` | `AdminId is required and must be greater than 0.` |
+| `userId < 0` | `UserId must be 0 (every user) or a user id.` |
+| `orgId <= 0` | `OrgId is required and must be greater than 0.` |
+
+**500** — unhandled defect.
+
+---
+
 ## Health endpoints
 
 Anonymous, outside the `ApiResponse` envelope, and outside `/api/v1`.
@@ -2059,6 +2506,20 @@ stable.
 This enum covers `dbo.TimeLog` **only** — other tables have their own `Status`
 column with its own meaning, and each gets its own type.
 
+### `TimesheetSubmissionStatus` — the `StatusID` column of `dbo.TimesheetSubmission`
+
+| Name | Value | Meaning |
+|---|---|---|
+| `Submitted` | `1` | Handed in, awaiting review — every new submission |
+| `Approved` | `2` | Approved by an admin |
+| `Rejected` | `3` | Rejected by an admin |
+
+Sent and received as the **number**. The same values are written to
+`dbo.TimeSheetSubmissionAuditLog.StatusID`, one row per change. Declared in code
+as `Constants.TimesheetSubmission.Status`; the values are persisted, so they
+must stay stable. [Review Timesheet](#13-review-timesheet) accepts only `2` and
+`3`.
+
 ### `RoleType`
 
 | Name | Value |
@@ -2087,6 +2548,10 @@ authentication is off.
 | 8 | Employee List | GET | `/api/v1/Admin/get-all-employees-by-orgid/{orgID}` | An organisation's employees, countries + head-count totals | route param | `EmployeeListResponse` | 400, 500 |
 | 9 | Country Time Zone List | GET | `/api/v1/Admin/get-country-list-with-timezones` | Every country paired with each of its time zones, one entry per zone | — | `CountryTimeZoneResponse[]` (`countryId`, `countryName`, `timeZone`, `optionValue`) | 500 |
 | 11 | Admin Dashboard Summary | GET | `/api/v1/Admin/get-admin-dashboard-summary-by-orgID/{orgID}` | Head counts + this week's logged / expected time for an organisation; pending / approved are static `0`. **Procedure still DRAFT — 500 until applied** | route param | `AdminDashboardSummaryResponse` | 400, 500 |
+| 12 | Submit Timesheet | POST | `/api/v1/SheetSubmission/submit-timesheet` | Submit a user's sheet; totals its saved entries, status 1, audit logged | `SheetSubmissionRequest` | `SheetSubmissionResponse` | 400, 409, 500 |
+| 13 | Review Timesheet | POST | `/api/v1/SheetSubmission/review-timesheet` | Approve (2) or reject (3) a submitted sheet; repeatable; audit logged | `SheetSubmissionReviewRequest` | `SheetSubmissionResponse` | 400, 404, 500 |
+| 14 | Current Week Sheet Details | GET | `/api/v1/SheetSubmission/get-current-week-sheet-details/{userID}/{orgID}` | A user's current week: dates, start / end day, sheet code, hours worked / expected / drift | route params | `CurrentWeekSheetDetailResponse` | 404 (route), 500 |
+| 15 | Submitted Sheet List | POST | `/api/v1/SheetSubmission/get-submitted-sheet-list` | An organisation's submitted sheets, every user (`userId = 0`) or one | `SubmittedSheetListRequest` | `SubmittedSheetResponse[]` | 400, 500 |
 | — | Health | GET | `/health`, `/health/live`, `/health/ready` | Liveness / readiness | — | *(unenveloped)* | 503 |
 
 ---
@@ -2095,9 +2560,12 @@ authentication is off.
 
 Documented so nobody has to rediscover them:
 
-1. **No authentication or authorization on any endpoint.** `userId`, `createdBy`
-   and `deletedBy` are trusted from the payload. All three properties are marked
-   temporary and disappear when JWT is switched back on.
+1. **No authentication or authorization on any endpoint.** `userId`, `createdBy`,
+   `deletedBy` and `adminId` are trusted from the payload. They are marked
+   temporary and disappear when JWT is switched back on. In particular **anyone
+   can review a timesheet or list an organisation's submissions**: `adminId` is
+   not checked against any role, and the admin check in
+   `spc_GetSubmittedSheetList` is still a placeholder.
 2. **Logged Time List has no paging and no date filter.** Since 2026-09-25
    `spc_GetTimeLoggedDetailsForTask` takes only the user, so a user's whole
    history comes back in one call and the response grows without bound.
@@ -2110,8 +2578,8 @@ Documented so nobody has to rediscover them:
    has more than one row, the first is returned and a warning is logged.
 6. **`dbo.Signup` is not recorded at all.** The partial
    `docs/database/schema/dbo.Signup.sql` was removed, although
-   `spc_GetEmployeeListByPOrgID`, both dashboard procedures and
-   `docs/database/README.md` still refer to it. Every procedure that joins it
+   `spc_GetEmployeeListByPOrgID`, both dashboard procedures,
+   `spc_GetSubmittedSheetList` and `docs/database/README.md` still refer to it. Every procedure that joins it
    compiles in the integration container (deferred name resolution) and fails at
    run time with `Invalid object name 'Signup'`.
 7. **The employee list counts deleted time logs.** `spc_GetEmployeeListByPOrgID`
@@ -2159,3 +2627,20 @@ Documented so nobody has to rediscover them:
     worth knowing.
 17. **Admin Dashboard Summary's procedure is still a DRAFT** — not applied to any
     database, so the endpoint answers 500 until the owner creates it.
+18. **A rejected sheet cannot be resubmitted.** Submit Timesheet answers 409 for
+    any sheet code that already has a submission, rejected ones included, so a
+    user cannot correct their entries and hand the same sheet in again.
+19. **`statusText` names only Submitted.** `spc_GetSubmittedSheetList`'s `CASE`
+    covers status 1 alone, so approved and rejected sheets come back with
+    `statusText: null` until the owner adds `WHEN 2 THEN 'Approved'` and
+    `WHEN 3 THEN 'Rejected'`.
+20. **Two simultaneous submits of one sheet: the loser gets a 500, not a 409.**
+    The primary key on `Timesheetcode` stops the duplicate row, but the service's
+    "already submitted" check runs before the insert, so the second of two
+    racing requests fails on the key violation instead.
+21. **`orgId` is ignored by Submit, Review and Current Week Sheet Details.**
+    Neither `dbo.TimeLog` nor `dbo.TimesheetSubmission` has an organisation
+    column; only the Submitted Sheet List filters on it (through `dbo.Signup`).
+22. **Admin Dashboard Summary's `pendingTimesheets` / `approvedTimesheets` are
+    still static `0`**, although `dbo.TimesheetSubmission` now holds the data to
+    count them.
