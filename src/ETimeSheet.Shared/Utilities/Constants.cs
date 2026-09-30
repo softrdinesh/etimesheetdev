@@ -181,4 +181,28 @@ public static class Constants
             public const string Sunday = "Sunday";
         }
     }
+
+    /// <summary>Coded column values for the <c>dbo.TimesheetSubmission</c> table.</summary>
+    public static class TimesheetSubmission
+    {
+        /// <summary>
+        /// Values of the <c>dbo.TimesheetSubmission.StatusID</c> column, also
+        /// written to <c>dbo.TimeSheetSubmissionAuditLog.StatusID</c>.
+        /// <para>
+        /// <b>1 = Submitted, 2 = Approved, 3 = Rejected.</b> These are
+        /// persisted, so they can never be renumbered.
+        /// </para>
+        /// </summary>
+        public static class Status
+        {
+            /// <summary>A newly submitted timesheet. Stored as <c>1</c>.</summary>
+            public const int Submitted = 1;
+
+            /// <summary>An approved timesheet. Stored as <c>2</c>.</summary>
+            public const int Approved = 2;
+
+            /// <summary>A rejected timesheet. Stored as <c>3</c>.</summary>
+            public const int Rejected = 3;
+        }
+    }
 }

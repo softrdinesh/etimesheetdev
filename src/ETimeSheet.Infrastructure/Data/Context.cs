@@ -61,6 +61,12 @@ public class Context : DbContext
     /// </summary>
     public DbSet<Country> Country { get; set; } = null!;
 
+    /// <summary>The <c>dbo.TimesheetSubmission</c> table.</summary>
+    public DbSet<TimesheetSubmission> TimesheetSubmission { get; set; } = null!;
+
+    /// <summary>The <c>dbo.TimeSheetSubmissionAuditLog</c> table.</summary>
+    public DbSet<TimeSheetSubmissionAuditLog> TimeSheetSubmissionAuditLog { get; set; } = null!;
+
     // =====================================================================
     // STORED PROCEDURES  -  property name == procedure name
     //
@@ -107,6 +113,12 @@ public class Context : DbContext
     /// organisation's head counts and this week's logged and expected time.
     /// </summary>
     public DbSet<AdminDashboardSummaryDetail> spc_GetAdminDashboardSummaryByOrgID { get; set; } = null!;
+
+    /// <summary>
+    /// Result set of <c>dbo.spc_GetSubmittedSheetList</c> - the submitted
+    /// timesheets in one organisation, for every user or one.
+    /// </summary>
+    public DbSet<SubmittedSheetDetail> spc_GetSubmittedSheetList { get; set; } = null!;
 
     // dbo.spc_GetUsersTaskList has NO DbSet, deliberately. It returns two
     // result sets and EF Core materialises only the first, so
@@ -267,6 +279,41 @@ public class Context : DbContext
             // approval workflow exists.
             summary.Property(row => row.PendingTimesheets).HasColumnName("PendingTimesheets");
             summary.Property(row => row.ApprovedTimesheets).HasColumnName("ApprovedTimesheets");
+        });
+
+        modelBuilder.Entity<SubmittedSheetDetail>(sheet =>
+        {
+            sheet.HasNoKey();
+            sheet.ToView(null);
+
+            sheet.Property(row => row.UserId).HasColumnName("UserID");
+
+            sheet.Property(row => row.Name).HasColumnName("Name");
+
+            sheet.Property(row => row.Email).HasColumnName("Email");
+            sheet.Property(row => row.SheetCode).HasColumnName("SheetCode");
+
+            // Computed by the procedure from the sheet's earliest entry and the
+            // setup's StartDay / EndDay. Null when the sheet has no live entry.
+            sheet.Property(row => row.WeekStartDate).HasColumnName("WeekStartDate");
+            sheet.Property(row => row.WeekEndDate).HasColumnName("WeekEndDate");
+
+            sheet.Property(row => row.StartDay).HasColumnName("StartDay");
+            sheet.Property(row => row.StartDayName).HasColumnName("StartDayName");
+            sheet.Property(row => row.EndDay).HasColumnName("EndDay");
+            sheet.Property(row => row.EndDayName).HasColumnName("EndDayName");
+
+            // All three DECIMAL(18, 2) - TotalHours as stored, the other two
+            // cast by the procedure.
+            sheet.Property(row => row.TotalHoursWorked).HasColumnName("TotalHoursWorked").HasPrecision(18, 2);
+            sheet.Property(row => row.TotalHoursExpected).HasColumnName("TotalHoursExpected").HasPrecision(18, 2);
+            sheet.Property(row => row.TotalHoursDrift).HasColumnName("TotalHoursDrift").HasPrecision(18, 2);
+
+            // Aliased by the procedure: StatusID AS [Status].
+            sheet.Property(row => row.Status).HasColumnName("Status");
+            sheet.Property(row => row.StatusText).HasColumnName("StatusText");
+
+            sheet.Property(row => row.SubmittedDate).HasColumnName("SubmittedDate");
         });
     }
 }
