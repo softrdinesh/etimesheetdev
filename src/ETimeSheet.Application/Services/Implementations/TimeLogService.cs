@@ -45,17 +45,25 @@ public class TimeLogService : ITimeLogService
     /// </summary>
     private readonly IAdminRepository _adminRepository;
 
+    /// <summary>
+    /// Read only, and only to ask whether a sheet has been submitted: a
+    /// submitted sheet is closed to every change to its time.
+    /// </summary>
+    private readonly ISheetSubmissionRepository _sheetSubmissionRepository;
+
     private readonly IDateTimeProvider _dateTimeProvider;
     private readonly ILogger<TimeLogService> _logger;
 
     public TimeLogService(
         ITimeLogRepository timeLogRepository,
         IAdminRepository adminRepository,
+        ISheetSubmissionRepository sheetSubmissionRepository,
         IDateTimeProvider dateTimeProvider,
         ILogger<TimeLogService> logger)
     {
         _timeLogRepository = timeLogRepository;
         _adminRepository = adminRepository;
+        _sheetSubmissionRepository = sheetSubmissionRepository;
         _dateTimeProvider = dateTimeProvider;
         _logger = logger;
     }
@@ -136,6 +144,18 @@ public class TimeLogService : ITimeLogService
         // cut-off written as 19:00 means seven in the evening where they are.
         var clock = ClockFor(setup, request.UserId);
 
+        // Once a sheet has a row in dbo.TimesheetSubmission, its time is no
+        // longer the employee's to change. Checked on both sides of an edit:
+        // the sheet the entry is on now, so submitted time cannot be dragged
+        // out of its sheet, and the sheet of the week it is going to, so time
+        // cannot be added to or moved into one either. The entry being edited
+        // is left out of the week's lookup - its own code is the first check.
+        var weekSheetCode = await ExistingSheetCodeForWeekAsync(
+            request.UserId, loggedOn, setup, original?.SheetId, cancellationToken);
+
+        await RequireSheetIsNotSubmittedAsync(original?.SheetCode, cancellationToken);
+        await RequireSheetIsNotSubmittedAsync(weekSheetCode, cancellationToken);
+
         // An edit has to pass the same cut-off TWICE: once for where the entry
         // is now, and once for where it is going. Checking only the new values
         // would let a locked 19:00 block be dragged to 22:00 after the cut-off
@@ -163,8 +183,8 @@ public class TimeLogService : ITimeLogService
         RequireWithinDailyMaximum(existing, duration, loggedOn, setup);
 
         var saved = original is null
-            ? await AddTimeLogAsync(request, loggedOn, startTime, endTime, setup, cancellationToken)
-            : await UpdateTimeLogAsync(original, request, loggedOn, startTime, endTime, setup, cancellationToken);
+            ? await AddTimeLogAsync(request, loggedOn, startTime, endTime, weekSheetCode, cancellationToken)
+            : await UpdateTimeLogAsync(original, request, loggedOn, startTime, endTime, setup, weekSheetCode, cancellationToken);
 
         _logger.LogInformation(
             "Time log {SheetId} {Action} for user {UserId} on task {TaskId}: {Hours} hours on " +
@@ -243,12 +263,32 @@ public class TimeLogService : ITimeLogService
         }
     }
 
+    /// <summary>
+    /// Rejects a change to time on a sheet that has been submitted - any row in
+    /// <c>dbo.TimesheetSubmission</c>, whatever its status. No code means the
+    /// entry is on no sheet yet, so there is nothing submitted to protect.
+    /// </summary>
+    private async Task RequireSheetIsNotSubmittedAsync(
+        string? sheetCode,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(sheetCode) ||
+            !await _sheetSubmissionRepository.ExistsAsync(sheetCode, cancellationToken))
+        {
+            return;
+        }
+
+        throw new BusinessException(
+            $"Timesheet '{sheetCode}' has already been submitted, so its time can no longer be " +
+            "added to or changed.");
+    }
+
     private async Task<TimeLog> AddTimeLogAsync(
         TimeLogSaveRequest request,
         DateTime loggedOn,
         TimeSpan startTime,
         TimeSpan endTime,
-        TimesheetMasterSetup setup,
+        string? weekSheetCode,
         CancellationToken cancellationToken)
     {
         var timeLog = new TimeLog
@@ -262,8 +302,7 @@ public class TimeLogService : ITimeLogService
             // logs in the same timesheet week. Read as late as possible - after
             // every rule has passed - so a rejected request does not open a
             // week's code and leave a gap in the sequence.
-            SheetCode = await SheetCodeForWeekAsync(
-                request.UserId, loggedOn, setup, excludeSheetId: null, cancellationToken),
+            SheetCode = await SheetCodeForWeekAsync(weekSheetCode, cancellationToken),
             StartDate = loggedOn,
             // Always written, even when the caller left it out: a row with a
             // start date and no end date cannot have its duration computed, and
@@ -302,6 +341,7 @@ public class TimeLogService : ITimeLogService
         TimeSpan startTime,
         TimeSpan endTime,
         TimesheetMasterSetup setup,
+        string? weekSheetCode,
         CancellationToken cancellationToken)
     {
         // A code names a week, so an entry keeps its code only while it stays
@@ -315,8 +355,7 @@ public class TimeLogService : ITimeLogService
             original.StartDate is not { } originalDate ||
             WeekStartOf(originalDate, setup) != weekStarts)
         {
-            original.SheetCode = await SheetCodeForWeekAsync(
-                original.UserId ?? request.UserId, loggedOn, setup, original.SheetId, cancellationToken);
+            original.SheetCode = await SheetCodeForWeekAsync(weekSheetCode, cancellationToken);
         }
 
         original.TaskId = request.TaskId;
@@ -338,10 +377,9 @@ public class TimeLogService : ITimeLogService
     // ---- sheet code generation -------------------------------------------
 
     /// <summary>
-    /// The sheet code for the user's timesheet week containing
-    /// <paramref name="loggedOn"/>: the code their entries in that week already
-    /// carry, or the next code in the sequence when this is the week's first
-    /// entry.
+    /// The sheet code the user's entries in the timesheet week containing
+    /// <paramref name="loggedOn"/> already carry, or <see langword="null"/> when
+    /// the week has none yet.
     /// <para>
     /// A code is unique per user per week. With a Monday-to-Friday week, the
     /// first entry of the week - whichever day it is logged against - opens a
@@ -349,7 +387,7 @@ public class TimeLogService : ITimeLogService
     /// following Monday's week opens the next one.
     /// </para>
     /// </summary>
-    private async Task<string> SheetCodeForWeekAsync(
+    private async Task<string?> ExistingSheetCodeForWeekAsync(
         int userId,
         DateTime loggedOn,
         TimesheetMasterSetup setup,
@@ -358,16 +396,23 @@ public class TimeLogService : ITimeLogService
     {
         var weekStarts = WeekStartOf(loggedOn, setup);
 
-        var existing = await _timeLogRepository.GetSheetCodeForUserBetweenAsync(
+        return await _timeLogRepository.GetSheetCodeForUserBetweenAsync(
             userId,
             weekStarts,
             weekStarts.AddDays(6),
             excludeSheetId,
             cancellationToken);
-
-        return existing
-            ?? NextSheetCode(await _timeLogRepository.GetLatestSheetCodeAsync(cancellationToken));
     }
+
+    /// <summary>
+    /// The week's existing code, or the next code in the sequence when this is
+    /// the week's first entry. Read as late as possible - see the call sites.
+    /// </summary>
+    private async Task<string> SheetCodeForWeekAsync(
+        string? weekSheetCode,
+        CancellationToken cancellationToken) =>
+        weekSheetCode
+            ?? NextSheetCode(await _timeLogRepository.GetLatestSheetCodeAsync(cancellationToken));
 
     /// <summary>
     /// The first day of the timesheet week <paramref name="date"/> belongs to,

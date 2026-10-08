@@ -28,7 +28,22 @@
     <PackageReference Include="Microsoft.Data.SqlClient" Version="5.1.5" />
     <PackageReference Include="Microsoft.Extensions.Caching.Memory" Version="6.0.3" />
     <PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" Version="6.0.1" />
+    <!--
+      Pinned to 3.x deliberately. Quartz 4 targets net10.0 only, and on net6.0
+      its packages restore EMPTY - no assemblies, no error. 3.22.4 resolves
+      through netstandard2.0 with low dependency floors, so it moves no
+      Microsoft.Extensions.* package off 6.0.
+    -->
+    <PackageReference Include="Quartz.Extensions.Hosting" Version="3.22.4" />
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="6.36.0" />
+  </ItemGroup>
+
+  <!--
+    Email templates are read from disk at run time, so they are copied next to
+    the binaries - and, through the project reference, into the API's output.
+  -->
+  <ItemGroup>
+    <None Update="Assets\EmailTemplates\**\*.html" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

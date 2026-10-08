@@ -116,9 +116,9 @@ public class AdminSaveRequestValidator : AbstractValidator<AdminSaveRequest>
             .MaximumLength(100)
             .WithMessage("TimeZone must be 100 characters or fewer.");
 
-        // MaxTimeInHrs, MaxTimInMins and TimeEntryLockAt are not validated here,
-        // not even for presence. See the class summary: AdminService reads all
-        // three through TimeOfDay, which is also what enforces that the first
+        // MaxTimeInHrs, MaxTimInMins, TimeEntryLockAt and ReminderTimeBeforeCutoff
+        // are not validated here, not even for presence. See the class summary:
+        // AdminService reads all four through TimeOfDay, which is also what enforces that the first
         // two are required and what checks their ranges.
 
         // Day ids. These became dbo.DayMaster.DayID references on 2026-09-17,

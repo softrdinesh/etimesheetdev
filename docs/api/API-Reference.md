@@ -735,6 +735,7 @@ A time failure arrives on its own, from the service:
 |---|---|
 | Edit names someone else's entry | `Time log '8931' does not belong to user '102', so it cannot be edited as theirs.` |
 | No setup for the user | `User '4242' has no timesheet setup, so there are no limits to check this entry against. An administrator has to create one before they can log time.` |
+| Sheet already submitted | `Timesheet 'SHT0007' has already been submitted, so its time can no longer be added to or changed.` |
 | Future date | `Time cannot be logged against 2026-12-01 because it has not happened yet.` |
 | Back-dating cut-off passed | `The cut-off for logging time against an earlier day is 18:00 Asia/Kolkata time, and it is now 19:42 there, so 2026-09-15 is locked.` |
 | Entry starts before a cut-off that has passed | `It is 22:10 Asia/Kolkata time, past the 21:00 cut-off, so time starting before 21:00 can no longer be added or changed. Ask an administrator to record it for you.` |
@@ -866,12 +867,13 @@ Rules are applied in this order, and the first failure answers:
 3. The entry runs forwards once both dates are counted → **400**
 4. *Edit only:* `timeLogId` names a live entry → **404**, owned by `userId` → **400**
 5. User has a timesheet setup → **400**
-6. *Edit only:* the entry as it stands is still open — its current date passes rule 7 and its current start passes rule 9 → **400**
-7. Date is open for logging — not in the future; if back-dated and `timeEntryLockAt` is set, it has not passed **in the employee's zone** (a `null` `timeEntryLockAt` never locks) → **400**
-8. Date falls inside the timesheet week, or is the exception day → **400**
-9. The entry does not start before a `timeEntryLockAt` that has already passed **in the employee's zone** → **400**
-10. No overlap with existing entries that day, the edited entry excluded → **409**
-11. Day stays within the daily maximum, the edited entry excluded → **400**
+6. The sheet is not submitted — *on an edit*, the sheet the entry is on now; and the sheet of the week the entry lands in, the edited entry excluded. Any row in `dbo.TimesheetSubmission` for the code closes it, whatever its status → **400**
+7. *Edit only:* the entry as it stands is still open — its current date passes rule 8 and its current start passes rule 10 → **400**
+8. Date is open for logging — not in the future; if back-dated and `timeEntryLockAt` is set, it has not passed **in the employee's zone** (a `null` `timeEntryLockAt` never locks) → **400**
+9. Date falls inside the timesheet week, or is the exception day → **400**
+10. The entry does not start before a `timeEntryLockAt` that has already passed **in the employee's zone** → **400**
+11. No overlap with existing entries that day, the edited entry excluded → **409**
+12. Day stays within the daily maximum, the edited entry excluded → **400**
 
 > A week that is not configured, or configured with codes the application does
 > not recognise, imposes **no** constraint — blocking an employee over a
@@ -1131,7 +1133,8 @@ sending the wrong id.
 #### Request body — `AdminSaveRequest`
 
 **Almost everything is required.** As of 2026-09-22 the only optional fields
-are `exceptionDay` and `timeEntryLockAt`; every other field in the table below
+are `exceptionDay`, `timeEntryLockAt`, `needToSendReminder` and
+`reminderTimeBeforeCutoff`; every other field in the table below
 must be sent with a usable value. The columns behind them are nearly all
 nullable, so this is a contract decision, not a database one — a half-filled
 setup is a setup nothing downstream can compute a week from.
@@ -1154,6 +1157,8 @@ with that id exists.
 | `countryId` | int? | **yes** | `> 0`. A `dbo.Country.ID`. **Stored as sent** — its existence is not checked |
 | `timeZone` | string? | **yes** | One IANA zone id, e.g. `"America/New_York"`. **Stored as sent.** Must carry a value — `null`, `""` and whitespace are all refused — and be ≤ 100 chars |
 | `timeEntryLockAt` | string? | no | `hh:mm:ss`, `00:00:00`–`23:59:59`. Time of day after which entry is locked — measured in the setup's `timeZone`. A moment in the day, so the narrower bounds above do not apply |
+| `needToSendReminder` | bool? | no | Whether the user is sent a reminder to log time. Absent is stored as `null` — no reminder |
+| `reminderTimeBeforeCutoff` | string? | no | `hh:mm:ss`, `00:00:00`–`23:59:59`. How long **before** `timeEntryLockAt` the reminder goes out — a duration, so `"00:30:00"` is 30 minutes. Absent is stored as `null` |
 | `createdBy` | int | yes | `> 0`. Lands in `CreatedBy` on insert, `UpdatedBy` on update/revive. **Temporary** |
 
 > `canUserLoggedPreDayTime` is deliberately **absent** from this payload — it is
@@ -1223,6 +1228,8 @@ and send its `countryId` and `timeZone` back unchanged.
   "countryId": 91,
   "timeZone": "Asia/Kolkata",
   "timeEntryLockAt": "18:00:00",
+  "needToSendReminder": true,
+  "reminderTimeBeforeCutoff": "00:30:00",
   "createdBy": 9
 }
 ```
@@ -1232,7 +1239,8 @@ consulted. See [`countryId` and `timeZone` are stored verbatim](#countryid-and-t
 
 #### Minimal request
 
-Only `exceptionDay` and `timeEntryLockAt` can be left out, so the minimum is
+Only `exceptionDay`, `timeEntryLockAt`, `needToSendReminder` and
+`reminderTimeBeforeCutoff` can be left out, so the minimum is
 almost the whole payload:
 
 ```json
@@ -1277,6 +1285,8 @@ last changed a setup.
 | `timeZone` | string? | The IANA zone id **exactly as it was sent** — not resolved, and not necessarily one the country has |
 | `countryWithTimeZone` | string? | **Derived** — `countryName` and `timeZone` joined with a hyphen, `"India-Asia/Kolkata"`. The same string [Country Time Zone List](#9-country-time-zone-list) returns as `optionValue` for that pairing |
 | `timeEntryLockAt` | string? | `hh:mm:ss`, measured in `timeZone` |
+| `needToSendReminder` | bool? | Whether the user is sent a reminder. `null` means no |
+| `reminderTimeBeforeCutoff` | string? | `hh:mm:ss` — how long before `timeEntryLockAt` the reminder goes out |
 | `createdBy` | int? | audit |
 | `createDate` | datetime? | audit |
 | `updatedBy` | int? | audit |
@@ -1303,6 +1313,8 @@ last changed a setup.
     "timeZone": "Asia/Kolkata",
     "countryWithTimeZone": "India-Asia/Kolkata",
     "timeEntryLockAt": "18:00:00",
+    "needToSendReminder": true,
+    "reminderTimeBeforeCutoff": "00:30:00",
     "createdBy": 9,
     "createDate": "2026-09-01T08:15:02.443",
     "updatedBy": 9,
@@ -1346,7 +1358,8 @@ validator, for the same reason as on the time-log write, and are reported **one
 at a time** — the service stops at the first thing it cannot accept.
 
 `maxTimeInHrs` and `maxTimInMins` are now **required**, so an absent one is an
-error; `timeEntryLockAt` is still optional, and absent is simply `null`.
+error; `timeEntryLockAt` and `reminderTimeBeforeCutoff` are still optional, and
+absent is simply `null`.
 
 | Trigger | Message |
 |---|---|
@@ -1357,6 +1370,7 @@ error; `timeEntryLockAt` is still optional, and absent is simply `null`.
 | `maxTimInMins` malformed, or outside a day | `MaxTimInMins must be a time of day in hh:mm:ss format, between "00:00:00" and "23:59:59" - for example "09:00:00".` |
 | `maxTimInMins` above `00:59:00` | `MaxTimInMins must be between "00:00:00" and "00:59:00".` |
 | `timeEntryLockAt` sent and malformed | `TimeEntryLockAt must be a time of day in hh:mm:ss format, between "00:00:00" and "23:59:59" - for example "09:00:00".` |
+| `reminderTimeBeforeCutoff` sent and malformed | `ReminderTimeBeforeCutoff must be a time of day in hh:mm:ss format, between "00:00:00" and "23:59:59" - for example "09:00:00".` |
 
 > Two messages per bounded field, deliberately. `"25:00:00"` is not a time of
 > day at all and gets the format message; `"23:30:00"` is a perfectly good time
@@ -1444,6 +1458,8 @@ GET /api/v1/Admin/get-user-timesheet-setup/101
     "timeZone": "Asia/Kolkata",
     "countryWithTimeZone": "India-Asia/Kolkata",
     "timeEntryLockAt": "18:00:00",
+    "needToSendReminder": true,
+    "reminderTimeBeforeCutoff": "00:30:00",
     "createdBy": 9,
     "createDate": "2026-09-01T08:15:02.443",
     "updatedBy": null,
@@ -1523,6 +1539,14 @@ insert/update distinction — send the same payload either way.
 marked `IsDelete = 1` and stamped with who deleted it and when, so the history
 survives and a global query filter simply stops returning it.
 
+**It also closes the user's unsent emails.** Every `dbo.EmailQueue` row for the
+setup's user that is still `Pending` (1) or `Error` (3) is set to
+`EmailStatusID = 2` (Sent) with `ErrorMessage = 'Setup deleted'`, so the sender
+skips it. `SentDate` stays `null` — nothing was sent — which is what tells these
+rows apart from real sends. A `Processing` (4) email is mid-send and is left
+alone. The delete and the closed emails are written in **one transaction**: both
+happen, or neither.
+
 A POST rather than an HTTP DELETE because the request carries a body —
 `deletedBy` has to travel with it — and a body on DELETE is inconsistently
 supported by proxies and HTTP clients. It also matches the rest of this API,
@@ -1597,7 +1621,8 @@ success:
 
 > A deleted setup is not gone for good: saving that user's setup again
 > ([Save Timesheet Setup](#5-save-timesheet-setup)) revives the
-> same row and clears the delete stamps.
+> same row and clears the delete stamps. **The emails it closed stay closed** —
+> reviving a setup does not reopen them.
 
 ---
 

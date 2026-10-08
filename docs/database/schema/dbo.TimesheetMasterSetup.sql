@@ -6,6 +6,9 @@
               database owner. They now hold dbo.DayMaster.DayID values.
     Revised:  2026-09-20 - TimeZone nvarchar(100) NULL added by the database
               owner. Holds ONE IANA zone id for this setup.
+    Revised:  2026-10-08 - NeedToSendReminder bit NULL and
+              ReminderTimeBeforeCutoff time(7) NULL added by the database
+              owner, per the sp_help column list they supplied.
 
     Per-user timesheet limits and working-week settings.
 
@@ -32,10 +35,17 @@
         IsDeleted and types it int NOT NULL. The two tables genuinely differ, so
         this entity does not share TimeLog's AuditableEntity base.
       - "Deletedby" is spelled with a lower-case b.
+      - ReminderTimeBeforeCutoff is time(7) but holds a DURATION - how long
+        before TimeEntryLockAt the reminder goes out ("00:30:00" = 30 minutes),
+        not a time of day. NeedToSendReminder is a nullable bit; null and 0
+        both mean no reminder.
+      - TimeZone is nvarchar(100): sp_help reports its Length as 200 because
+        it counts bytes, two per character.
 
     CONFIRMED 2026-09-15, by querying the table through the API:
       - The table had exactly the 18 columns confirmed that day; TimeZone,
-        added by the database owner on 2026-09-20, makes 19. There is NO
+        added by the database owner on 2026-09-20, makes 19, and
+        NeedToSendReminder / ReminderTimeBeforeCutoff (2026-10-08) make 21. There is NO
         CanUserLoggedPreDayTime column: selecting it returns
         "Invalid column name 'CanUserLoggedPreDayTime'".
         spc_GetTimesheetMasterSetupByUserID nonetheless RETURNS a column of that
@@ -83,6 +93,8 @@ CREATE TABLE dbo.TimesheetMasterSetup
     Exceptionday     int        NULL,
     TimeEntryLockAt  time(7)    NULL,
     TimeZone         nvarchar(100) NULL,
+    NeedToSendReminder        bit      NULL,
+    ReminderTimeBeforeCutoff  time(7)  NULL,
     CONSTRAINT PK_TimesheetMasterSetup PRIMARY KEY CLUSTERED (SetupID)
 );
 GO
