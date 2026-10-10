@@ -205,4 +205,51 @@ public static class Constants
             public const int Rejected = 3;
         }
     }
+
+    /// <summary>
+    /// The contents of the <c>dbo.EmailType</c> lookup table - reference data,
+    /// inserted with the schema and never written by the API.
+    /// </summary>
+    public static class EmailType
+    {
+        /// <summary>
+        /// Values of the <c>dbo.EmailType.EmailTypeID</c> column, also written
+        /// to <c>dbo.EmailQueue.EmailTypeID</c>.
+        /// <para>
+        /// They come from the seed's IDENTITY order, so they hold only while the
+        /// live ids are the seed's - see <c>docs/database/schema/dbo.EmailType.sql</c>.
+        /// </para>
+        /// </summary>
+        public static class Id
+        {
+            /// <summary><c>'Time Log Reminder'</c>. Stored as <c>1</c>.</summary>
+            public const int TimeLogReminder = 1;
+
+            /// <summary><c>'Sheet Submission Reminder'</c>. Stored as <c>2</c>.</summary>
+            public const int SheetSubmissionReminder = 2;
+        }
+    }
+
+    /// <summary>Coded column values for the <c>dbo.EmailQueue</c> table.</summary>
+    public static class EmailQueue
+    {
+        /// <summary>
+        /// Values of the <c>dbo.EmailQueue.EmailStatusID</c> column. No lookup
+        /// table backs them. Persisted, so they can never be renumbered.
+        /// </summary>
+        public static class Status
+        {
+            /// <summary>Queued, not yet attempted. Stored as <c>1</c>, the column's default.</summary>
+            public const byte Pending = 1;
+
+            /// <summary>Sent successfully. Stored as <c>2</c>.</summary>
+            public const byte Sent = 2;
+
+            /// <summary>The last attempt failed. Stored as <c>3</c>.</summary>
+            public const byte Error = 3;
+
+            /// <summary>Being sent right now. Stored as <c>4</c>.</summary>
+            public const byte Processing = 4;
+        }
+    }
 }

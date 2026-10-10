@@ -37,6 +37,12 @@ public class AdminServiceEmployeeListTests
     private readonly Mock<ICountryRepository> _countries = new(MockBehavior.Strict);
 
     /// <summary>
+    /// The email queue is touched only by a setup delete, so it is strict with
+    /// no setup either: any call to it from the list read fails the test.
+    /// </summary>
+    private readonly Mock<IEmailQueueRepository> _emailQueue = new(MockBehavior.Strict);
+
+    /// <summary>
     /// The class under test is never mocked - only its collaborators are. The
     /// clock and the logger take no part in this read, so they are the plainest
     /// thing that satisfies the constructor.
@@ -44,6 +50,7 @@ public class AdminServiceEmployeeListTests
     private AdminService CreateService() =>
         new(_repository.Object,
             _countries.Object,
+            _emailQueue.Object,
             new FixedDateTimeProvider(TimeLogTestData.Now),
             NullLogger<AdminService>.Instance);
 

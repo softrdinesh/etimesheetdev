@@ -158,6 +158,24 @@ public class AdminSaveRequest
     /// </summary>
     public string? TimeEntryLockAt { get; set; }
 
+    /// <summary>
+    /// Whether this user is sent a reminder to log their time.
+    /// <b>Optional</b>: leave it out and it is stored as null, which means no
+    /// reminder.
+    /// </summary>
+    /// <example>true</example>
+    public bool? NeedToSendReminder { get; set; }
+
+    /// <summary>
+    /// How long before <see cref="TimeEntryLockAt"/> the reminder goes out, as
+    /// <c>hh:mm:ss</c> - 30 minutes is <c>"00:30:00"</c>. A <b>duration</b>,
+    /// not a time of day, though it travels in the same format.
+    /// <b>Optional</b>: leave it out and it is stored as null.
+    /// Between <c>"00:00:00"</c> and <c>"23:59:59"</c> when sent.
+    /// </summary>
+    /// <example>00:30:00</example>
+    public string? ReminderTimeBeforeCutoff { get; set; }
+
     // CanUserLoggedPreDayTime is deliberately absent: it is not a column on
     // dbo.TimesheetMasterSetup, it is derived by
     // spc_GetTimesheetMasterSetupByUserID. There is nothing here to store.
@@ -294,6 +312,16 @@ public class AdminResponse
     public string? CountryWithTimeZone { get; init; }
 
     public TimeSpan? TimeEntryLockAt { get; init; }
+
+    /// <summary>The <c>NeedToSendReminder</c> column. Null means no reminder.</summary>
+    public bool? NeedToSendReminder { get; init; }
+
+    /// <summary>
+    /// The <c>ReminderTimeBeforeCutoff</c> column - how long before
+    /// <see cref="TimeEntryLockAt"/> the reminder goes out. Serialises as
+    /// <c>"00:30:00"</c>.
+    /// </summary>
+    public TimeSpan? ReminderTimeBeforeCutoff { get; init; }
 
     // ---- audit ----
 
@@ -616,27 +644,29 @@ public class CountryTimeZoneResponse
 }
 
 /// <summary>
-/// The three <c>time(7)</c> columns of <c>dbo.TimesheetMasterSetup</c>, parsed
+/// The four <c>time(7)</c> columns of <c>dbo.TimesheetMasterSetup</c>, parsed
 /// out of the <c>hh:mm:ss</c> strings the save payload carries.
 /// <para>
 /// One value carried between <c>AdminService</c> and <c>AdminMappings</c>
-/// instead of three loose <c>TimeSpan?</c> parameters, which at a call site are
-/// three arguments of the same type in a row and can be transposed without the
+/// instead of four loose <c>TimeSpan?</c> parameters, which at a call site are
+/// four arguments of the same type in a row and can be transposed without the
 /// compiler noticing. It exists so the payload is read exactly once per save:
-/// the three fields are parsed before the service decides whether it is
+/// the four fields are parsed before the service decides whether it is
 /// inserting, updating or reviving, and the same parsed value is what every
 /// branch writes.
 /// </para>
 /// <para>
 /// The first two are <b>not nullable</b>, unlike the columns they land in:
 /// they became required fields on 2026-09-22, so by the time this exists both
-/// have a value. Only <see cref="TimeEntryLockAt"/> can still be absent.
+/// have a value. <see cref="TimeEntryLockAt"/> and
+/// <see cref="ReminderTimeBeforeCutoff"/> can still be absent.
 /// </para>
 /// </summary>
 internal readonly record struct TimesheetSetupTimes(
     TimeSpan MaxTimeInHrs,
     TimeSpan MaxTimInMins,
-    TimeSpan? TimeEntryLockAt);
+    TimeSpan? TimeEntryLockAt,
+    TimeSpan? ReminderTimeBeforeCutoff);
 
 /// <summary>
 /// What the admin dashboard summary endpoint returns: one organisation's head

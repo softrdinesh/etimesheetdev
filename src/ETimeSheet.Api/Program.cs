@@ -14,6 +14,7 @@ builder.Services
     .AddApplicationServices()
     .AddInfrastructureServices()
     .AddCachingServices()
+    .AddSchedulerServices()
     .AddAuthenticationServices()
     .AddAuthorizationServices()
     .AddCorsServices()

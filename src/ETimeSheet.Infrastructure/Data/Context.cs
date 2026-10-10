@@ -67,6 +67,27 @@ public class Context : DbContext
     /// <summary>The <c>dbo.TimeSheetSubmissionAuditLog</c> table.</summary>
     public DbSet<TimeSheetSubmissionAuditLog> TimeSheetSubmissionAuditLog { get; set; } = null!;
 
+    /// <summary>
+    /// The <c>dbo.SchedulerConfiguration</c> table - one schedule per background
+    /// job. <b>Read-only:</b> its rows are maintained by hand in SQL Server.
+    /// </summary>
+    public DbSet<SchedulerConfiguration> SchedulerConfiguration { get; set; } = null!;
+
+    /// <summary>The <c>dbo.EmailQueue</c> table - emails waiting to be sent, and their outcome.</summary>
+    public DbSet<EmailQueue> EmailQueue { get; set; } = null!;
+
+    /// <summary>
+    /// The <c>dbo.Signup</c> user table. <b>Read-only</b>: maintained by another
+    /// application. The credential columns are not mapped - see the entity.
+    /// </summary>
+    public DbSet<Signup> Signup { get; set; } = null!;
+
+    /// <summary>
+    /// The <c>dbo.Organization</c> table - the companies. <b>Read-only</b>:
+    /// maintained by another application.
+    /// </summary>
+    public DbSet<Organization> Organization { get; set; } = null!;
+
     // =====================================================================
     // STORED PROCEDURES  -  property name == procedure name
     //

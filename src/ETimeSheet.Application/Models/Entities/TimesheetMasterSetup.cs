@@ -88,6 +88,19 @@ public class TimesheetMasterSetup
     /// <summary>Time of day after which entry is locked. <c>time(7)</c>.</summary>
     public TimeSpan? TimeEntryLockAt { get; set; }
 
+    /// <summary>
+    /// Whether this user is sent a reminder to log their time. A nullable
+    /// <c>bit</c>; null and false both mean "no reminder".
+    /// </summary>
+    public bool? NeedToSendReminder { get; set; }
+
+    /// <summary>
+    /// How long before <see cref="TimeEntryLockAt"/> the reminder goes out - a
+    /// <b>duration</b> held in a <c>time(7)</c>, so 30 minutes is
+    /// <c>00:30:00</c>. Not a time of day.
+    /// </summary>
+    public TimeSpan? ReminderTimeBeforeCutoff { get; set; }
+
     // There is deliberately NO CanUserLoggedPreDayTime here. The API returns
     // that value, but it is NOT a column on this table: mapping it produced
     // "Invalid column name 'CanUserLoggedPreDayTime'" on the first real SELECT

@@ -53,6 +53,8 @@ internal static class AdminMappings
         CountryWithTimeZone = JoinLabel(countryName, setup.TimeZone),
 
         TimeEntryLockAt = setup.TimeEntryLockAt,
+        NeedToSendReminder = setup.NeedToSendReminder,
+        ReminderTimeBeforeCutoff = setup.ReminderTimeBeforeCutoff,
         CreatedBy = setup.CreatedBy,
         CreateDate = setup.CreateDate,
         UpdatedBy = setup.UpdatedBy,
@@ -82,7 +84,7 @@ internal static class AdminMappings
     /// </para>
     /// </summary>
     /// <param name="times">
-    /// The payload's three time fields, already read out of their
+    /// The payload's four time fields, already read out of their
     /// <c>hh:mm:ss</c> strings. They are passed in rather than parsed here
     /// because parsing is validation - it can reject the payload - and a mapper
     /// is not where a request is accepted or refused.
@@ -103,6 +105,8 @@ internal static class AdminMappings
         setup.CountryId = request.CountryId;
         setup.TimeZone = request.TimeZone;
         setup.TimeEntryLockAt = times.TimeEntryLockAt;
+        setup.NeedToSendReminder = request.NeedToSendReminder;
+        setup.ReminderTimeBeforeCutoff = times.ReminderTimeBeforeCutoff;
     }
 
     /// <summary>

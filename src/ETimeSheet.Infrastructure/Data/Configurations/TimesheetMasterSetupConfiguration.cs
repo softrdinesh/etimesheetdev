@@ -60,6 +60,13 @@ public class TimesheetMasterSetupConfiguration : IEntityTypeConfiguration<Timesh
             .HasColumnName("TimeEntryLockAt")
             .HasColumnType("time(7)");
 
+        builder.Property(setup => setup.NeedToSendReminder).HasColumnName("NeedToSendReminder");
+
+        // A duration before the cut-off, held in a time(7) - see the entity.
+        builder.Property(setup => setup.ReminderTimeBeforeCutoff)
+            .HasColumnName("ReminderTimeBeforeCutoff")
+            .HasColumnType("time(7)");
+
         // CanUserLoggedPreDayTime is NOT mapped here on purpose - it is not a
         // column on this table. See the note on the entity.
 

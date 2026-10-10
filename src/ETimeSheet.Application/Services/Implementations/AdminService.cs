@@ -45,17 +45,20 @@ public class AdminService : IAdminService
 {
     private readonly IAdminRepository _adminRepository;
     private readonly ICountryRepository _countryRepository;
+    private readonly IEmailQueueRepository _emailQueueRepository;
     private readonly IDateTimeProvider _dateTimeProvider;
     private readonly ILogger<AdminService> _logger;
 
     public AdminService(
         IAdminRepository adminRepository,
         ICountryRepository countryRepository,
+        IEmailQueueRepository emailQueueRepository,
         IDateTimeProvider dateTimeProvider,
         ILogger<AdminService> logger)
     {
         _adminRepository = adminRepository;
         _countryRepository = countryRepository;
+        _emailQueueRepository = emailQueueRepository;
         _dateTimeProvider = dateTimeProvider;
         _logger = logger;
     }
@@ -94,13 +97,13 @@ public class AdminService : IAdminService
     }
 
     /// <summary>
-    /// Reads the payload's three <c>hh:mm:ss</c> strings into the
+    /// Reads the payload's four <c>hh:mm:ss</c> strings into the
     /// <see cref="TimeSpan"/> values the <c>time(7)</c> columns hold.
     /// <para>
     /// Here rather than in <c>AdminSaveRequestValidator</c> because
     /// <see cref="TimeOfDay"/> is the one place in the application that decides
     /// what a time of day is; a second opinion in a validator can drift from it.
-    /// All three are optional, so an absent field stays null and only a field
+    /// The optional ones stay null when absent, so only an optional field
     /// that was actually sent can fail.
     /// </para>
     /// </summary>
@@ -145,7 +148,13 @@ public class AdminService : IAdminService
             request.TimeEntryLockAt,
             nameof(AdminSaveRequest.TimeEntryLockAt));
 
-        return new TimesheetSetupTimes(maxTimeInHrs, maxTimInMins, timeEntryLockAt);
+        // Optional, like TimeEntryLockAt. A duration rather than a moment, but
+        // the same hh:mm:ss contract and the same parser.
+        var reminderTimeBeforeCutoff = TimeOfDay.ParseOptional(
+            request.ReminderTimeBeforeCutoff,
+            nameof(AdminSaveRequest.ReminderTimeBeforeCutoff));
+
+        return new TimesheetSetupTimes(maxTimeInHrs, maxTimInMins, timeEntryLockAt, reminderTimeBeforeCutoff);
     }
 
     /// <summary>
@@ -254,12 +263,64 @@ public class AdminService : IAdminService
         setup.DeleteDate = _dateTimeProvider.UtcNow;
         setup.DeletedBy = request.DeletedBy;
 
+        var closedEmails = await CloseUnsentEmailsAsync(setup, cancellationToken);
+
+        // One save writes the soft delete AND the closed emails: both are
+        // tracked on the request's context, so they commit together or not at
+        // all - a deleted setup never keeps live reminders, and a failed delete
+        // never loses them.
         await _adminRepository.UpdateAsync(setup, cancellationToken);
 
         _logger.LogInformation(
-            "Timesheet setup {SetupId} soft-deleted by user {DeletedBy}.",
+            "Timesheet setup {SetupId} soft-deleted by user {DeletedBy}; {ClosedEmails} unsent email(s) closed.",
             setup.SetupId,
-            request.DeletedBy);
+            request.DeletedBy,
+            closedEmails);
+    }
+
+    /// <summary>The <c>ErrorMessage</c> written on an email closed by a setup delete.</summary>
+    private const string SetupDeletedMessage = "Setup deleted";
+
+    /// <summary>
+    /// The statuses an email can still be sent from: waiting, or failed and
+    /// due a retry. A <c>Processing</c> email is mid-send and left to finish;
+    /// a <c>Sent</c> one is done.
+    /// </summary>
+    private static readonly byte[] UnsentStatuses =
+    {
+        Constants.EmailQueue.Status.Pending,
+        Constants.EmailQueue.Status.Error
+    };
+
+    /// <summary>
+    /// Marks every email still waiting to go to the setup's user as
+    /// <c>Sent</c>, with <c>ErrorMessage = "Setup deleted"</c>, so the sender
+    /// skips it. Every one of them was queued because of the setup, so none
+    /// should go out once it is deleted. <c>SentDate</c> stays null - nothing
+    /// was sent - which is what tells these rows apart from real sends.
+    /// <para>
+    /// <b>Does not save.</b> The rows are tracked, and the caller's save of the
+    /// setup writes them in the same transaction.
+    /// </para>
+    /// </summary>
+    private async Task<int> CloseUnsentEmailsAsync(
+        TimesheetMasterSetup setup,
+        CancellationToken cancellationToken)
+    {
+        if (setup.UserId is not { } userId)
+        {
+            return 0;
+        }
+
+        var unsent = await _emailQueueRepository.GetForUpdateByUserIdAsync(userId, UnsentStatuses, cancellationToken);
+
+        foreach (var email in unsent)
+        {
+            email.EmailStatusId = Constants.EmailQueue.Status.Sent;
+            email.ErrorMessage = SetupDeletedMessage;
+        }
+
+        return unsent.Count;
     }
 
     public async Task<EmployeeListResponse> GetEmployeeListByOrganizationIdAsync(

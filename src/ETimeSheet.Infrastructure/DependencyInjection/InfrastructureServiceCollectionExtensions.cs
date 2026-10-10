@@ -2,13 +2,16 @@ using ETimeSheet.Application.Interfaces.Repositories;
 using ETimeSheet.Application.Interfaces.Services;
 using ETimeSheet.Infrastructure.Data;
 using ETimeSheet.Infrastructure.Data.Interceptors;
+using ETimeSheet.Infrastructure.Jobs;
 using ETimeSheet.Infrastructure.Repositories;
 using ETimeSheet.Infrastructure.Services;
 using ETimeSheet.Shared.Configuration;
+using ETimeSheet.Shared.Constants;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
+using Quartz;
 
 namespace ETimeSheet.Infrastructure.DependencyInjection;
 
@@ -49,6 +52,59 @@ public static class InfrastructureServiceCollectionExtensions
                 options.SizeLimit = cacheSettings.Value.SizeLimit);
 
         services.AddSingleton<ICacheService, MemoryCacheService>();
+
+        return services;
+    }
+
+    /// <summary>
+    /// Registers Quartz, every background job, the
+    /// <see cref="IBackgroundJobService"/> the Application layer schedules them
+    /// through, and the hosted service that schedules them at startup.
+    /// <para>
+    /// A job is registered here with <b>no schedule</b> - stored durably so it
+    /// can exist without one - under its <c>SchedulerConfigurationID</c> from
+    /// <see cref="SchedulerJobs"/>. Its schedule is that row of
+    /// <c>dbo.SchedulerConfiguration</c>, applied by
+    /// <see cref="ScheduledJobsHostedService"/>. A new job is one <c>AddJob</c>
+    /// line here, its id in <see cref="SchedulerJobs.Registered"/>, and a row.
+    /// </para>
+    /// <para>
+    /// The store is in memory: a restart forgets every schedule, and startup
+    /// reads them all again.
+    /// </para>
+    /// </summary>
+    public static IServiceCollection AddSchedulerServices(this IServiceCollection services)
+    {
+        services.AddQuartz(quartz =>
+        {
+            quartz.AddJob<SendEmailJob>(job => job
+                .WithIdentity(QuartzBackgroundJobService.JobKeyFor(SchedulerJobs.SendEmail))
+                .StoreDurably());
+
+            quartz.AddJob<TimeLogReminderEmailQueueJob>(job => job
+                .WithIdentity(QuartzBackgroundJobService.JobKeyFor(SchedulerJobs.TimeLogReminderEmailQueue))
+                .StoreDurably());
+
+            quartz.AddJob<TimesheetReminderEmailQueueJob>(job => job
+                .WithIdentity(QuartzBackgroundJobService.JobKeyFor(SchedulerJobs.TimesheetReminderEmailQueue))
+                .StoreDurably());
+        });
+
+        // On shutdown, let a running job finish rather than cut it off halfway.
+        services.AddQuartzHostedService(options => options.WaitForJobsToComplete = true);
+
+        services.AddSingleton<IBackgroundJobService, QuartzBackgroundJobService>();
+
+        // The SendEmail job's two collaborators: the external email service,
+        // as a typed HttpClient so handlers are pooled, and the HTML templates.
+        services.AddHttpClient<IEmailSender, HttpEmailSender>((provider, client) =>
+            client.Timeout = TimeSpan.FromSeconds(
+                provider.GetRequiredService<IOptions<EmailServiceSettings>>().Value.TimeoutSeconds));
+
+        services.AddSingleton<IEmailTemplateStore, FileEmailTemplateStore>();
+
+        // Registered after Quartz's own hosted service, so it starts after it.
+        services.AddHostedService<ScheduledJobsHostedService>();
 
         return services;
     }
@@ -97,6 +153,11 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddScoped<ITimeLogRepository, TimeLogRepository>();
         services.AddScoped<IAdminRepository, AdminRepository>();
         services.AddScoped<ISheetSubmissionRepository, SheetSubmissionRepository>();
+        services.AddScoped<ISchedulerRepository, SchedulerRepository>();
+
+        // Not a feature repository: dbo.EmailQueue is written by the scheduler
+        // (queueing) and by AdminService (closing a deleted setup's emails).
+        services.AddScoped<IEmailQueueRepository, EmailQueueRepository>();
 
         // Not a feature repository: dbo.Country is a read-only lookup, and
         // AdminService reads it to resolve a setup's time zone.

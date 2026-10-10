@@ -24,6 +24,8 @@ public static class OptionsRegistrationExtensions
         // configuration meaning "no browser client", so it is bound unvalidated.
         services.Configure<CorsSettings>(configuration.GetSection(CorsSettings.SectionName));
 
+        services.AddValidatedOptions<EmailServiceSettings>(configuration, EmailServiceSettings.SectionName);
+
         return services;
     }
 
