@@ -125,4 +125,69 @@ public class AdminRepository : IAdminRepository
 
         return rows.FirstOrDefault();
     }
+
+    public async Task<IReadOnlyList<UserRoleDetail>> GetUserRoleListByOrganizationIdAsync(
+        int organizationId,
+        CancellationToken cancellationToken = default) =>
+        // The procedure filters out deleted roles and does the ordering; no
+        // LINQ is composed on top, because SQL Server cannot wrap an EXEC.
+        await _db.spc_GetUserRoleListByOrgID
+            .FromSqlInterpolated($"EXEC dbo.spc_GetUserRoleListByOrgID @POrgID = {organizationId}")
+            .ToListAsync(cancellationToken);
+
+    public async Task<bool> UserRoleNameExistsAsync(
+        int organizationId,
+        string roleName,
+        int? excludeRoleId,
+        CancellationToken cancellationToken = default) =>
+        // The query filter drops deleted roles, so a deleted role's name is
+        // free to reuse. The comparison runs in SQL Server under the column's
+        // case-insensitive collation, which is what "ignoring case" means here.
+        await _db.TimesheetUserRole
+            .AsNoTracking()
+            .AnyAsync(
+                role => role.OrganizationId == organizationId
+                    && role.RoleName == roleName
+                    && role.RoleId != excludeRoleId,
+                cancellationToken);
+
+    public async Task<UserRoleSaveDetail?> SaveUserRoleAsync(
+        int? roleId,
+        int organizationId,
+        string roleName,
+        int createdBy,
+        DateTime createDate,
+        CancellationToken cancellationToken = default)
+    {
+        // Materialised as a list, then the first row taken in memory:
+        // FirstOrDefault on the query would try to compose SELECT TOP(1) around
+        // the EXEC, which SQL Server cannot do.
+        var rows = await _db.spc_AddEditUserRoleByAdmin
+            .FromSqlInterpolated($@"EXEC dbo.spc_AddEditUserRoleByAdmin
+                @PRoleID = {roleId},
+                @POrgID = {organizationId},
+                @PRoleName = {roleName},
+                @PCreatedBy = {createdBy},
+                @PCreateDate = {createDate}")
+            .ToListAsync(cancellationToken);
+
+        return rows.FirstOrDefault();
+    }
+
+    public async Task<TimesheetUserRole?> GetUserRoleForUpdateAsync(
+        int roleId,
+        int organizationId,
+        CancellationToken cancellationToken = default) =>
+        // Tracked on purpose - this is the write path. The query filter still
+        // applies, so a role deleted already is not found, and the organisation
+        // is part of the match, so another organisation's role is not either.
+        await _db.TimesheetUserRole
+            .FirstOrDefaultAsync(
+                role => role.RoleId == roleId && role.OrganizationId == organizationId,
+                cancellationToken);
+
+    public async Task UpdateUserRoleAsync(
+        TimesheetUserRole role,
+        CancellationToken cancellationToken = default) =>
+        await _db.SaveChangesAsync(cancellationToken);
 }

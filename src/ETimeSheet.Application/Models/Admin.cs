@@ -740,3 +740,110 @@ public class AdminDashboardSummaryDetail
 
     public int ApprovedTimesheets { get; set; }
 }
+
+/// <summary>
+/// One role from <c>dbo.TimesheetUserRole</c>, as
+/// <c>get-user-role-list-by-orgid</c> returns it. Deleted roles never appear,
+/// so the delete columns are not here.
+/// </summary>
+public class UserRoleResponse
+{
+    public int RoleId { get; set; }
+
+    /// <summary>The <c>Rolename</c> column. Nullable on the table.</summary>
+    public string? RoleName { get; set; }
+}
+
+/// <summary>
+/// One row of <c>dbo.spc_GetUserRoleListByOrgID</c> - a live role of one
+/// organisation. Property names follow the procedure's column aliases; the
+/// mapping is in <c>Context.ConfigureStoredProcedureResults</c>.
+/// </summary>
+public class UserRoleDetail
+{
+    public int RoleId { get; set; }
+
+    public string? RoleName { get; set; }
+}
+
+/// <summary>
+/// Body of <c>add-edit-user-role</c> - <b>one payload for both add and edit</b>.
+/// <para>
+/// <see cref="RoleId"/> decides which: absent or <c>0</c> adds a new role to
+/// <see cref="OrganizationId"/>; anything greater renames that role, which must
+/// belong to <see cref="OrganizationId"/> and not be deleted.
+/// </para>
+/// <para>
+/// Validated by <c>AdminService</c>, not by a FluentValidation validator.
+/// </para>
+/// </summary>
+public class UserRoleSaveRequest
+{
+    /// <summary>Absent or <c>0</c> to add; the id of a live role in this organisation to edit it.</summary>
+    /// <example>0</example>
+    public int? RoleId { get; set; }
+
+    /// <summary>The organisation the role belongs to. Required, greater than 0.</summary>
+    /// <example>12</example>
+    public int OrganizationId { get; set; }
+
+    /// <summary>
+    /// Required, at most 50 characters, and unique among the organisation's
+    /// live roles, ignoring case. Leading and trailing spaces are trimmed.
+    /// </summary>
+    /// <example>Project Manager</example>
+    public string? RoleName { get; set; }
+
+    /// <summary>
+    /// The user performing the save, written to <c>Createdby</c> on add.
+    /// Required, greater than 0. <b>Temporary</b>, as
+    /// <c>AdminSaveRequest.CreatedBy</c> is: it comes from the token once
+    /// authentication is on.
+    /// </summary>
+    public int CreatedBy { get; set; }
+}
+
+/// <summary>
+/// The row <c>dbo.spc_AddEditUserRoleByAdmin</c> returns - the role just saved.
+/// The same columns as <see cref="UserRoleDetail"/>, but its own type: EF Core
+/// maps one CLR type to one result set.
+/// </summary>
+public class UserRoleSaveDetail
+{
+    public int RoleId { get; set; }
+
+    public string? RoleName { get; set; }
+}
+
+/// <summary>
+/// Body of <c>delete-user-role</c>.
+/// <para>
+/// A <b>soft</b> delete: the row is never removed. It is marked
+/// <c>IsDelete = 1</c> and stamped with <c>Deleteddate</c> and
+/// <c>Deletedby</c>, and from then on the role list and
+/// <c>add-edit-user-role</c> no longer see it.
+/// </para>
+/// <para>
+/// Validated by <c>AdminService</c>, not by a FluentValidation validator.
+/// </para>
+/// </summary>
+public class UserRoleDeleteRequest
+{
+    /// <summary>The role to delete. Required, greater than 0.</summary>
+    /// <example>7</example>
+    public int RoleId { get; set; }
+
+    /// <summary>
+    /// The organisation the role must belong to. Required, greater than 0. A
+    /// role of another organisation is a 404, never deleted.
+    /// </summary>
+    /// <example>12</example>
+    public int OrganizationId { get; set; }
+
+    /// <summary>
+    /// The user performing the delete, written to <c>Deletedby</c>. Required,
+    /// greater than 0. <b>Temporary</b>, as <c>AdminDeleteRequest.DeletedBy</c>
+    /// is: it comes from the token once authentication is on.
+    /// </summary>
+    public int DeletedBy { get; set; }
+}

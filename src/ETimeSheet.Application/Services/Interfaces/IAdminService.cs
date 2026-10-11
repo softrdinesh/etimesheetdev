@@ -170,4 +170,59 @@ public interface IAdminService
     Task<AdminDashboardSummaryResponse> GetAdminDashboardSummaryByOrganizationIdAsync(
         int organizationId,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns the live roles of one organisation from
+    /// <c>dbo.TimesheetUserRole</c>, ordered by name, via
+    /// <c>spc_GetUserRoleListByOrgID</c>.
+    /// <para>
+    /// An organisation with no roles is an empty list, not a 404, as on
+    /// <see cref="GetEmployeeListByOrganizationIdAsync"/>.
+    /// </para>
+    /// </summary>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.ValidationException">
+    /// <paramref name="organizationId"/> is not a positive id.
+    /// </exception>
+    Task<IReadOnlyList<UserRoleResponse>> GetUserRoleListByOrganizationIdAsync(
+        int organizationId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Adds a role to an organisation, or renames one - <b>one method for
+    /// both</b>, via <c>spc_AddEditUserRoleByAdmin</c>. A
+    /// <see cref="UserRoleSaveRequest.RoleId"/> absent or <c>0</c> adds; any
+    /// other value renames that role.
+    /// </summary>
+    /// <returns>The saved role, including its <c>RoleId</c>.</returns>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.ValidationException">
+    /// A negative <c>RoleId</c>, an <c>OrganizationId</c> or <c>CreatedBy</c>
+    /// that is not positive, or a <c>RoleName</c> that is blank or longer than
+    /// 50 characters.
+    /// </exception>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.ConflictException">
+    /// The organisation already has another live role of that name.
+    /// </exception>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.NotFoundException">
+    /// A <c>RoleId</c> was sent, but no live role of this organisation has it.
+    /// </exception>
+    Task<UserRoleResponse> SaveUserRoleAsync(
+        UserRoleSaveRequest request,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Soft-deletes a role of an organisation: the row stays, marked
+    /// <c>IsDelete = 1</c> and stamped with <c>Deleteddate</c> and
+    /// <c>Deletedby</c>.
+    /// </summary>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.ValidationException">
+    /// A <c>RoleId</c>, <c>OrganizationId</c> or <c>DeletedBy</c> that is not
+    /// positive.
+    /// </exception>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.NotFoundException">
+    /// No live role with that id belongs to that organisation - including one
+    /// deleted already, so deleting twice is a 404.
+    /// </exception>
+    Task DeleteUserRoleAsync(
+        UserRoleDeleteRequest request,
+        CancellationToken cancellationToken = default);
 }

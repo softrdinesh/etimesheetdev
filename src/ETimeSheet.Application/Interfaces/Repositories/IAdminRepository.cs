@@ -117,4 +117,57 @@ public interface IAdminRepository
     Task<AdminDashboardSummaryDetail?> GetAdminDashboardSummaryByOrganizationIdAsync(
         int organizationId,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns the live roles of one organisation, ordered by name, via
+    /// <c>spc_GetUserRoleListByOrgID</c>. The procedure excludes deleted roles
+    /// (<c>IsDelete = 1</c>); <c>IsDelete</c> NULL or 0 is live.
+    /// </summary>
+    Task<IReadOnlyList<UserRoleDetail>> GetUserRoleListByOrganizationIdAsync(
+        int organizationId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Whether the organisation already has a live role of this name, ignoring
+    /// case - other than <paramref name="excludeRoleId"/>, so a role can be
+    /// saved under its own name.
+    /// </summary>
+    Task<bool> UserRoleNameExistsAsync(
+        int organizationId,
+        string roleName,
+        int? excludeRoleId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Adds or renames a role via <c>spc_AddEditUserRoleByAdmin</c> and returns
+    /// the saved row.
+    /// </summary>
+    /// <param name="roleName">The name to save - already trimmed and validated.</param>
+    /// <param name="createDate">Written to <c>CreateDate</c> on add only.</param>
+    /// <returns>
+    /// The saved role, or <see langword="null"/> when an edit names a role that
+    /// does not exist, is deleted, or belongs to another organisation.
+    /// </returns>
+    Task<UserRoleSaveDetail?> SaveUserRoleAsync(
+        int? roleId,
+        int organizationId,
+        string roleName,
+        int createdBy,
+        DateTime createDate,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns one live role of one organisation, <b>tracked</b> for editing,
+    /// or <see langword="null"/> when the role does not exist, belongs to
+    /// another organisation, or is already deleted.
+    /// </summary>
+    Task<TimesheetUserRole?> GetUserRoleForUpdateAsync(
+        int roleId,
+        int organizationId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Saves the changes made to a role loaded by <see cref="GetUserRoleForUpdateAsync"/>.</summary>
+    Task UpdateUserRoleAsync(
+        TimesheetUserRole role,
+        CancellationToken cancellationToken = default);
 }

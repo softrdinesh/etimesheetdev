@@ -353,6 +353,117 @@ public class AdminService : IAdminService
         };
     }
 
+    public async Task<IReadOnlyList<UserRoleResponse>> GetUserRoleListByOrganizationIdAsync(
+        int organizationId,
+        CancellationToken cancellationToken = default)
+    {
+        // Checked here rather than by a route constraint, as on the employee
+        // list: a 0 is told what is wrong with it instead of missing the route.
+        if (organizationId <= 0)
+        {
+            throw new ValidationException(
+                "orgID",
+                "orgID is required and must be greater than 0.");
+        }
+
+        var roles = await _adminRepository.GetUserRoleListByOrganizationIdAsync(
+            organizationId,
+            cancellationToken);
+
+        return roles.Select(role => role.ToResponse()).ToList();
+    }
+
+    /// <summary><c>dbo.TimesheetUserRole.Rolename</c> is <c>nvarchar(50)</c>.</summary>
+    private const int RoleNameMaximumLength = 50;
+
+    public async Task<UserRoleResponse> SaveUserRoleAsync(
+        UserRoleSaveRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        // Every rule is checked here, before anything is read or written, and
+        // every failure is collected - the caller is told about all of them in
+        // one 400, keyed on the field names it sent.
+        var roleName = request.RoleName?.Trim();
+        var failures = new Dictionary<string, string[]>();
+
+        if (request.RoleId < 0)
+        {
+            failures[nameof(UserRoleSaveRequest.RoleId)] = new[]
+            {
+                "RoleId must be 0 (or left out) to add a role, or the id of the role to edit."
+            };
+        }
+
+        if (request.OrganizationId <= 0)
+        {
+            failures[nameof(UserRoleSaveRequest.OrganizationId)] = new[]
+            {
+                "OrganizationId is required and must be greater than 0."
+            };
+        }
+
+        if (string.IsNullOrEmpty(roleName))
+        {
+            failures[nameof(UserRoleSaveRequest.RoleName)] = new[] { "RoleName is required." };
+        }
+        else if (roleName.Length > RoleNameMaximumLength)
+        {
+            failures[nameof(UserRoleSaveRequest.RoleName)] = new[]
+            {
+                $"RoleName must be {RoleNameMaximumLength} characters or fewer."
+            };
+        }
+
+        if (request.CreatedBy <= 0)
+        {
+            failures[nameof(UserRoleSaveRequest.CreatedBy)] = new[]
+            {
+                "CreatedBy is required: the row records who created it."
+            };
+        }
+
+        if (failures.Count > 0)
+        {
+            throw new ValidationException(failures);
+        }
+
+        // Null and 0 both mean "add" - a negative id was refused above.
+        var roleId = request.RoleId is > 0 ? request.RoleId : null;
+
+        // A second live role with the same name in one organisation would be
+        // two entries a user cannot tell apart in a picker. The role being
+        // edited is excluded, so renaming it to its own name is not a clash.
+        if (await _adminRepository.UserRoleNameExistsAsync(
+                request.OrganizationId,
+                roleName!,
+                roleId,
+                cancellationToken))
+        {
+            throw new ConflictException(
+                $"Organization '{request.OrganizationId}' already has a role named '{roleName}'.");
+        }
+
+        // Only an edit can come back empty: the role it names does not exist,
+        // is deleted, or belongs to another organisation.
+        var saved = await _adminRepository.SaveUserRoleAsync(
+                roleId,
+                request.OrganizationId,
+                roleName!,
+                request.CreatedBy,
+                _dateTimeProvider.UtcNow,
+                cancellationToken)
+            ?? throw NotFoundException.For("Role", roleId ?? 0);
+
+        _logger.LogInformation(
+            "Role {RoleId} {Action} for organization {OrganizationId} by user {CreatedBy}.",
+            saved.RoleId,
+            roleId is null ? "added" : "renamed",
+            request.OrganizationId,
+            request.CreatedBy);
+
+        return saved.ToResponse();
+    }
+
     public async Task<IReadOnlyList<CountryTimeZoneResponse>> GetCountryListWithTimeZonesAsync(
         CancellationToken cancellationToken = default)
     {
@@ -519,5 +630,67 @@ public class AdminService : IAdminService
                 $"spc_GetAdminDashboardSummaryByOrgID returned no row for organisation {organizationId}.");
 
         return summary.ToResponse();
+    }
+
+    public async Task DeleteUserRoleAsync(
+        UserRoleDeleteRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        // Every rule is checked before anything is read, and every failure is
+        // reported together, as in SaveUserRoleAsync.
+        var failures = new Dictionary<string, string[]>();
+
+        if (request.RoleId <= 0)
+        {
+            failures[nameof(UserRoleDeleteRequest.RoleId)] = new[]
+            {
+                "RoleId is required and must be greater than 0."
+            };
+        }
+
+        if (request.OrganizationId <= 0)
+        {
+            failures[nameof(UserRoleDeleteRequest.OrganizationId)] = new[]
+            {
+                "OrganizationId is required and must be greater than 0."
+            };
+        }
+
+        if (request.DeletedBy <= 0)
+        {
+            failures[nameof(UserRoleDeleteRequest.DeletedBy)] = new[]
+            {
+                "DeletedBy is required: a soft delete records who performed it."
+            };
+        }
+
+        if (failures.Count > 0)
+        {
+            throw new ValidationException(failures);
+        }
+
+        // The repository matches on the organisation too and hides deleted
+        // roles, so a role of another organisation and a role deleted already
+        // are both a 404 - never deleted, and never re-stamped.
+        var role = await _adminRepository.GetUserRoleForUpdateAsync(
+                request.RoleId,
+                request.OrganizationId,
+                cancellationToken)
+            ?? throw new NotFoundException(
+                $"Role '{request.RoleId}' was not found in organization '{request.OrganizationId}'.");
+
+        // A soft delete, never a DELETE statement: the row stays, and the
+        // entity's query filter and both role procedures stop returning it.
+        role.IsDelete = true;
+        role.DeletedDate = _dateTimeProvider.UtcNow;
+        role.DeletedBy = request.DeletedBy;
+
+        await _adminRepository.UpdateUserRoleAsync(role, cancellationToken);
+
+        _logger.LogInformation(
+            "Role {RoleId} of organization {OrganizationId} soft-deleted by user {DeletedBy}.",
+            role.RoleId,
+            request.OrganizationId,
+            request.DeletedBy);
     }
 }

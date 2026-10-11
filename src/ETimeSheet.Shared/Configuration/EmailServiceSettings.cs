@@ -14,6 +14,17 @@ public class EmailServiceSettings
     /// The endpoint that sends one email - it takes
     /// <c>{ "emailaddress", "bodyContent", "subject" }</c>.
     /// </summary>
+    /// <summary>
+    /// The service's root - <c>https://ppmuatemailservice.projectpulse360.com</c>.
+    /// Every relative path in
+    /// <see cref="ETimeSheet.Shared.Constants.ExternalServiceEndpoints"/> is
+    /// resolved against it, so moving the service between environments is a
+    /// change to this one value.
+    /// </summary>
+    [Required]
+    [Url]
+    public string BaseUrl { get; set; } = string.Empty;
+
     [Required]
     [Url]
     public string SendEmailUrl { get; set; } = string.Empty;

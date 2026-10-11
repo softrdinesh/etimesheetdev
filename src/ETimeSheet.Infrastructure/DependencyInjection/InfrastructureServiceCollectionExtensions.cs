@@ -154,6 +154,7 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddScoped<IAdminRepository, AdminRepository>();
         services.AddScoped<ISheetSubmissionRepository, SheetSubmissionRepository>();
         services.AddScoped<ISchedulerRepository, SchedulerRepository>();
+        services.AddScoped<IMasterAdminRepository, MasterAdminRepository>();
 
         // Not a feature repository: dbo.EmailQueue is written by the scheduler
         // (queueing) and by AdminService (closing a deleted setup's emails).
@@ -173,6 +174,15 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddScoped<ICurrentUserService, CurrentUserService>();
         services.AddScoped<ITokenService, TokenService>();
         services.AddSingleton<IDateTimeProvider, SystemDateTimeProvider>();
+
+        // The external document service, as a typed HttpClient rooted at the
+        // configured base URL - the endpoint paths are relative constants.
+        services.AddHttpClient<IDocumentUploader, HttpDocumentUploader>((provider, client) =>
+        {
+            var settings = provider.GetRequiredService<IOptions<EmailServiceSettings>>().Value;
+            client.BaseAddress = new Uri(settings.BaseUrl);
+            client.Timeout = TimeSpan.FromSeconds(settings.TimeoutSeconds);
+        });
 
         return services;
     }

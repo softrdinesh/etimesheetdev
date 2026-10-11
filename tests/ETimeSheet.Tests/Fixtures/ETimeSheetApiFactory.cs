@@ -438,8 +438,59 @@ public class ETimeSheetApiFactory : WebApplicationFactory<Program>
     }
 
     /// <summary>
+    /// Inserts <c>dbo.TimesheetClientSetup</c> rows directly, to arrange clients
+    /// the API then lists, edits or removes.
+    /// <para>
+    /// Raw SQL with <c>IDENTITY_INSERT</c>, as in <see cref="SeedEmployeesAsync"/>,
+    /// because the test picks the ids. A generated one is not safe to edit by:
+    /// the reset reseeds identity to 0, and the very first row a fresh table
+    /// receives after that gets <b>0</b> - which the add/edit endpoint reads as
+    /// "add a new client".
+    /// </para>
+    /// </summary>
+    public async Task SeedClientsAsync(params TimesheetClientSetup[] clients)
+    {
+        await using var scope = Services.CreateAsyncScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<Context>();
+
+        foreach (var client in clients)
+        {
+            await dbContext.Database.ExecuteSqlInterpolatedAsync($@"
+                SET IDENTITY_INSERT dbo.TimesheetClientSetup ON;
+                INSERT INTO dbo.TimesheetClientSetup
+                    (ClientID, ClientCode, Clientname, BillingEmail, PhoneNumber,
+                     payment_terms_days, Currencycode, CountryID, IsDeleted, DeleteDate)
+                VALUES
+                    ({client.ClientId}, {client.ClientCode}, {client.ClientName}, {client.BillingEmail},
+                     {client.PhoneNumber}, {client.PaymentTermsDays}, {client.CurrencyCode},
+                     {client.CountryId}, {client.IsDeleted}, {client.DeleteDate});
+                SET IDENTITY_INSERT dbo.TimesheetClientSetup OFF;");
+        }
+    }
+
+    /// <summary>
+    /// Reads one client straight from the table, deleted or not - to check what
+    /// an endpoint actually wrote, rather than what it answered.
+    /// </summary>
+    public async Task<TimesheetClientSetup?> FindClientAsync(int clientId)
+    {
+        await using var scope = Services.CreateAsyncScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<Context>();
+
+        return await dbContext.TimesheetClientSetup
+            .AsNoTracking()
+            .IgnoreQueryFilters()
+            .FirstOrDefaultAsync(client => client.ClientId == clientId);
+    }
+
+    /// <summary>
     /// Lookup tables, whose rows are fixed reference data inserted by the schema
     /// script rather than arranged by a test.
+    /// <para>
+    /// <c>dbo.CountryCurrency</c> is one: its 248 rows come from the INSERT in
+    /// <c>docs/database/schema/dbo.CountryCurrency.sql</c>, and the client
+    /// add/edit derives every currency from them.
+    /// </para>
     /// <para>
     /// They are excluded from the reset below on purpose: emptying one would
     /// delete seed data that nothing puts back, so the first test to run would
@@ -447,7 +498,7 @@ public class ETimeSheetApiFactory : WebApplicationFactory<Program>
     /// </para>
     /// </summary>
     private static readonly IReadOnlySet<string> LookupTables =
-        new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "DayMaster" };
+        new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "DayMaster", "CountryCurrency" };
 
     /// <summary>
     /// Tables a test can seed that are <b>not</b> in the EF model, and so cannot
