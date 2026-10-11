@@ -228,4 +228,18 @@ internal static class AdminMappings
         PendingTimesheets = summary.PendingTimesheets,
         ApprovedTimesheets = summary.ApprovedTimesheets
     };
+
+    /// <summary>Projects a role row from <c>spc_GetUserRoleListByOrgID</c> to the role-list response.</summary>
+    internal static UserRoleResponse ToResponse(this UserRoleDetail role) => new()
+    {
+        RoleId = role.RoleId,
+        RoleName = role.RoleName,
+    };
+
+    /// <summary>Projects the role <c>spc_AddEditUserRoleByAdmin</c> saved to the role response.</summary>
+    internal static UserRoleResponse ToResponse(this UserRoleSaveDetail role) => new()
+    {
+        RoleId = role.RoleId,
+        RoleName = role.RoleName,
+    };
 }

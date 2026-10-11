@@ -254,4 +254,79 @@ public class AdminController : ControllerBase
         await _adminService.DeleteAsync(request, cancellationToken);
         return Ok(ApiResponse.Ok("Timesheet setup deleted."));
     }
+
+    /// <summary>
+    /// Adds a role to an organisation, or renames one - <b>one endpoint for
+    /// both</b>.
+    /// <para>
+    /// Send <c>roleId</c> as <c>0</c> (or leave it out) to add a role to
+    /// <c>organizationId</c>. Send an existing role's <c>roleId</c> to rename it;
+    /// the role must belong to <c>organizationId</c> and not be deleted.
+    /// </para>
+    /// <para>
+    /// The response carries the saved role, including its <c>roleId</c>.
+    /// </para>
+    /// </summary>
+    /// <response code="200">The saved role.</response>
+    /// <response code="400">The payload failed validation - every failing field is listed.</response>
+    /// <response code="404">A <c>roleId</c> was sent, but no live role of that organisation has it.</response>
+    /// <response code="409">The organisation already has another role with that name.</response>
+    [HttpPost("add-edit-user-role")]
+    [ProducesResponseType(typeof(ApiResponse<UserRoleResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> AddEditUserRole(
+        [FromBody] UserRoleSaveRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await _adminService.SaveUserRoleAsync(request, cancellationToken);
+        return Ok(ApiResponse.Ok(result, "User role saved."));
+    }
+
+    /// <summary>
+    /// Returns the roles defined for one organisation, from
+    /// <c>dbo.TimesheetUserRole</c>, ordered by name. Deleted roles
+    /// (<c>IsDelete = 1</c>) are not included.
+    /// </summary>
+    /// <param name="orgID">The organisation whose roles to list, as a route segment.</param>
+    /// <response code="200">The roles. An organisation with none is an empty list, not a 404.</response>
+    /// <response code="400">An organisation id that is not greater than zero.</response>
+    [HttpGet("get-user-role-list-by-orgid/{orgID:int}")]
+    [ProducesResponseType(typeof(ApiResponse<IReadOnlyList<UserRoleResponse>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> GetUserRoleListByOrgId(
+        // :int without :min(1), as on get-all-employees-by-orgid: a 0 has to
+        // reach the service so it can answer 400 saying what is wrong.
+        [FromRoute] int orgID,
+        CancellationToken cancellationToken)
+    {
+        var result = await _adminService.GetUserRoleListByOrganizationIdAsync(orgID, cancellationToken);
+        return Ok(ApiResponse.Ok(result));
+    }
+
+    /// <summary>
+    /// Soft-deletes a role of an organisation. The row is kept, marked
+    /// <c>IsDelete = 1</c> and stamped with who deleted it and when; nothing is
+    /// ever physically deleted.
+    /// <para>
+    /// The role must belong to <c>organizationId</c>. A POST rather than an HTTP
+    /// DELETE, matching <c>delete-timesheet-setup</c>: every argument in this
+    /// API travels in the payload.
+    /// </para>
+    /// </summary>
+    /// <response code="200">The role was deleted.</response>
+    /// <response code="400">A <c>roleId</c>, <c>organizationId</c> or <c>deletedBy</c> that is not greater than zero.</response>
+    /// <response code="404">No live role with that id belongs to that organisation; deleting one twice is not a silent success.</response>
+    [HttpPost("delete-user-role")]
+    [ProducesResponseType(typeof(ApiResponse<object?>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> DeleteUserRole(
+        [FromBody] UserRoleDeleteRequest request,
+        CancellationToken cancellationToken)
+    {
+        await _adminService.DeleteUserRoleAsync(request, cancellationToken);
+        return Ok(ApiResponse.Ok("User role deleted."));
+    }
 }

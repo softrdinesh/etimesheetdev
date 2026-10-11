@@ -1,0 +1,310 @@
+/* =============================================================================
+   dbo.CountryCurrency — populate the currency of every country
+   -----------------------------------------------------------------------------
+   Run by hand, once, AFTER dbo.CountryCurrency has been created
+   (../schema/dbo.CountryCurrency.sql). Never run by the application or the tests.
+
+   Rows       : 248 - one per dbo.Country row except Antarctica (ID 8, AQ),
+                which has no currency.
+   CurrencyID : explicit, 1 - 248 in dbo.Country ID order, so an id means the
+                same row in every database. Inserted under IDENTITY_INSERT.
+   Matches on : dbo.Country ID AND Code. A row is skipped if the country with
+                that ID does not carry that ISO code, so a database whose
+                Country ids differ gets nothing wrong - it just gets fewer rows.
+   Idempotent : a row is skipped if its CurrencyID or its CountryID is already
+                in the table, so re-running inserts nothing twice.
+
+   Currencies are as of October 2026, including the recent changes:
+     - Bulgaria uses the Euro (adopted 1 January 2026).
+     - Croatia uses the Euro (adopted 1 January 2023).
+     - Curaçao and Sint Maarten use the Caribbean Guilder (Cg), which replaced
+       the Netherlands Antillean Guilder in 2025.
+     - Zimbabwe uses Zimbabwe Gold (ZiG), introduced in 2024.
+   Where a territory uses another country's currency (Guam, Greenland,
+   Réunion ...), that currency is used. Palestine is given the Israeli New
+   Shekel and Western Sahara the Moroccan Dirham, the currencies in everyday use.
+   ============================================================================= */
+
+SET NOCOUNT ON;
+
+BEGIN TRANSACTION;
+
+SET IDENTITY_INSERT dbo.CountryCurrency ON;
+
+INSERT INTO dbo.CountryCurrency
+    (CurrencyID, CurrencyName, CurrencySymbol, CountryID)
+SELECT
+    v.CurrencyID, v.CurrencyName, v.CurrencySymbol, v.CountryID
+FROM
+(
+    VALUES
+    (  1,   1, 'AF', N'Afghan Afghani',                          N'؋'),
+    (  2,   2, 'AL', N'Albanian Lek',                            N'L'),
+    (  3,   3, 'DZ', N'Algerian Dinar',                          N'د.ج'),
+    (  4,   4, 'AS', N'United States Dollar',                    N'$'),
+    (  5,   5, 'AD', N'Euro',                                    N'€'),
+    (  6,   6, 'AO', N'Angolan Kwanza',                          N'Kz'),
+    (  7,   7, 'AI', N'East Caribbean Dollar',                   N'$'),
+    (  8,   9, 'AG', N'East Caribbean Dollar',                   N'$'),
+    (  9,  10, 'AR', N'Argentine Peso',                          N'$'),
+    ( 10,  11, 'AM', N'Armenian Dram',                           N'֏'),
+    ( 11,  12, 'AW', N'Aruban Florin',                           N'ƒ'),
+    ( 12,  13, 'AU', N'Australian Dollar',                       N'$'),
+    ( 13,  14, 'AT', N'Euro',                                    N'€'),
+    ( 14,  15, 'AZ', N'Azerbaijani Manat',                       N'₼'),
+    ( 15,  16, 'BS', N'Bahamian Dollar',                         N'$'),
+    ( 16,  17, 'BH', N'Bahraini Dinar',                          N'.د.ب'),
+    ( 17,  18, 'BD', N'Bangladeshi Taka',                        N'৳'),
+    ( 18,  19, 'BB', N'Barbadian Dollar',                        N'$'),
+    ( 19,  20, 'BY', N'Belarusian Ruble',                        N'Br'),
+    ( 20,  21, 'BE', N'Euro',                                    N'€'),
+    ( 21,  22, 'BZ', N'Belize Dollar',                           N'$'),
+    ( 22,  23, 'BJ', N'West African CFA Franc',                  N'CFA'),
+    ( 23,  24, 'BM', N'Bermudian Dollar',                        N'$'),
+    ( 24,  25, 'BT', N'Bhutanese Ngultrum',                      N'Nu.'),
+    ( 25,  26, 'BO', N'Bolivian Boliviano',                      N'Bs.'),
+    ( 26,  27, 'BQ', N'United States Dollar',                    N'$'),
+    ( 27,  28, 'BA', N'Bosnia and Herzegovina Convertible Mark', N'KM'),
+    ( 28,  29, 'BW', N'Botswana Pula',                           N'P'),
+    ( 29,  30, 'BV', N'Norwegian Krone',                         N'kr'),
+    ( 30,  31, 'BR', N'Brazilian Real',                          N'R$'),
+    ( 31,  32, 'IO', N'United States Dollar',                    N'$'),
+    ( 32,  33, 'BN', N'Brunei Dollar',                           N'$'),
+    ( 33,  34, 'BG', N'Euro',                                    N'€'),
+    ( 34,  35, 'BF', N'West African CFA Franc',                  N'CFA'),
+    ( 35,  36, 'BI', N'Burundian Franc',                         N'FBu'),
+    ( 36,  37, 'CV', N'Cape Verdean Escudo',                     N'Esc'),
+    ( 37,  38, 'KH', N'Cambodian Riel',                          N'៛'),
+    ( 38,  39, 'CM', N'Central African CFA Franc',               N'FCFA'),
+    ( 39,  40, 'CA', N'Canadian Dollar',                         N'$'),
+    ( 40,  41, 'KY', N'Cayman Islands Dollar',                   N'$'),
+    ( 41,  42, 'CF', N'Central African CFA Franc',               N'FCFA'),
+    ( 42,  43, 'TD', N'Central African CFA Franc',               N'FCFA'),
+    ( 43,  44, 'CL', N'Chilean Peso',                            N'$'),
+    ( 44,  45, 'CN', N'Chinese Yuan',                            N'¥'),
+    ( 45,  46, 'CX', N'Australian Dollar',                       N'$'),
+    ( 46,  47, 'CC', N'Australian Dollar',                       N'$'),
+    ( 47,  48, 'CO', N'Colombian Peso',                          N'$'),
+    ( 48,  49, 'KM', N'Comorian Franc',                          N'CF'),
+    ( 49,  50, 'CD', N'Congolese Franc',                         N'FC'),
+    ( 50,  51, 'CG', N'Central African CFA Franc',               N'FCFA'),
+    ( 51,  52, 'CK', N'New Zealand Dollar',                      N'$'),
+    ( 52,  53, 'CR', N'Costa Rican Colón',                       N'₡'),
+    ( 53,  54, 'HR', N'Euro',                                    N'€'),
+    ( 54,  55, 'CU', N'Cuban Peso',                              N'$'),
+    ( 55,  56, 'CW', N'Caribbean Guilder',                       N'Cg'),
+    ( 56,  57, 'CY', N'Euro',                                    N'€'),
+    ( 57,  58, 'CZ', N'Czech Koruna',                            N'Kč'),
+    ( 58,  59, 'CI', N'West African CFA Franc',                  N'CFA'),
+    ( 59,  60, 'DK', N'Danish Krone',                            N'kr'),
+    ( 60,  61, 'DJ', N'Djiboutian Franc',                        N'Fdj'),
+    ( 61,  62, 'DM', N'East Caribbean Dollar',                   N'$'),
+    ( 62,  63, 'DO', N'Dominican Peso',                          N'RD$'),
+    ( 63,  64, 'EC', N'United States Dollar',                    N'$'),
+    ( 64,  65, 'EG', N'Egyptian Pound',                          N'E£'),
+    ( 65,  66, 'SV', N'United States Dollar',                    N'$'),
+    ( 66,  67, 'GQ', N'Central African CFA Franc',               N'FCFA'),
+    ( 67,  68, 'ER', N'Eritrean Nakfa',                          N'Nfk'),
+    ( 68,  69, 'EE', N'Euro',                                    N'€'),
+    ( 69,  70, 'SZ', N'Swazi Lilangeni',                         N'E'),
+    ( 70,  71, 'ET', N'Ethiopian Birr',                          N'Br'),
+    ( 71,  72, 'FK', N'Falkland Islands Pound',                  N'£'),
+    ( 72,  73, 'FO', N'Danish Krone',                            N'kr'),
+    ( 73,  74, 'FJ', N'Fijian Dollar',                           N'$'),
+    ( 74,  75, 'FI', N'Euro',                                    N'€'),
+    ( 75,  76, 'FR', N'Euro',                                    N'€'),
+    ( 76,  77, 'GF', N'Euro',                                    N'€'),
+    ( 77,  78, 'PF', N'CFP Franc',                               N'₣'),
+    ( 78,  79, 'TF', N'Euro',                                    N'€'),
+    ( 79,  80, 'GA', N'Central African CFA Franc',               N'FCFA'),
+    ( 80,  81, 'GM', N'Gambian Dalasi',                          N'D'),
+    ( 81,  82, 'GE', N'Georgian Lari',                           N'₾'),
+    ( 82,  83, 'DE', N'Euro',                                    N'€'),
+    ( 83,  84, 'GH', N'Ghanaian Cedi',                           N'₵'),
+    ( 84,  85, 'GI', N'Gibraltar Pound',                         N'£'),
+    ( 85,  86, 'GR', N'Euro',                                    N'€'),
+    ( 86,  87, 'GL', N'Danish Krone',                            N'kr'),
+    ( 87,  88, 'GD', N'East Caribbean Dollar',                   N'$'),
+    ( 88,  89, 'GP', N'Euro',                                    N'€'),
+    ( 89,  90, 'GU', N'United States Dollar',                    N'$'),
+    ( 90,  91, 'GT', N'Guatemalan Quetzal',                      N'Q'),
+    ( 91,  92, 'GG', N'Pound Sterling',                          N'£'),
+    ( 92,  93, 'GN', N'Guinean Franc',                           N'FG'),
+    ( 93,  94, 'GW', N'West African CFA Franc',                  N'CFA'),
+    ( 94,  95, 'GY', N'Guyanese Dollar',                         N'$'),
+    ( 95,  96, 'HT', N'Haitian Gourde',                          N'G'),
+    ( 96,  97, 'HM', N'Australian Dollar',                       N'$'),
+    ( 97,  98, 'VA', N'Euro',                                    N'€'),
+    ( 98,  99, 'HN', N'Honduran Lempira',                        N'L'),
+    ( 99, 100, 'HK', N'Hong Kong Dollar',                        N'HK$'),
+    (100, 101, 'HU', N'Hungarian Forint',                        N'Ft'),
+    (101, 102, 'IS', N'Icelandic Króna',                         N'kr'),
+    (102, 103, 'IN', N'Indian Rupee',                            N'₹'),
+    (103, 104, 'ID', N'Indonesian Rupiah',                       N'Rp'),
+    (104, 105, 'IR', N'Iranian Rial',                            N'﷼'),
+    (105, 106, 'IQ', N'Iraqi Dinar',                             N'ع.د'),
+    (106, 107, 'IE', N'Euro',                                    N'€'),
+    (107, 108, 'IM', N'Pound Sterling',                          N'£'),
+    (108, 109, 'IL', N'Israeli New Shekel',                      N'₪'),
+    (109, 110, 'IT', N'Euro',                                    N'€'),
+    (110, 111, 'JM', N'Jamaican Dollar',                         N'J$'),
+    (111, 112, 'JP', N'Japanese Yen',                            N'¥'),
+    (112, 113, 'JE', N'Pound Sterling',                          N'£'),
+    (113, 114, 'JO', N'Jordanian Dinar',                         N'د.ا'),
+    (114, 115, 'KZ', N'Kazakhstani Tenge',                       N'₸'),
+    (115, 116, 'KE', N'Kenyan Shilling',                         N'KSh'),
+    (116, 117, 'KI', N'Australian Dollar',                       N'$'),
+    (117, 118, 'KP', N'North Korean Won',                        N'₩'),
+    (118, 119, 'KR', N'South Korean Won',                        N'₩'),
+    (119, 120, 'KW', N'Kuwaiti Dinar',                           N'د.ك'),
+    (120, 121, 'KG', N'Kyrgyzstani Som',                         N'с'),
+    (121, 122, 'LA', N'Lao Kip',                                 N'₭'),
+    (122, 123, 'LV', N'Euro',                                    N'€'),
+    (123, 124, 'LB', N'Lebanese Pound',                          N'ل.ل'),
+    (124, 125, 'LS', N'Lesotho Loti',                            N'L'),
+    (125, 126, 'LR', N'Liberian Dollar',                         N'$'),
+    (126, 127, 'LY', N'Libyan Dinar',                            N'ل.د'),
+    (127, 128, 'LI', N'Swiss Franc',                             N'CHF'),
+    (128, 129, 'LT', N'Euro',                                    N'€'),
+    (129, 130, 'LU', N'Euro',                                    N'€'),
+    (130, 131, 'MO', N'Macanese Pataca',                         N'MOP$'),
+    (131, 132, 'MG', N'Malagasy Ariary',                         N'Ar'),
+    (132, 133, 'MW', N'Malawian Kwacha',                         N'MK'),
+    (133, 134, 'MY', N'Malaysian Ringgit',                       N'RM'),
+    (134, 135, 'MV', N'Maldivian Rufiyaa',                       N'Rf'),
+    (135, 136, 'ML', N'West African CFA Franc',                  N'CFA'),
+    (136, 137, 'MT', N'Euro',                                    N'€'),
+    (137, 138, 'MH', N'United States Dollar',                    N'$'),
+    (138, 139, 'MQ', N'Euro',                                    N'€'),
+    (139, 140, 'MR', N'Mauritanian Ouguiya',                     N'UM'),
+    (140, 141, 'MU', N'Mauritian Rupee',                         N'₨'),
+    (141, 142, 'YT', N'Euro',                                    N'€'),
+    (142, 143, 'MX', N'Mexican Peso',                            N'$'),
+    (143, 144, 'FM', N'United States Dollar',                    N'$'),
+    (144, 145, 'MD', N'Moldovan Leu',                            N'L'),
+    (145, 146, 'MC', N'Euro',                                    N'€'),
+    (146, 147, 'MN', N'Mongolian Tögrög',                        N'₮'),
+    (147, 148, 'ME', N'Euro',                                    N'€'),
+    (148, 149, 'MS', N'East Caribbean Dollar',                   N'$'),
+    (149, 150, 'MA', N'Moroccan Dirham',                         N'د.م.'),
+    (150, 151, 'MZ', N'Mozambican Metical',                      N'MT'),
+    (151, 152, 'MM', N'Myanmar Kyat',                            N'K'),
+    (152, 153, 'NA', N'Namibian Dollar',                         N'$'),
+    (153, 154, 'NR', N'Australian Dollar',                       N'$'),
+    (154, 155, 'NP', N'Nepalese Rupee',                          N'₨'),
+    (155, 156, 'NL', N'Euro',                                    N'€'),
+    (156, 157, 'NC', N'CFP Franc',                               N'₣'),
+    (157, 158, 'NZ', N'New Zealand Dollar',                      N'$'),
+    (158, 159, 'NI', N'Nicaraguan Córdoba',                      N'C$'),
+    (159, 160, 'NE', N'West African CFA Franc',                  N'CFA'),
+    (160, 161, 'NG', N'Nigerian Naira',                          N'₦'),
+    (161, 162, 'NU', N'New Zealand Dollar',                      N'$'),
+    (162, 163, 'NF', N'Australian Dollar',                       N'$'),
+    (163, 164, 'MP', N'United States Dollar',                    N'$'),
+    (164, 165, 'NO', N'Norwegian Krone',                         N'kr'),
+    (165, 166, 'OM', N'Omani Rial',                              N'ر.ع.'),
+    (166, 167, 'PK', N'Pakistani Rupee',                         N'₨'),
+    (167, 168, 'PW', N'United States Dollar',                    N'$'),
+    (168, 169, 'PS', N'Israeli New Shekel',                      N'₪'),
+    (169, 170, 'PA', N'Panamanian Balboa',                       N'B/.'),
+    (170, 171, 'PG', N'Papua New Guinean Kina',                  N'K'),
+    (171, 172, 'PY', N'Paraguayan Guaraní',                      N'₲'),
+    (172, 173, 'PE', N'Peruvian Sol',                            N'S/'),
+    (173, 174, 'PH', N'Philippine Peso',                         N'₱'),
+    (174, 175, 'PN', N'New Zealand Dollar',                      N'$'),
+    (175, 176, 'PL', N'Polish Złoty',                            N'zł'),
+    (176, 177, 'PT', N'Euro',                                    N'€'),
+    (177, 178, 'PR', N'United States Dollar',                    N'$'),
+    (178, 179, 'QA', N'Qatari Riyal',                            N'ر.ق'),
+    (179, 180, 'MK', N'Macedonian Denar',                        N'ден'),
+    (180, 181, 'RO', N'Romanian Leu',                            N'lei'),
+    (181, 182, 'RU', N'Russian Ruble',                           N'₽'),
+    (182, 183, 'RW', N'Rwandan Franc',                           N'FRw'),
+    (183, 184, 'RE', N'Euro',                                    N'€'),
+    (184, 185, 'BL', N'Euro',                                    N'€'),
+    (185, 186, 'SH', N'Saint Helena Pound',                      N'£'),
+    (186, 187, 'KN', N'East Caribbean Dollar',                   N'$'),
+    (187, 188, 'LC', N'East Caribbean Dollar',                   N'$'),
+    (188, 189, 'MF', N'Euro',                                    N'€'),
+    (189, 190, 'PM', N'Euro',                                    N'€'),
+    (190, 191, 'VC', N'East Caribbean Dollar',                   N'$'),
+    (191, 192, 'WS', N'Samoan Tālā',                             N'T'),
+    (192, 193, 'SM', N'Euro',                                    N'€'),
+    (193, 194, 'ST', N'São Tomé and Príncipe Dobra',             N'Db'),
+    (194, 195, 'SA', N'Saudi Riyal',                             N'ر.س'),
+    (195, 196, 'SN', N'West African CFA Franc',                  N'CFA'),
+    (196, 197, 'RS', N'Serbian Dinar',                           N'дин.'),
+    (197, 198, 'SC', N'Seychellois Rupee',                       N'₨'),
+    (198, 199, 'SL', N'Sierra Leonean Leone',                    N'Le'),
+    (199, 200, 'SG', N'Singapore Dollar',                        N'S$'),
+    (200, 201, 'SX', N'Caribbean Guilder',                       N'Cg'),
+    (201, 202, 'SK', N'Euro',                                    N'€'),
+    (202, 203, 'SI', N'Euro',                                    N'€'),
+    (203, 204, 'SB', N'Solomon Islands Dollar',                  N'$'),
+    (204, 205, 'SO', N'Somali Shilling',                         N'Sh'),
+    (205, 206, 'ZA', N'South African Rand',                      N'R'),
+    (206, 207, 'GS', N'Pound Sterling',                          N'£'),
+    (207, 208, 'SS', N'South Sudanese Pound',                    N'£'),
+    (208, 209, 'ES', N'Euro',                                    N'€'),
+    (209, 210, 'LK', N'Sri Lankan Rupee',                        N'Rs'),
+    (210, 211, 'SD', N'Sudanese Pound',                          N'ج.س.'),
+    (211, 212, 'SR', N'Surinamese Dollar',                       N'$'),
+    (212, 213, 'SJ', N'Norwegian Krone',                         N'kr'),
+    (213, 214, 'SE', N'Swedish Krona',                           N'kr'),
+    (214, 215, 'CH', N'Swiss Franc',                             N'CHF'),
+    (215, 216, 'SY', N'Syrian Pound',                            N'£S'),
+    (216, 217, 'TW', N'New Taiwan Dollar',                       N'NT$'),
+    (217, 218, 'TJ', N'Tajikistani Somoni',                      N'SM'),
+    (218, 219, 'TZ', N'Tanzanian Shilling',                      N'TSh'),
+    (219, 220, 'TH', N'Thai Baht',                               N'฿'),
+    (220, 221, 'TL', N'United States Dollar',                    N'$'),
+    (221, 222, 'TG', N'West African CFA Franc',                  N'CFA'),
+    (222, 223, 'TK', N'New Zealand Dollar',                      N'$'),
+    (223, 224, 'TO', N'Tongan Paʻanga',                          N'T$'),
+    (224, 225, 'TT', N'Trinidad and Tobago Dollar',              N'TT$'),
+    (225, 226, 'TN', N'Tunisian Dinar',                          N'د.ت'),
+    (226, 227, 'TR', N'Turkish Lira',                            N'₺'),
+    (227, 228, 'TM', N'Turkmenistani Manat',                     N'm'),
+    (228, 229, 'TC', N'United States Dollar',                    N'$'),
+    (229, 230, 'TV', N'Australian Dollar',                       N'$'),
+    (230, 231, 'UG', N'Ugandan Shilling',                        N'USh'),
+    (231, 232, 'UA', N'Ukrainian Hryvnia',                       N'₴'),
+    (232, 233, 'AE', N'UAE Dirham',                              N'د.إ'),
+    (233, 234, 'GB', N'Pound Sterling',                          N'£'),
+    (234, 235, 'UM', N'United States Dollar',                    N'$'),
+    (235, 236, 'US', N'United States Dollar',                    N'$'),
+    (236, 237, 'UY', N'Uruguayan Peso',                          N'$U'),
+    (237, 238, 'UZ', N'Uzbekistani Som',                         N'soʻm'),
+    (238, 239, 'VU', N'Vanuatu Vatu',                            N'VT'),
+    (239, 240, 'VE', N'Venezuelan Bolívar',                      N'Bs.'),
+    (240, 241, 'VN', N'Vietnamese Đồng',                         N'₫'),
+    (241, 242, 'VG', N'United States Dollar',                    N'$'),
+    (242, 243, 'VI', N'United States Dollar',                    N'$'),
+    (243, 244, 'WF', N'CFP Franc',                               N'₣'),
+    (244, 245, 'EH', N'Moroccan Dirham',                         N'د.م.'),
+    (245, 246, 'YE', N'Yemeni Rial',                             N'﷼'),
+    (246, 247, 'ZM', N'Zambian Kwacha',                          N'ZK'),
+    (247, 248, 'ZW', N'Zimbabwe Gold',                           N'ZiG'),
+    (248, 249, 'AX', N'Euro',                                    N'€')
+) AS v (CurrencyID, CountryID, CountryCode, CurrencyName, CurrencySymbol)
+WHERE EXISTS
+      (
+          SELECT 1
+          FROM dbo.Country c
+          WHERE c.ID = v.CountryID
+            AND c.Code = v.CountryCode
+      )
+  AND NOT EXISTS
+      (
+          SELECT 1
+          FROM dbo.CountryCurrency cc
+          WHERE cc.CurrencyID = v.CurrencyID
+             OR cc.CountryID = v.CountryID
+      );
+
+PRINT CONCAT(@@ROWCOUNT, ' currency row(s) inserted.');
+
+SET IDENTITY_INSERT dbo.CountryCurrency OFF;
+
+COMMIT TRANSACTION;
+GO

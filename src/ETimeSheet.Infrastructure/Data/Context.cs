@@ -88,6 +88,21 @@ public class Context : DbContext
     /// </summary>
     public DbSet<Organization> Organization { get; set; } = null!;
 
+    /// <summary>The <c>dbo.TimesheetClientSetup</c> table - the clients.</summary>
+    public DbSet<TimesheetClientSetup> TimesheetClientSetup { get; set; } = null!;
+
+    /// <summary>
+    /// The <c>dbo.CountryCurrency</c> lookup - one currency per country.
+    /// <b>Read-only:</b> its rows are maintained by hand in SQL Server.
+    /// </summary>
+    public DbSet<CountryCurrency> CountryCurrency { get; set; } = null!;
+
+    /// <summary>
+    /// The <c>dbo.TimesheetUserRole</c> table - the roles defined per
+    /// organisation. Rows with <c>IsDelete = 1</c> are hidden by a query filter.
+    /// </summary>
+    public DbSet<TimesheetUserRole> TimesheetUserRole { get; set; } = null!;
+
     // =====================================================================
     // STORED PROCEDURES  -  property name == procedure name
     //
@@ -140,6 +155,30 @@ public class Context : DbContext
     /// timesheets in one organisation, for every user or one.
     /// </summary>
     public DbSet<SubmittedSheetDetail> spc_GetSubmittedSheetList { get; set; } = null!;
+
+    /// <summary>
+    /// Result set of <c>dbo.spc_GetClientListForMasterAdmin</c> - every live
+    /// client in <c>dbo.TimesheetClientSetup</c>, ordered by name.
+    /// </summary>
+    public DbSet<ClientListDetail> spc_GetClientListForMasterAdmin { get; set; } = null!;
+
+    /// <summary>
+    /// Result set of <c>dbo.spc_AddEditClientSetup</c> - the client just added
+    /// or edited, or no row when an edit names a missing or deleted client.
+    /// </summary>
+    public DbSet<ClientSaveDetail> spc_AddEditClientSetup { get; set; } = null!;
+
+    /// <summary>
+    /// Result set of <c>dbo.spc_GetUserRoleListByOrgID</c> - the live roles of
+    /// one organisation, ordered by name.
+    /// </summary>
+    public DbSet<UserRoleDetail> spc_GetUserRoleListByOrgID { get; set; } = null!;
+
+    /// <summary>
+    /// Result set of <c>dbo.spc_AddEditUserRoleByAdmin</c> - the role just
+    /// added or renamed, or no row when an edit names a missing role.
+    /// </summary>
+    public DbSet<UserRoleSaveDetail> spc_AddEditUserRoleByAdmin { get; set; } = null!;
 
     // dbo.spc_GetUsersTaskList has NO DbSet, deliberately. It returns two
     // result sets and EF Core materialises only the first, so
@@ -335,6 +374,76 @@ public class Context : DbContext
             sheet.Property(row => row.StatusText).HasColumnName("StatusText");
 
             sheet.Property(row => row.SubmittedDate).HasColumnName("SubmittedDate");
+        });
+
+        modelBuilder.Entity<ClientListDetail>(client =>
+        {
+            client.HasNoKey();
+            client.ToView(null);
+
+            // The procedure aliases the table's mixed-convention columns
+            // (Clientname, payment_terms_days, tax_identifier) to these
+            // PascalCase names, and Currencycode to CurrencyID - what it holds.
+            // CurrencyName / CurrencySymbol are joined from dbo.CountryCurrency.
+            client.Property(row => row.ClientId).HasColumnName("ClientID");
+            client.Property(row => row.ClientCode).HasColumnName("ClientCode");
+            client.Property(row => row.ClientName).HasColumnName("ClientName");
+            client.Property(row => row.Avatar).HasColumnName("Avatar");
+            client.Property(row => row.BillingEmail).HasColumnName("BillingEmail");
+            client.Property(row => row.PhoneNumber).HasColumnName("PhoneNumber");
+            client.Property(row => row.AlternatePhoneNumber).HasColumnName("AlternatePhoneNumber");
+            client.Property(row => row.AlternateEmail).HasColumnName("AlternateEmail");
+            client.Property(row => row.BillingAddress).HasColumnName("BillingAddress");
+            client.Property(row => row.PaymentTermsDays).HasColumnName("PaymentTermsDays");
+            client.Property(row => row.CurrencyId).HasColumnName("CurrencyID");
+            client.Property(row => row.CurrencyName).HasColumnName("CurrencyName");
+            client.Property(row => row.CurrencySymbol).HasColumnName("CurrencySymbol");
+            client.Property(row => row.CountryId).HasColumnName("CountryID");
+            client.Property(row => row.TaxIdentifier).HasColumnName("TaxIdentifier");
+        });
+
+        modelBuilder.Entity<ClientSaveDetail>(client =>
+        {
+            client.HasNoKey();
+            client.ToView(null);
+
+            // The same aliases as spc_GetClientListForMasterAdmin.
+            client.Property(row => row.ClientId).HasColumnName("ClientID");
+            client.Property(row => row.ClientCode).HasColumnName("ClientCode");
+            client.Property(row => row.ClientName).HasColumnName("ClientName");
+            client.Property(row => row.Avatar).HasColumnName("Avatar");
+            client.Property(row => row.BillingEmail).HasColumnName("BillingEmail");
+            client.Property(row => row.PhoneNumber).HasColumnName("PhoneNumber");
+            client.Property(row => row.AlternatePhoneNumber).HasColumnName("AlternatePhoneNumber");
+            client.Property(row => row.AlternateEmail).HasColumnName("AlternateEmail");
+            client.Property(row => row.BillingAddress).HasColumnName("BillingAddress");
+            client.Property(row => row.PaymentTermsDays).HasColumnName("PaymentTermsDays");
+            client.Property(row => row.CurrencyId).HasColumnName("CurrencyID");
+            client.Property(row => row.CurrencyName).HasColumnName("CurrencyName");
+            client.Property(row => row.CurrencySymbol).HasColumnName("CurrencySymbol");
+            client.Property(row => row.CountryId).HasColumnName("CountryID");
+            client.Property(row => row.TaxIdentifier).HasColumnName("TaxIdentifier");
+        });
+
+        modelBuilder.Entity<UserRoleDetail>(role =>
+        {
+            role.HasNoKey();
+            role.ToView(null);
+
+            role.Property(row => row.RoleId).HasColumnName("RoleID");
+
+            // Aliased by the procedure: Rolename AS RoleName.
+            role.Property(row => row.RoleName).HasColumnName("RoleName");
+        });
+
+        modelBuilder.Entity<UserRoleSaveDetail>(role =>
+        {
+            role.HasNoKey();
+            role.ToView(null);
+
+            // The same aliases as spc_GetUserRoleListByOrgID.
+            role.Property(row => row.RoleId).HasColumnName("RoleID");
+            role.Property(row => row.RoleName).HasColumnName("RoleName");
         });
     }
 }

@@ -3,7 +3,7 @@
 Every endpoint the API exposes today, with its purpose, input payload, success
 response and failure responses — each with a worked example.
 
-Generated from the code on branch `fix/sheetcode-refactor` (2026-10-01). If you change a
+Generated from the code on branch `feat/clientsetup` (2026-10-12). If you change a
 controller, DTO or validator, change this file with it.
 
 ---
@@ -30,11 +30,19 @@ controller, DTO or validator, change this file with it.
   - [Employee List](#8-employee-list)
   - [Country Time Zone List](#9-country-time-zone-list)
   - [Admin Dashboard Summary](#11-admin-dashboard-summary)
+  - [User Role List](#16-user-role-list)
+  - [Add / Edit User Role](#17-add--edit-user-role)
+  - [Delete User Role](#18-delete-user-role)
 - [SheetSubmission](#sheetsubmission)
   - [Submit Timesheet](#12-submit-timesheet)
   - [Review Timesheet](#13-review-timesheet)
   - [Current Week Sheet Details](#14-current-week-sheet-details)
   - [Submitted Sheet List](#15-submitted-sheet-list)
+- [MasterAdmin](#masteradmin)
+  - [The `ClientResponse` shape](#the-clientresponse-shape)
+  - [Client List](#19-client-list)
+  - [Add / Edit Client Setup](#20-add--edit-client-setup)
+  - [Remove Client Setup](#21-remove-client-setup)
 - [Health endpoints](#health-endpoints)
 - [Enumerations](#enumerations)
 - [Endpoint summary table](#endpoint-summary-table)
@@ -149,6 +157,7 @@ successes would tell a client that something happened when nothing did.
 | `ForbiddenException` | **403** | Authenticated but not allowed *(unreachable today)* |
 | `NotFoundException` | **404** | A **write** named a row that does not exist. Never used for a read that simply found nothing — see [Empty results are successes](#empty-results-are-successes) |
 | `ConflictException` | **409** | The request collides with data already stored |
+| `ExternalServiceException` | **502** | A service this API calls (the document upload service) failed or answered with something unusable. The request was fine; nothing was saved |
 | anything else | **500** | A defect. Logged in full; the caller gets a correlation id only |
 
 **Validation failure (400)** — shape-level, produced before the action runs:
@@ -201,6 +210,17 @@ sentence in `message` and leave `errors[]` empty.
 {
   "success": false,
   "message": "This overlaps time log 8812, which already covers 09:00 to 12:30 that day.",
+  "data": null,
+  "errors": []
+}
+```
+
+**Bad gateway (502)** — an external service failed; the request itself was fine:
+
+```json
+{
+  "success": false,
+  "message": "The document service could not be reached.",
   "data": null,
   "errors": []
 }
@@ -1100,7 +1120,8 @@ Controller: `src/ETimeSheet.Api/Controllers/AdminController.cs`
 Service: `AdminService` · Prefix: `/api/v1/Admin`
 
 Administrative CRUD over `dbo.TimesheetMasterSetup`, plus the organisation's
-employee list, its dashboard summary and the country/time-zone lookup. **This is
+employee list, its dashboard summary, the country/time-zone lookup, and the
+organisation's user roles (`dbo.TimesheetUserRole`). **This is
 the surface that most obviously needs a permission behind it** — it has none
 while authentication is off, and **Employee List** and **Admin Dashboard
 Summary** return organisation-wide data to anyone who asks.
@@ -2043,6 +2064,249 @@ An organisation with nobody in it is **`200`** with every figure `0` — never a
 
 ---
 
+### 16. User Role List
+
+`GET /api/v1/Admin/get-user-role-list-by-orgid/{orgID}`
+
+**Purpose** — The roles defined for one organisation, from
+`dbo.TimesheetUserRole`, for a role picker. Read through
+`dbo.spc_GetUserRoleListByOrgID`.
+
+Only **live** roles come back: `IsDelete` is a *nullable* bit, and a role is
+live when it is `0` **or** `NULL` — only `1` means deleted. A role with no
+`OrganizationID` belongs to nobody and never appears.
+
+#### Route parameters
+
+| Name | Type | Rules |
+|---|---|---|
+| `orgID` | int | `> 0` — checked by the service, so a `0` is a 400 naming the field rather than a missed route |
+
+#### Example request
+
+```
+GET /api/v1/Admin/get-user-role-list-by-orgid/12
+```
+
+#### Success response — `200 OK`
+
+`data` is an array of `UserRoleResponse`, ordered by `roleName`, then `roleId`:
+
+| Field | Type | Notes |
+|---|---|---|
+| `roleId` | int | `dbo.TimesheetUserRole.RoleID` |
+| `roleName` | string \| null | The `Rolename` column; nullable on the table |
+
+`organizationId` is **not** returned — the caller already sent it in the URL.
+
+#### Example response
+
+```json
+{
+  "success": true,
+  "message": "",
+  "data": [
+    { "roleId": 4, "roleName": "Developer" },
+    { "roleId": 2, "roleName": "Project Manager" }
+  ],
+  "errors": []
+}
+```
+
+#### Empty result
+
+An organisation with no roles is `data: []` — a 200, not a 404.
+
+#### Error responses
+
+**400** — `orgID <= 0`:
+
+```json
+{
+  "success": false,
+  "message": "One or more validation errors occurred.",
+  "data": null,
+  "errors": ["orgID: orgID is required and must be greater than 0."]
+}
+```
+
+**500** — unhandled defect.
+
+---
+
+### 17. Add / Edit User Role
+
+`POST /api/v1/Admin/add-edit-user-role`
+
+**Purpose** — Add a role to an organisation, or rename one. **One endpoint for
+both**, chosen by `roleId`. Written through `dbo.spc_AddEditUserRoleByAdmin`.
+
+| `roleId` sent | Result |
+|---|---|
+| absent or `0` | **Adds** a live role to `organizationId`. `RoleID` is `IDENTITY` — the database assigns it, and it comes back in the response |
+| `> 0`, a live role of `organizationId` | **Renames** it. `Createdby` and `CreateDate` keep their original values |
+| `> 0`, but no such role, deleted, or another organisation's | **404** — never edited |
+
+#### Request body — `UserRoleSaveRequest` (JSON)
+
+| Field | Type | Required | Rules | Notes |
+|---|---|---|---|---|
+| `roleId` | int \| null | no | `>= 0` | absent / `0` adds; an id edits |
+| `organizationId` | int | yes | `> 0` | On edit, the role must belong to it |
+| `roleName` | string | yes | not blank, `<= 50` characters **after trimming** | Unique among the organisation's live roles, **ignoring case** |
+| `createdBy` | int | yes | `> 0` | Written to `Createdby` on add only. **Temporary** — comes from the token once auth is on |
+
+Validation runs in **`AdminService`**, not a FluentValidation validator — but the
+400 is the same shape, and lists **every** failing field at once.
+
+`CreateDate` is the API's clock (UTC), passed to the procedure.
+
+#### Example request — add
+
+```json
+{
+  "roleId": 0,
+  "organizationId": 12,
+  "roleName": "Project Manager",
+  "createdBy": 5
+}
+```
+
+#### Example request — rename
+
+```json
+{
+  "roleId": 2,
+  "organizationId": 12,
+  "roleName": "Senior Project Manager",
+  "createdBy": 5
+}
+```
+
+#### Success response — `200 OK`
+
+`data` is a `UserRoleResponse` — the saved role, the same shape as
+[User Role List](#16-user-role-list):
+
+```json
+{
+  "success": true,
+  "message": "User role saved.",
+  "data": { "roleId": 7, "roleName": "Project Manager" },
+  "errors": []
+}
+```
+
+#### Error responses
+
+**400 — validation** (every failure listed):
+
+| Trigger | Message |
+|---|---|
+| `roleId < 0` | `RoleId must be 0 (or left out) to add a role, or the id of the role to edit.` |
+| `organizationId <= 0` | `OrganizationId is required and must be greater than 0.` |
+| `roleName` blank | `RoleName is required.` |
+| `roleName` longer than 50 | `RoleName must be 50 characters or fewer.` |
+| `createdBy <= 0` | `CreatedBy is required: the row records who created it.` |
+
+```json
+{
+  "success": false,
+  "message": "One or more validation errors occurred.",
+  "data": null,
+  "errors": [
+    "OrganizationId: OrganizationId is required and must be greater than 0.",
+    "RoleName: RoleName is required."
+  ]
+}
+```
+
+**404** — `roleId > 0` names no live role of `organizationId`:
+
+```json
+{ "success": false, "message": "Role '7' was not found.", "data": null, "errors": [] }
+```
+
+**409** — the organisation already has **another** live role of that name
+(case-insensitive). Saving a role under its own name is fine, and a deleted
+role's name is free to reuse:
+
+```json
+{
+  "success": false,
+  "message": "Organization '12' already has a role named 'Project Manager'.",
+  "data": null,
+  "errors": []
+}
+```
+
+**500** — unhandled defect.
+
+---
+
+### 18. Delete User Role
+
+`POST /api/v1/Admin/delete-user-role`
+
+**Purpose** — Soft-delete a role of an organisation. The row is **never**
+removed: it is marked `IsDelete = 1` and stamped with `Deleteddate` (UTC) and
+`Deletedby`. From then on the role list and Add / Edit User Role no longer see
+it. Done by the API through EF Core — no stored procedure.
+
+A POST rather than an HTTP DELETE, as with
+[Delete Timesheet Setup](#7-delete-timesheet-setup).
+
+#### Request body — `UserRoleDeleteRequest` (JSON)
+
+| Field | Type | Required | Rules | Notes |
+|---|---|---|---|---|
+| `roleId` | int | yes | `> 0` | |
+| `organizationId` | int | yes | `> 0` | The role must belong to it — another organisation's role is a 404, never deleted |
+| `deletedBy` | int | yes | `> 0` | Written to `Deletedby`. **Temporary** — comes from the token once auth is on |
+
+Validated in **`AdminService`**; every failing field is listed at once.
+
+#### Example request
+
+```json
+{ "roleId": 7, "organizationId": 12, "deletedBy": 5 }
+```
+
+#### Success response — `200 OK`
+
+```json
+{ "success": true, "message": "User role deleted.", "data": null, "errors": [] }
+```
+
+#### Error responses
+
+**400 — validation:**
+
+| Trigger | Message |
+|---|---|
+| `roleId <= 0` | `RoleId is required and must be greater than 0.` |
+| `organizationId <= 0` | `OrganizationId is required and must be greater than 0.` |
+| `deletedBy <= 0` | `DeletedBy is required: a soft delete records who performed it.` |
+
+**404** — no live role with that id in that organisation. Deleting one twice is
+**not** a silent success, and the first `Deleteddate` is never overwritten:
+
+```json
+{
+  "success": false,
+  "message": "Role '7' was not found in organization '12'.",
+  "data": null,
+  "errors": []
+}
+```
+
+**500** — unhandled defect.
+
+> Users still assigned to the role do **not** stop the delete — see
+> [Known gaps](#known-gaps).
+
+---
+
 ## SheetSubmission
 
 `SheetSubmissionController` — `api/v1/SheetSubmission`. Handing a week's
@@ -2485,6 +2749,335 @@ Nothing submitted is **`200`** with `data: []` — never a 404.
 
 ---
 
+## MasterAdmin
+
+Controller: `src/ETimeSheet.Api/Controllers/MasterAdminController.cs`
+Service: `MasterAdminService` · Prefix: `/api/v1/MasterAdmin`
+
+Client setup over `dbo.TimesheetClientSetup`: list, add / edit with a logo
+upload, and soft delete. Like Admin, it has **no permission** behind it while
+authentication is off.
+
+**Currency is derived, never sent.** A client's `currencyId` is the
+`dbo.CountryCurrency.CurrencyID` of its `countryId` (one row per country), stored
+in the table's `Currencycode` column. `currencyName` and `currencySymbol` are
+joined back from the same table on every read.
+
+### The `ClientResponse` shape
+
+Returned by all three read/write endpoints below, in this order:
+
+| Field | Type | Notes |
+|---|---|---|
+| `clientId` | int | `IDENTITY` |
+| `clientCode` | string | Generated on add — `CL0001`, `CL0002` … — and **never** changes |
+| `clientName` | string | |
+| `avatar` | string \| null | The uploaded logo's `path` — see the warning below |
+| `billingEmail` | string | Unique among live clients |
+| `phoneNumber` | string | |
+| `alternatePhoneNumber` | string \| null | |
+| `alternateEmail` | string \| null | |
+| `billingAddress` | string \| null | |
+| `paymentTermsDays` | int | |
+| `currencyId` | int | `dbo.CountryCurrency.CurrencyID`, derived from the country |
+| `currencyName` | string \| null | `"Indian Rupee"`. `null` only for a client saved before currencies were derived |
+| `currencySymbol` | string \| null | `"₹"`. **Not unique** — `"$"` is shared by many currencies; show it beside `currencyName` |
+| `countryId` | int \| null | `dbo.Country.ID` |
+| `taxIdentifier` | string \| null | |
+
+`isDeleted` and `deleteDate` are **never** returned — deleted clients never
+appear.
+
+> **`avatar` expires.** The document service returns a pre-signed S3 URL valid
+> for **48 hours** (`X-Amz-Expires=172800`). It is stored as returned, so two
+> days after an upload the stored link stops opening. See
+> [Known gaps](#known-gaps).
+
+---
+
+### 19. Client List
+
+`GET /api/v1/MasterAdmin/get-client-list`
+
+**Purpose** — Every live client (`IsDeleted = 0`), ordered by name, then id.
+Read through `dbo.spc_GetClientListForMasterAdmin`.
+
+#### Parameters
+
+None. No paging and no organisation filter — `dbo.TimesheetClientSetup` has no
+organisation column.
+
+#### Example request
+
+```
+GET /api/v1/MasterAdmin/get-client-list
+```
+
+#### Success response — `200 OK`
+
+`data` is an array of [`ClientResponse`](#the-clientresponse-shape).
+
+#### Example response
+
+```json
+{
+  "success": true,
+  "message": "",
+  "data": [
+    {
+      "clientId": 1,
+      "clientCode": "CL0001",
+      "clientName": "Acme Consulting",
+      "avatar": "https://ppmdocs.s3.ap-south-1.amazonaws.com/12/b941…_logo.jpeg?X-Amz-Expires=172800&…",
+      "billingEmail": "billing@acme.test",
+      "phoneNumber": "+91 98765 43210",
+      "alternatePhoneNumber": null,
+      "alternateEmail": null,
+      "billingAddress": "12 MG Road, Bengaluru",
+      "paymentTermsDays": 30,
+      "currencyId": 102,
+      "currencyName": "Indian Rupee",
+      "currencySymbol": "₹",
+      "countryId": 103,
+      "taxIdentifier": "29ABCDE1234F1Z5"
+    }
+  ],
+  "errors": []
+}
+```
+
+#### Empty result
+
+No clients is `data: []`.
+
+#### Error responses
+
+**500** — unhandled defect.
+
+---
+
+### 20. Add / Edit Client Setup
+
+`POST /api/v1/MasterAdmin/add-or-edit-client-setup`
+
+**Purpose** — Add a client, or edit one, optionally uploading its logo. **One
+endpoint for both**, chosen by `clientId`. Written through
+`dbo.spc_AddEditClientSetup`.
+
+**Sent as `multipart/form-data`, not JSON** — a JSON body is refused with
+`415 Unsupported Media Type`.
+
+| `clientId` sent | Result |
+|---|---|
+| absent or `0` | **Adds** a client with the next code: `CL0001`, `CL0002` … `CL9999`, then `CL10000`. The sequence counts deleted clients, so a code is never reissued, and is read under a table lock, so two adds at once never share a code |
+| `> 0`, a live client | **Edits** it. Its `clientCode` never changes |
+| `> 0`, missing or deleted | **404** — before anything is uploaded |
+
+#### Form fields — `ClientSaveRequest`
+
+| Field | Type | Required | Rules | Notes |
+|---|---|---|---|---|
+| `ClientId` | int | no | `>= 0` | absent / `0` adds; an id edits |
+| `ClientName` | string | yes | not blank, `<= 50` | |
+| `ClientLogo` | file | no | not empty | See [The logo](#the-logo) |
+| `BillingEmail` | string | yes | valid email, `<= 150` | **Unique** among live clients, ignoring case |
+| `PhoneNumber` | string | yes | not blank, `<= 150` | |
+| `AlternatePhoneNumber` | string | no | `<= 150` | |
+| `AlternateEmail` | string | no | valid email when sent, `<= 150` | Not checked for uniqueness |
+| `BillingAddress` | string | no | any length | `nvarchar(max)` |
+| `PaymentTermsDays` | int | yes | `>= 0` | |
+| `CountryId` | int | yes | `> 0`, and must have a currency | The currency is taken from it; changing it on edit changes the currency |
+| `TaxIdentifier` | string | no | `<= 50` | |
+
+There is **no** `clientCode`, `avatar`, `currencyCode` / `currencyId`,
+`isDeleted` or `deleteDate` field — all are generated, derived or managed by the
+API. Field names are case-insensitive (`Clientlogo` binds too).
+
+#### The logo
+
+When `ClientLogo` is sent, the API uploads it to the document service and
+stores the returned `path` as the client's `avatar`:
+
+- **Endpoint:** `POST {EmailService:BaseUrl}/api/Upload/Updatedoc/TSCLT`,
+  `multipart/form-data` with one part named `file`. The base URL is
+  `EmailService:BaseUrl` in `appsettings.json`; the path and the `TSCLT` project
+  code are constants (`ExternalServiceEndpoints.Upload.UpdateDocument`,
+  `DocumentProjectCodes.ClientSetup`).
+- **Answer read:** `{ "success": true, "message": "File uploaded", "path": "…" }`.
+  `success: false`, or no `path`, is a 502 and nothing is saved.
+- **Edit without a logo** keeps the client's current avatar. **Add without a
+  logo** leaves it `null`. There is no way to clear a logo once set.
+- **Order:** validation → country has a currency → client exists (edit) →
+  billing email free → **upload** → save. Every refusal before the upload leaves
+  no file behind; a failure *after* it (rare) leaves the uploaded file on the
+  service.
+
+#### Example request — add with a logo
+
+```bash
+curl -X POST 'http://localhost:5041/api/v1/MasterAdmin/add-or-edit-client-setup' \
+  -H 'accept: application/json' \
+  -F 'ClientId=0' \
+  -F 'ClientName=Acme Consulting' \
+  -F 'ClientLogo=@acme-logo.jpg;type=image/jpeg' \
+  -F 'BillingEmail=billing@acme.test' \
+  -F 'PhoneNumber=+91 98765 43210' \
+  -F 'PaymentTermsDays=30' \
+  -F 'CountryId=103' \
+  -F 'BillingAddress=12 MG Road, Bengaluru' \
+  -F 'TaxIdentifier=29ABCDE1234F1Z5'
+```
+
+#### Example request — edit, keeping the logo
+
+```bash
+curl -X POST 'http://localhost:5041/api/v1/MasterAdmin/add-or-edit-client-setup' \
+  -F 'ClientId=1' \
+  -F 'ClientName=Acme Consulting Pvt Ltd' \
+  -F 'BillingEmail=billing@acme.test' \
+  -F 'PhoneNumber=+91 98765 43210' \
+  -F 'PaymentTermsDays=45' \
+  -F 'CountryId=103'
+```
+
+#### Success response — `200 OK`
+
+`data` is the saved [`ClientResponse`](#the-clientresponse-shape), including the
+new `clientId`, `clientCode`, `avatar` and currency:
+
+```json
+{
+  "success": true,
+  "message": "Client setup saved.",
+  "data": {
+    "clientId": 1,
+    "clientCode": "CL0001",
+    "clientName": "Acme Consulting",
+    "avatar": "https://ppmdocs.s3.ap-south-1.amazonaws.com/12/b941…_acme-logo.jpg?X-Amz-Expires=172800&…",
+    "billingEmail": "billing@acme.test",
+    "phoneNumber": "+91 98765 43210",
+    "alternatePhoneNumber": null,
+    "alternateEmail": null,
+    "billingAddress": "12 MG Road, Bengaluru",
+    "paymentTermsDays": 30,
+    "currencyId": 102,
+    "currencyName": "Indian Rupee",
+    "currencySymbol": "₹",
+    "countryId": 103,
+    "taxIdentifier": "29ABCDE1234F1Z5"
+  },
+  "errors": []
+}
+```
+
+#### Error responses
+
+**400 — form validation** (every failure listed):
+
+| Trigger | Message |
+|---|---|
+| `ClientId < 0` | `ClientId must be 0 (or left out) to add a client, or the id of the client to edit.` |
+| `ClientName` blank / too long | `ClientName is required.` / `ClientName must be 50 characters or fewer.` |
+| `ClientLogo` empty file | `ClientLogo is an empty file.` |
+| `BillingEmail` blank / too long / malformed | `BillingEmail is required.` / `BillingEmail must be 150 characters or fewer.` / `BillingEmail must be a valid email address.` |
+| `PhoneNumber` blank / too long | `PhoneNumber is required.` / `PhoneNumber must be 150 characters or fewer.` |
+| `AlternatePhoneNumber` too long | `AlternatePhoneNumber must be 150 characters or fewer.` |
+| `AlternateEmail` too long / malformed | `AlternateEmail must be 150 characters or fewer.` / `AlternateEmail must be a valid email address.` |
+| `PaymentTermsDays` missing / negative | `PaymentTermsDays is required.` / `PaymentTermsDays must be 0 or more.` |
+| `CountryId` missing / not positive | `CountryId is required: the client's currency is taken from its country.` / `CountryId must be greater than 0.` |
+| `TaxIdentifier` too long | `TaxIdentifier must be 50 characters or fewer.` |
+
+**400 — the country has no currency** (Antarctica, `CountryId = 8`):
+
+```json
+{
+  "success": false,
+  "message": "One or more validation errors occurred.",
+  "data": null,
+  "errors": ["CountryId: Country '8' has no currency set up, so a client cannot be saved against it."]
+}
+```
+
+**404** — `ClientId > 0` names a client that does not exist or is deleted:
+
+```json
+{ "success": false, "message": "Client '42' was not found.", "data": null, "errors": [] }
+```
+
+**409** — another live client already has that billing email (case-insensitive;
+the client being edited may keep its own):
+
+```json
+{
+  "success": false,
+  "message": "A client with the billing email 'billing@acme.test' already exists.",
+  "data": null,
+  "errors": []
+}
+```
+
+**415** — the body was sent as JSON instead of `multipart/form-data`.
+
+**502** — the logo could not be stored; **nothing was saved**:
+
+| Cause | Message |
+|---|---|
+| Service unreachable | `The document service could not be reached.` |
+| Service too slow | `The document service did not answer within 60 seconds.` |
+| Service answered an error status | `The document service refused the upload (<status> <reason>).` |
+| Answer not JSON | `The document service answered in a format this API does not understand.` |
+| `success: false`, or no `path` | `The document service did not accept the upload, or did not say where the file was stored.` |
+| `path` longer than the 500-character `Avatar` column | `The logo was uploaded, but its path is <n> characters long and the client's Avatar column holds at most 500. Nothing was saved.` |
+
+The service's own response body is written to the log, never to the caller.
+
+**500** — unhandled defect.
+
+---
+
+### 21. Remove Client Setup
+
+`POST /api/v1/MasterAdmin/remove-client-setup`
+
+**Purpose** — Soft-delete a client. The row is **never** removed: it is marked
+`IsDeleted = 1` and stamped with `DeleteDate` (UTC). From then on the client
+list and Add / Edit Client Setup no longer see it; its `clientCode` stays spent,
+and its billing email is free to reuse. Done by the API through EF Core — no
+stored procedure.
+
+#### Request body — `ClientDeleteRequest` (JSON)
+
+| Field | Type | Required | Rules |
+|---|---|---|---|
+| `clientId` | int | yes | `> 0`; a live client |
+
+#### Example request
+
+```json
+{ "clientId": 5 }
+```
+
+#### Success response — `200 OK`
+
+```json
+{ "success": true, "message": "Client setup removed.", "data": null, "errors": [] }
+```
+
+#### Error responses
+
+**400** — `clientId <= 0`: `ClientId: ClientId is required and must be greater than 0.`
+
+**404** — no live client has that id. Removing one twice is **not** a silent
+success, and the first `DeleteDate` is never overwritten:
+
+```json
+{ "success": false, "message": "Client '5' was not found.", "data": null, "errors": [] }
+```
+
+**500** — unhandled defect.
+
+---
+
 ## Health endpoints
 
 Anonymous, outside the `ApiResponse` envelope, and outside `/api/v1`.
@@ -2577,6 +3170,12 @@ authentication is off.
 | 13 | Review Timesheet | POST | `/api/v1/SheetSubmission/review-timesheet` | Approve (2) or reject (3) a submitted sheet; repeatable; audit logged | `SheetSubmissionReviewRequest` | `SheetSubmissionResponse` | 400, 404, 500 |
 | 14 | Current Week Sheet Details | GET | `/api/v1/SheetSubmission/get-current-week-sheet-details/{userID}/{orgID}` | A user's current week: dates, start / end day, sheet code, hours worked / expected / drift | route params | `CurrentWeekSheetDetailResponse` | 404 (route), 500 |
 | 15 | Submitted Sheet List | POST | `/api/v1/SheetSubmission/get-submitted-sheet-list` | An organisation's submitted sheets, every user (`userId = 0`) or one | `SubmittedSheetListRequest` | `SubmittedSheetResponse[]` | 400, 500 |
+| 16 | User Role List | GET | `/api/v1/Admin/get-user-role-list-by-orgid/{orgID}` | An organisation's live roles, by name | route param | `UserRoleResponse[]` (`roleId`, `roleName`) | 400, 500 |
+| 17 | Add / Edit User Role | POST | `/api/v1/Admin/add-edit-user-role` | Add a role (`roleId` 0 / absent) or rename one; name unique per organisation | `UserRoleSaveRequest` | `UserRoleResponse` | 400, 404, 409, 500 |
+| 18 | Delete User Role | POST | `/api/v1/Admin/delete-user-role` | Soft-delete a role of an organisation | `UserRoleDeleteRequest` | `null` | 400, 404, 500 |
+| 19 | Client List | GET | `/api/v1/MasterAdmin/get-client-list` | Every live client with its currency, by name | — | `ClientResponse[]` | 500 |
+| 20 | Add / Edit Client Setup | POST **form** | `/api/v1/MasterAdmin/add-or-edit-client-setup` | Add (`CL0001`…) or edit a client; uploads `ClientLogo`; currency from country; billing email unique | `ClientSaveRequest` (`multipart/form-data`) | `ClientResponse` | 400, 404, 409, 415, 502, 500 |
+| 21 | Remove Client Setup | POST | `/api/v1/MasterAdmin/remove-client-setup` | Soft-delete a client | `ClientDeleteRequest` | `null` | 400, 404, 500 |
 | — | Health | GET | `/health`, `/health/live`, `/health/ready` | Liveness / readiness | — | *(unenveloped)* | 503 |
 
 ---
@@ -2669,3 +3268,27 @@ Documented so nobody has to rediscover them:
 22. **Admin Dashboard Summary's `pendingTimesheets` / `approvedTimesheets` are
     still static `0`**, although `dbo.TimesheetSubmission` now holds the data to
     count them.
+23. **A client's `avatar` stops working after 48 hours.** The document service
+    returns a pre-signed S3 URL (`X-Amz-Expires=172800`) and it is stored as
+    returned, so Client List hands out dead logo links two days after each
+    upload. Fixing it needs the service to return a permanent URL, or the API to
+    store the object key and request a fresh signed URL on each read.
+24. **A client's logo cannot be removed**, only replaced: Add / Edit Client
+    Setup has no field to clear it.
+25. **A logo uploaded just before a failed save is left on the document
+    service.** Every refusal the API can predict happens before the upload, but
+    a failure inside `spc_AddEditClientSetup` after it does not undo the upload.
+26. **Billing-email uniqueness is checked, not enforced.** Two adds with the
+    same email at the same instant can both pass the check; only a filtered
+    unique index on `dbo.TimesheetClientSetup.BillingEmail` (live rows) would
+    stop that. `alternateEmail` is not checked at all.
+27. **Deleting a role does not check who holds it.** How `dbo.Signup.RoleID`
+    relates to `dbo.TimesheetUserRole.RoleID` is not recorded, so Delete User
+    Role cannot refuse a role that users are still assigned to.
+28. **Clients saved before currencies were derived** may hold a `Currencycode`
+    that names no `dbo.CountryCurrency` row; they are listed with
+    `currencyName` / `currencySymbol` `null` until edited.
+29. **Recorded procedures awaiting confirmation.** `spc_AddEditClientSetup` and
+    `spc_GetClientListForMasterAdmin` (currency revision) and
+    `spc_AddEditUserRoleByAdmin` are recorded as DRAFT in `docs/database/`.
+    If the database holds an older version, the matching endpoint answers 500.
