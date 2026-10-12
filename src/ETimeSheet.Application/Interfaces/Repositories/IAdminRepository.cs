@@ -170,4 +170,47 @@ public interface IAdminRepository
     Task UpdateUserRoleAsync(
         TimesheetUserRole role,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns the live project categories of one organisation, ordered by
+    /// name, via <c>spc_GetTimesheetProjectCategory</c>. The procedure excludes
+    /// deleted categories (<c>IsDelete = 1</c>); <c>IsDelete</c> NULL or 0 is live.
+    /// </summary>
+    Task<IReadOnlyList<ProjectCategoryDetail>> GetProjectCategoryListByOrganizationIdAsync(
+        int organizationId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Adds or renames a project category via
+    /// <c>spc_AddEditTimesheetProjectCategory</c> and returns the saved row.
+    /// </summary>
+    /// <param name="categoryName">The name to save - already trimmed and validated.</param>
+    /// <param name="createDate">Written to <c>CreateDate</c> on add only.</param>
+    /// <returns>
+    /// The saved category, or <see langword="null"/> when an edit names a
+    /// category that does not exist, is deleted, or belongs to another
+    /// organisation.
+    /// </returns>
+    Task<ProjectCategorySaveDetail?> SaveProjectCategoryAsync(
+        int? categoryId,
+        int organizationId,
+        string categoryName,
+        int createdBy,
+        DateTime createDate,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns one live project category of one organisation, <b>tracked</b>
+    /// for editing, or <see langword="null"/> when the category does not exist,
+    /// belongs to another organisation, or is already deleted.
+    /// </summary>
+    Task<TimesheetProjectCategory?> GetProjectCategoryForUpdateAsync(
+        int categoryId,
+        int organizationId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Saves the changes made to a category loaded by <see cref="GetProjectCategoryForUpdateAsync"/>.</summary>
+    Task UpdateProjectCategoryAsync(
+        TimesheetProjectCategory category,
+        CancellationToken cancellationToken = default);
 }

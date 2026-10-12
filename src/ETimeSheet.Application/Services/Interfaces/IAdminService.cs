@@ -225,4 +225,57 @@ public interface IAdminService
     Task DeleteUserRoleAsync(
         UserRoleDeleteRequest request,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns the live project categories of one organisation from
+    /// <c>dbo.TimesheetProjectCategory</c>, ordered by name, via
+    /// <c>spc_GetTimesheetProjectCategory</c>.
+    /// <para>
+    /// An organisation with no categories is an empty list, not a 404, as on
+    /// <see cref="GetUserRoleListByOrganizationIdAsync"/>.
+    /// </para>
+    /// </summary>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.ValidationException">
+    /// <paramref name="organizationId"/> is not a positive id.
+    /// </exception>
+    Task<IReadOnlyList<ProjectCategoryResponse>> GetProjectCategoryListByOrganizationIdAsync(
+        int organizationId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Adds a project category to an organisation, or renames one - <b>one
+    /// method for both</b>, via <c>spc_AddEditTimesheetProjectCategory</c>. A
+    /// <see cref="ProjectCategorySaveRequest.CategoryId"/> absent or <c>0</c>
+    /// adds; any greater value renames that category.
+    /// </summary>
+    /// <returns>The saved category, including its <c>CategoryId</c>.</returns>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.ValidationException">
+    /// A negative <c>CategoryId</c>, an <c>OrganizationId</c> or
+    /// <c>CreatedBy</c> that is not positive, or a <c>CategoryName</c> that is
+    /// blank or longer than 50 characters.
+    /// </exception>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.NotFoundException">
+    /// A <c>CategoryId</c> was sent, but no live category of this organisation
+    /// has it.
+    /// </exception>
+    Task<ProjectCategoryResponse> SaveProjectCategoryAsync(
+        ProjectCategorySaveRequest request,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Soft-deletes a project category of an organisation: the row stays,
+    /// marked <c>IsDelete = 1</c> and stamped with <c>DeletedDate</c> and
+    /// <c>Deletedby</c>.
+    /// </summary>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.ValidationException">
+    /// A <c>CategoryId</c>, <c>OrganizationId</c> or <c>DeletedBy</c> that is
+    /// not positive.
+    /// </exception>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.NotFoundException">
+    /// No live category with that id belongs to that organisation - including
+    /// one deleted already, so removing twice is a 404.
+    /// </exception>
+    Task DeleteProjectCategoryAsync(
+        ProjectCategoryDeleteRequest request,
+        CancellationToken cancellationToken = default);
 }

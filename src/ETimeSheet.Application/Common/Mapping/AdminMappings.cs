@@ -242,4 +242,18 @@ internal static class AdminMappings
         RoleId = role.RoleId,
         RoleName = role.RoleName,
     };
+
+    /// <summary>Projects a category row from <c>spc_GetTimesheetProjectCategory</c> to the category-list response.</summary>
+    internal static ProjectCategoryResponse ToResponse(this ProjectCategoryDetail category) => new()
+    {
+        CategoryId = category.CategoryId,
+        CategoryName = category.CategoryName,
+    };
+
+    /// <summary>Projects the category <c>spc_AddEditTimesheetProjectCategory</c> saved to the category response.</summary>
+    internal static ProjectCategoryResponse ToResponse(this ProjectCategorySaveDetail category) => new()
+    {
+        CategoryId = category.CategoryId,
+        CategoryName = category.CategoryName,
+    };
 }

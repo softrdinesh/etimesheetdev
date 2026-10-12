@@ -693,4 +693,164 @@ public class AdminService : IAdminService
             request.OrganizationId,
             request.DeletedBy);
     }
+
+    public async Task<IReadOnlyList<ProjectCategoryResponse>> GetProjectCategoryListByOrganizationIdAsync(
+        int organizationId,
+        CancellationToken cancellationToken = default)
+    {
+        // Checked here rather than by a route constraint, as on the role list:
+        // a 0 is told what is wrong with it instead of missing the route.
+        if (organizationId <= 0)
+        {
+            throw new ValidationException(
+                "orgID",
+                "orgID is required and must be greater than 0.");
+        }
+
+        var categories = await _adminRepository.GetProjectCategoryListByOrganizationIdAsync(
+            organizationId,
+            cancellationToken);
+
+        return categories.Select(category => category.ToResponse()).ToList();
+    }
+
+    /// <summary><c>dbo.TimesheetProjectCategory.Categoryname</c> is <c>nvarchar(50)</c>.</summary>
+    private const int CategoryNameMaximumLength = 50;
+
+    public async Task<ProjectCategoryResponse> SaveProjectCategoryAsync(
+        ProjectCategorySaveRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        // Every rule is checked here, before anything is written, and every
+        // failure is collected - the caller is told about all of them in one
+        // 400, keyed on the field names it sent. As in SaveUserRoleAsync.
+        var categoryName = request.CategoryName?.Trim();
+        var failures = new Dictionary<string, string[]>();
+
+        if (request.CategoryId < 0)
+        {
+            failures[nameof(ProjectCategorySaveRequest.CategoryId)] = new[]
+            {
+                "CategoryId must be 0 (or left out) to add a category, or the id of the category to edit."
+            };
+        }
+
+        if (request.OrganizationId <= 0)
+        {
+            failures[nameof(ProjectCategorySaveRequest.OrganizationId)] = new[]
+            {
+                "OrganizationId is required and must be greater than 0."
+            };
+        }
+
+        if (string.IsNullOrEmpty(categoryName))
+        {
+            failures[nameof(ProjectCategorySaveRequest.CategoryName)] = new[] { "CategoryName is required." };
+        }
+        else if (categoryName.Length > CategoryNameMaximumLength)
+        {
+            failures[nameof(ProjectCategorySaveRequest.CategoryName)] = new[]
+            {
+                $"CategoryName must be {CategoryNameMaximumLength} characters or fewer."
+            };
+        }
+
+        if (request.CreatedBy <= 0)
+        {
+            failures[nameof(ProjectCategorySaveRequest.CreatedBy)] = new[]
+            {
+                "CreatedBy is required: the row records who created it."
+            };
+        }
+
+        if (failures.Count > 0)
+        {
+            throw new ValidationException(failures);
+        }
+
+        // Null and 0 both mean "add" - a negative id was refused above.
+        var categoryId = request.CategoryId is > 0 ? request.CategoryId : null;
+
+        // Only an edit can come back empty: the category it names does not
+        // exist, is deleted, or belongs to another organisation.
+        var saved = await _adminRepository.SaveProjectCategoryAsync(
+                categoryId,
+                request.OrganizationId,
+                categoryName!,
+                request.CreatedBy,
+                _dateTimeProvider.UtcNow,
+                cancellationToken)
+            ?? throw NotFoundException.For("Project category", categoryId ?? 0);
+
+        _logger.LogInformation(
+            "Project category {CategoryId} {Action} for organization {OrganizationId} by user {CreatedBy}.",
+            saved.CategoryId,
+            categoryId is null ? "added" : "renamed",
+            request.OrganizationId,
+            request.CreatedBy);
+
+        return saved.ToResponse();
+    }
+
+    public async Task DeleteProjectCategoryAsync(
+        ProjectCategoryDeleteRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        // Every rule is checked before anything is read, and every failure is
+        // reported together, as in DeleteUserRoleAsync.
+        var failures = new Dictionary<string, string[]>();
+
+        if (request.CategoryId <= 0)
+        {
+            failures[nameof(ProjectCategoryDeleteRequest.CategoryId)] = new[]
+            {
+                "CategoryId is required and must be greater than 0."
+            };
+        }
+
+        if (request.OrganizationId <= 0)
+        {
+            failures[nameof(ProjectCategoryDeleteRequest.OrganizationId)] = new[]
+            {
+                "OrganizationId is required and must be greater than 0."
+            };
+        }
+
+        if (request.DeletedBy <= 0)
+        {
+            failures[nameof(ProjectCategoryDeleteRequest.DeletedBy)] = new[]
+            {
+                "DeletedBy is required: a soft delete records who performed it."
+            };
+        }
+
+        if (failures.Count > 0)
+        {
+            throw new ValidationException(failures);
+        }
+
+        // The repository matches on the organisation too and hides deleted
+        // categories, so a category of another organisation and one deleted
+        // already are both a 404 - never deleted, and never re-stamped.
+        var category = await _adminRepository.GetProjectCategoryForUpdateAsync(
+                request.CategoryId,
+                request.OrganizationId,
+                cancellationToken)
+            ?? throw new NotFoundException(
+                $"Project category '{request.CategoryId}' was not found in organization '{request.OrganizationId}'.");
+
+        // A soft delete, never a DELETE statement: the row stays, and the
+        // entity's query filter and both category procedures stop returning it.
+        category.IsDelete = true;
+        category.DeletedDate = _dateTimeProvider.UtcNow;
+        category.DeletedBy = request.DeletedBy;
+
+        await _adminRepository.UpdateProjectCategoryAsync(category, cancellationToken);
+
+        _logger.LogInformation(
+            "Project category {CategoryId} of organization {OrganizationId} soft-deleted by user {DeletedBy}.",
+            category.CategoryId,
+            request.OrganizationId,
+            request.DeletedBy);
+    }
 }

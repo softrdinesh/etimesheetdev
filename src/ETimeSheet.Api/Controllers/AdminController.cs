@@ -329,4 +329,78 @@ public class AdminController : ControllerBase
         await _adminService.DeleteUserRoleAsync(request, cancellationToken);
         return Ok(ApiResponse.Ok("User role deleted."));
     }
+
+    /// <summary>
+    /// Returns the project categories defined for one organisation, from
+    /// <c>dbo.TimesheetProjectCategory</c>, ordered by name. Deleted categories
+    /// (<c>IsDelete = 1</c>) are not included.
+    /// </summary>
+    /// <param name="orgID">The organisation whose categories to list, as a route segment.</param>
+    /// <response code="200">The categories. An organisation with none is an empty list, not a 404.</response>
+    /// <response code="400">An organisation id that is not greater than zero.</response>
+    [HttpGet("get-timesheet-project-category-by-orgID/{orgID:int}")]
+    [ProducesResponseType(typeof(ApiResponse<IReadOnlyList<ProjectCategoryResponse>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> GetTimesheetProjectCategoryByOrgId(
+        // :int without :min(1), as on get-all-employees-by-orgid: a 0 has to
+        // reach the service so it can answer 400 saying what is wrong.
+        [FromRoute] int orgID,
+        CancellationToken cancellationToken)
+    {
+        var result = await _adminService.GetProjectCategoryListByOrganizationIdAsync(orgID, cancellationToken);
+        return Ok(ApiResponse.Ok(result));
+    }
+
+    /// <summary>
+    /// Adds a project category to an organisation, or renames one - <b>one
+    /// endpoint for both</b>.
+    /// <para>
+    /// Send <c>categoryId</c> as <c>0</c> (or leave it out) to add a category to
+    /// <c>organizationId</c>. Send an existing category's <c>categoryId</c> to
+    /// rename it; the category must belong to <c>organizationId</c> and not be
+    /// deleted.
+    /// </para>
+    /// <para>
+    /// The response carries the saved category, including its <c>categoryId</c>.
+    /// </para>
+    /// </summary>
+    /// <response code="200">The saved category.</response>
+    /// <response code="400">The payload failed validation - every failing field is listed.</response>
+    /// <response code="404">A <c>categoryId</c> was sent, but no live category of that organisation has it.</response>
+    [HttpPost("add-edit-timesheet-project-category")]
+    [ProducesResponseType(typeof(ApiResponse<ProjectCategoryResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> AddEditTimesheetProjectCategory(
+        [FromBody] ProjectCategorySaveRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await _adminService.SaveProjectCategoryAsync(request, cancellationToken);
+        return Ok(ApiResponse.Ok(result, "Project category saved."));
+    }
+
+    /// <summary>
+    /// Soft-deletes a project category of an organisation. The row is kept,
+    /// marked <c>IsDelete = 1</c> and stamped with who removed it and when;
+    /// nothing is ever physically deleted.
+    /// <para>
+    /// The category must belong to <c>organizationId</c>. A POST rather than an
+    /// HTTP DELETE, matching <c>delete-user-role</c>: every argument in this
+    /// API travels in the payload.
+    /// </para>
+    /// </summary>
+    /// <response code="200">The category was removed.</response>
+    /// <response code="400">A <c>categoryId</c>, <c>organizationId</c> or <c>deletedBy</c> that is not greater than zero.</response>
+    /// <response code="404">No live category with that id belongs to that organisation; removing one twice is not a silent success.</response>
+    [HttpPost("remove-timesheet-project-category")]
+    [ProducesResponseType(typeof(ApiResponse<object?>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> RemoveTimesheetProjectCategory(
+        [FromBody] ProjectCategoryDeleteRequest request,
+        CancellationToken cancellationToken)
+    {
+        await _adminService.DeleteProjectCategoryAsync(request, cancellationToken);
+        return Ok(ApiResponse.Ok("Project category removed."));
+    }
 }
