@@ -103,6 +103,13 @@ public class Context : DbContext
     /// </summary>
     public DbSet<TimesheetUserRole> TimesheetUserRole { get; set; } = null!;
 
+    /// <summary>
+    /// The <c>dbo.TimesheetProjectCategory</c> table - the project categories
+    /// defined per organisation. Rows with <c>IsDelete = 1</c> are hidden by a
+    /// query filter.
+    /// </summary>
+    public DbSet<TimesheetProjectCategory> TimesheetProjectCategory { get; set; } = null!;
+
     // =====================================================================
     // STORED PROCEDURES  -  property name == procedure name
     //
@@ -179,6 +186,19 @@ public class Context : DbContext
     /// added or renamed, or no row when an edit names a missing role.
     /// </summary>
     public DbSet<UserRoleSaveDetail> spc_AddEditUserRoleByAdmin { get; set; } = null!;
+
+    /// <summary>
+    /// Result set of <c>dbo.spc_GetTimesheetProjectCategory</c> - the live
+    /// project categories of one organisation, ordered by name.
+    /// </summary>
+    public DbSet<ProjectCategoryDetail> spc_GetTimesheetProjectCategory { get; set; } = null!;
+
+    /// <summary>
+    /// Result set of <c>dbo.spc_AddEditTimesheetProjectCategory</c> - the
+    /// category just added or renamed, or no row when an edit names a missing
+    /// category.
+    /// </summary>
+    public DbSet<ProjectCategorySaveDetail> spc_AddEditTimesheetProjectCategory { get; set; } = null!;
 
     // dbo.spc_GetUsersTaskList has NO DbSet, deliberately. It returns two
     // result sets and EF Core materialises only the first, so
@@ -444,6 +464,26 @@ public class Context : DbContext
             // The same aliases as spc_GetUserRoleListByOrgID.
             role.Property(row => row.RoleId).HasColumnName("RoleID");
             role.Property(row => row.RoleName).HasColumnName("RoleName");
+        });
+
+        modelBuilder.Entity<ProjectCategoryDetail>(category =>
+        {
+            category.HasNoKey();
+            category.ToView(null);
+
+            // Aliased by the procedure: ID AS CategoryID, Categoryname AS CategoryName.
+            category.Property(row => row.CategoryId).HasColumnName("CategoryID");
+            category.Property(row => row.CategoryName).HasColumnName("CategoryName");
+        });
+
+        modelBuilder.Entity<ProjectCategorySaveDetail>(category =>
+        {
+            category.HasNoKey();
+            category.ToView(null);
+
+            // The same aliases as spc_GetTimesheetProjectCategory.
+            category.Property(row => row.CategoryId).HasColumnName("CategoryID");
+            category.Property(row => row.CategoryName).HasColumnName("CategoryName");
         });
     }
 }

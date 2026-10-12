@@ -3,7 +3,7 @@
 Every endpoint the API exposes today, with its purpose, input payload, success
 response and failure responses — each with a worked example.
 
-Generated from the code on branch `feat/clientsetup` (2026-10-12). If you change a
+Generated from the code on branch `develop` (2026-10-12). If you change a
 controller, DTO or validator, change this file with it.
 
 ---
@@ -33,6 +33,9 @@ controller, DTO or validator, change this file with it.
   - [User Role List](#16-user-role-list)
   - [Add / Edit User Role](#17-add--edit-user-role)
   - [Delete User Role](#18-delete-user-role)
+  - [Project Category List](#22-project-category-list)
+  - [Add / Edit Project Category](#23-add--edit-project-category)
+  - [Remove Project Category](#24-remove-project-category)
 - [SheetSubmission](#sheetsubmission)
   - [Submit Timesheet](#12-submit-timesheet)
   - [Review Timesheet](#13-review-timesheet)
@@ -1120,8 +1123,9 @@ Controller: `src/ETimeSheet.Api/Controllers/AdminController.cs`
 Service: `AdminService` · Prefix: `/api/v1/Admin`
 
 Administrative CRUD over `dbo.TimesheetMasterSetup`, plus the organisation's
-employee list, its dashboard summary, the country/time-zone lookup, and the
-organisation's user roles (`dbo.TimesheetUserRole`). **This is
+employee list, its dashboard summary, the country/time-zone lookup, the
+organisation's user roles (`dbo.TimesheetUserRole`), and its project
+categories (`dbo.TimesheetProjectCategory`). **This is
 the surface that most obviously needs a permission behind it** — it has none
 while authentication is off, and **Employee List** and **Admin Dashboard
 Summary** return organisation-wide data to anyone who asks.
@@ -2307,6 +2311,238 @@ Validated in **`AdminService`**; every failing field is listed at once.
 
 ---
 
+### 22. Project Category List
+
+`GET /api/v1/Admin/get-timesheet-project-category-by-orgID/{orgID}`
+
+**Purpose** — The project categories defined for one organisation, from
+`dbo.TimesheetProjectCategory`, for a category picker. Read through
+`dbo.spc_GetTimesheetProjectCategory`.
+
+Only **live** categories come back: `IsDelete` is a *nullable* bit, and a
+category is live when it is `0` **or** `NULL` — only `1` means deleted.
+
+#### Route parameters
+
+| Name | Type | Rules |
+|---|---|---|
+| `orgID` | int | `> 0` — checked by the service, so a `0` is a 400 naming the field rather than a missed route |
+
+#### Example request
+
+```
+GET /api/v1/Admin/get-timesheet-project-category-by-orgID/12
+```
+
+#### Success response — `200 OK`
+
+`data` is an array of `ProjectCategoryResponse`, ordered by `categoryName`,
+then `categoryId`:
+
+| Field | Type | Notes |
+|---|---|---|
+| `categoryId` | int | `dbo.TimesheetProjectCategory.ID` |
+| `categoryName` | string \| null | The `Categoryname` column; nullable on the table |
+
+`organizationId` is **not** returned — the caller already sent it in the URL.
+
+#### Example response
+
+```json
+{
+  "success": true,
+  "message": "",
+  "data": [
+    { "categoryId": 3, "categoryName": "Development" },
+    { "categoryId": 1, "categoryName": "Testing" }
+  ],
+  "errors": []
+}
+```
+
+#### Empty result
+
+An organisation with no categories is `data: []` — a 200, not a 404.
+
+#### Error responses
+
+**400** — `orgID <= 0`:
+
+```json
+{
+  "success": false,
+  "message": "One or more validation errors occurred.",
+  "data": null,
+  "errors": ["orgID: orgID is required and must be greater than 0."]
+}
+```
+
+**500** — unhandled defect, or the procedure has not been created in the
+database yet.
+
+---
+
+### 23. Add / Edit Project Category
+
+`POST /api/v1/Admin/add-edit-timesheet-project-category`
+
+**Purpose** — Add a project category to an organisation, or rename one. **One
+endpoint for both**, chosen by `categoryId`. Written through
+`dbo.spc_AddEditTimesheetProjectCategory`.
+
+| `categoryId` sent | Result |
+|---|---|
+| absent or `0` | **Adds** a live category to `organizationId`. `ID` is `IDENTITY` — the database assigns it, and it comes back in the response |
+| `> 0`, a live category of `organizationId` | **Renames** it. `CreatedBy` and `CreateDate` keep their original values |
+| `> 0`, but no such category, deleted, or another organisation's | **404** — never edited |
+
+#### Request body — `ProjectCategorySaveRequest` (JSON)
+
+| Field | Type | Required | Rules | Notes |
+|---|---|---|---|---|
+| `categoryId` | int \| null | no | `>= 0` | absent / `0` adds; an id edits |
+| `organizationId` | int | yes | `> 0` | On edit, the category must belong to it |
+| `categoryName` | string | yes | not blank, `<= 50` characters **after trimming** | **Not** checked for uniqueness — see [Known gaps](#known-gaps) |
+| `createdBy` | int | yes | `> 0` | Written to `CreatedBy` on add only. **Temporary** — comes from the token once auth is on |
+
+Validation runs in **`AdminService`**, not a FluentValidation validator — but the
+400 is the same shape, and lists **every** failing field at once.
+
+`CreateDate` is the API's clock (UTC), passed to the procedure.
+
+#### Example request — add
+
+```json
+{
+  "categoryId": 0,
+  "organizationId": 12,
+  "categoryName": "Development",
+  "createdBy": 5
+}
+```
+
+#### Example request — rename
+
+```json
+{
+  "categoryId": 3,
+  "organizationId": 12,
+  "categoryName": "Software Development",
+  "createdBy": 5
+}
+```
+
+#### Success response — `200 OK`
+
+`data` is a `ProjectCategoryResponse` — the saved category, the same shape as
+[Project Category List](#22-project-category-list):
+
+```json
+{
+  "success": true,
+  "message": "Project category saved.",
+  "data": { "categoryId": 7, "categoryName": "Development" },
+  "errors": []
+}
+```
+
+#### Error responses
+
+**400 — validation** (every failure listed):
+
+| Trigger | Message |
+|---|---|
+| `categoryId < 0` | `CategoryId must be 0 (or left out) to add a category, or the id of the category to edit.` |
+| `organizationId <= 0` | `OrganizationId is required and must be greater than 0.` |
+| `categoryName` blank | `CategoryName is required.` |
+| `categoryName` longer than 50 | `CategoryName must be 50 characters or fewer.` |
+| `createdBy <= 0` | `CreatedBy is required: the row records who created it.` |
+
+```json
+{
+  "success": false,
+  "message": "One or more validation errors occurred.",
+  "data": null,
+  "errors": [
+    "OrganizationId: OrganizationId is required and must be greater than 0.",
+    "CategoryName: CategoryName is required."
+  ]
+}
+```
+
+**404** — `categoryId > 0` names no live category of `organizationId`:
+
+```json
+{ "success": false, "message": "Project category '7' was not found.", "data": null, "errors": [] }
+```
+
+**500** — unhandled defect, or the procedure has not been created in the
+database yet.
+
+---
+
+### 24. Remove Project Category
+
+`POST /api/v1/Admin/remove-timesheet-project-category`
+
+**Purpose** — Soft-delete a project category of an organisation. The row is
+**never** removed: it is marked `IsDelete = 1` and stamped with `DeletedDate`
+(UTC) and `Deletedby`. From then on the category list and Add / Edit Project
+Category no longer see it. Done by the API through EF Core — no stored
+procedure.
+
+A POST rather than an HTTP DELETE, as with
+[Delete User Role](#18-delete-user-role).
+
+#### Request body — `ProjectCategoryDeleteRequest` (JSON)
+
+| Field | Type | Required | Rules | Notes |
+|---|---|---|---|---|
+| `categoryId` | int | yes | `> 0` | |
+| `organizationId` | int | yes | `> 0` | The category must belong to it — another organisation's category is a 404, never removed |
+| `deletedBy` | int | yes | `> 0` | Written to `Deletedby`. **Temporary** — comes from the token once auth is on |
+
+Validated in **`AdminService`**; every failing field is listed at once.
+
+#### Example request
+
+```json
+{ "categoryId": 7, "organizationId": 12, "deletedBy": 5 }
+```
+
+#### Success response — `200 OK`
+
+```json
+{ "success": true, "message": "Project category removed.", "data": null, "errors": [] }
+```
+
+#### Error responses
+
+**400 — validation:**
+
+| Trigger | Message |
+|---|---|
+| `categoryId <= 0` | `CategoryId is required and must be greater than 0.` |
+| `organizationId <= 0` | `OrganizationId is required and must be greater than 0.` |
+| `deletedBy <= 0` | `DeletedBy is required: a soft delete records who performed it.` |
+
+**404** — no live category with that id in that organisation. Removing one
+twice is **not** a silent success, and the first `DeletedDate` is never
+overwritten:
+
+```json
+{
+  "success": false,
+  "message": "Project category '7' was not found in organization '12'.",
+  "data": null,
+  "errors": []
+}
+```
+
+**500** — unhandled defect.
+
+---
+
 ## SheetSubmission
 
 `SheetSubmissionController` — `api/v1/SheetSubmission`. Handing a week's
@@ -3176,6 +3412,9 @@ authentication is off.
 | 19 | Client List | GET | `/api/v1/MasterAdmin/get-client-list` | Every live client with its currency, by name | — | `ClientResponse[]` | 500 |
 | 20 | Add / Edit Client Setup | POST **form** | `/api/v1/MasterAdmin/add-or-edit-client-setup` | Add (`CL0001`…) or edit a client; uploads `ClientLogo`; currency from country; billing email unique | `ClientSaveRequest` (`multipart/form-data`) | `ClientResponse` | 400, 404, 409, 415, 502, 500 |
 | 21 | Remove Client Setup | POST | `/api/v1/MasterAdmin/remove-client-setup` | Soft-delete a client | `ClientDeleteRequest` | `null` | 400, 404, 500 |
+| 22 | Project Category List | GET | `/api/v1/Admin/get-timesheet-project-category-by-orgID/{orgID}` | An organisation's live project categories, by name | route param | `ProjectCategoryResponse[]` (`categoryId`, `categoryName`) | 400, 500 |
+| 23 | Add / Edit Project Category | POST | `/api/v1/Admin/add-edit-timesheet-project-category` | Add a category (`categoryId` 0 / absent) or rename one | `ProjectCategorySaveRequest` | `ProjectCategoryResponse` | 400, 404, 500 |
+| 24 | Remove Project Category | POST | `/api/v1/Admin/remove-timesheet-project-category` | Soft-delete a project category of an organisation | `ProjectCategoryDeleteRequest` | `null` | 400, 404, 500 |
 | — | Health | GET | `/health`, `/health/live`, `/health/ready` | Liveness / readiness | — | *(unenveloped)* | 503 |
 
 ---
@@ -3292,3 +3531,13 @@ Documented so nobody has to rediscover them:
     `spc_GetClientListForMasterAdmin` (currency revision) and
     `spc_AddEditUserRoleByAdmin` are recorded as DRAFT in `docs/database/`.
     If the database holds an older version, the matching endpoint answers 500.
+    The same goes for `spc_GetTimesheetProjectCategory` and
+    `spc_AddEditTimesheetProjectCategory`: until the owner creates them,
+    Project Category List and Add / Edit Project Category answer 500.
+30. **Project category names are not unique.** Unlike Add / Edit User Role,
+    Add / Edit Project Category does not check for another live category of
+    the same name, so an organisation can hold two categories a user cannot
+    tell apart in a picker.
+31. **Removing a project category does not check what uses it.** Nothing
+    records which projects reference a category, so Remove Project Category
+    cannot refuse one that is still in use.

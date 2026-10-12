@@ -190,4 +190,52 @@ public class AdminRepository : IAdminRepository
         TimesheetUserRole role,
         CancellationToken cancellationToken = default) =>
         await _db.SaveChangesAsync(cancellationToken);
+
+    public async Task<IReadOnlyList<ProjectCategoryDetail>> GetProjectCategoryListByOrganizationIdAsync(
+        int organizationId,
+        CancellationToken cancellationToken = default) =>
+        // The procedure filters out deleted categories and does the ordering;
+        // no LINQ is composed on top, because SQL Server cannot wrap an EXEC.
+        await _db.spc_GetTimesheetProjectCategory.FromSqlInterpolated($"EXEC dbo.spc_GetTimesheetProjectCategory @POrgID = {organizationId}").ToListAsync(cancellationToken);
+
+    public async Task<ProjectCategorySaveDetail?> SaveProjectCategoryAsync(
+        int? categoryId,
+        int organizationId,
+        string categoryName,
+        int createdBy,
+        DateTime createDate,
+        CancellationToken cancellationToken = default)
+    {
+        // Materialised as a list, then the first row taken in memory:
+        // FirstOrDefault on the query would try to compose SELECT TOP(1) around
+        // the EXEC, which SQL Server cannot do.
+        var rows = await _db.spc_AddEditTimesheetProjectCategory
+            .FromSqlInterpolated($@"EXEC dbo.spc_AddEditTimesheetProjectCategory
+                @PCategoryID = {categoryId},
+                @POrgID = {organizationId},
+                @PCategoryName = {categoryName},
+                @PCreatedBy = {createdBy},
+                @PCreateDate = {createDate}")
+            .ToListAsync(cancellationToken);
+
+        return rows.FirstOrDefault();
+    }
+
+    public async Task<TimesheetProjectCategory?> GetProjectCategoryForUpdateAsync(
+        int categoryId,
+        int organizationId,
+        CancellationToken cancellationToken = default) =>
+        // Tracked on purpose - this is the write path. The query filter still
+        // applies, so a category deleted already is not found, and the
+        // organisation is part of the match, so another organisation's
+        // category is not either.
+        await _db.TimesheetProjectCategory
+            .FirstOrDefaultAsync(
+                category => category.CategoryId == categoryId && category.OrganizationId == organizationId,
+                cancellationToken);
+
+    public async Task UpdateProjectCategoryAsync(
+        TimesheetProjectCategory category,
+        CancellationToken cancellationToken = default) =>
+        await _db.SaveChangesAsync(cancellationToken);
 }

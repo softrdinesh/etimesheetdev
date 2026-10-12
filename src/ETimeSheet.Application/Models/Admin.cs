@@ -847,3 +847,111 @@ public class UserRoleDeleteRequest
     /// </summary>
     public int DeletedBy { get; set; }
 }
+
+/// <summary>
+/// One project category from <c>dbo.TimesheetProjectCategory</c>, as
+/// <c>get-timesheet-project-category-by-orgID</c> returns it. Deleted
+/// categories never appear, so the delete columns are not here.
+/// </summary>
+public class ProjectCategoryResponse
+{
+    public int CategoryId { get; set; }
+
+    /// <summary>The <c>Categoryname</c> column. Nullable on the table.</summary>
+    public string? CategoryName { get; set; }
+}
+
+/// <summary>
+/// One row of <c>dbo.spc_GetTimesheetProjectCategory</c> - a live project
+/// category of one organisation. Property names follow the procedure's column
+/// aliases; the mapping is in <c>Context.ConfigureStoredProcedureResults</c>.
+/// </summary>
+public class ProjectCategoryDetail
+{
+    public int CategoryId { get; set; }
+
+    public string? CategoryName { get; set; }
+}
+
+/// <summary>
+/// Body of <c>add-edit-timesheet-project-category</c> - <b>one payload for both
+/// add and edit</b>.
+/// <para>
+/// <see cref="CategoryId"/> decides which: absent or <c>0</c> adds a new
+/// category to <see cref="OrganizationId"/>; anything greater renames that
+/// category, which must belong to <see cref="OrganizationId"/> and not be
+/// deleted.
+/// </para>
+/// <para>
+/// Validated by <c>AdminService</c>, not by a FluentValidation validator.
+/// </para>
+/// </summary>
+public class ProjectCategorySaveRequest
+{
+    /// <summary>Absent or <c>0</c> to add; the id of a live category in this organisation to edit it.</summary>
+    /// <example>0</example>
+    public int? CategoryId { get; set; }
+
+    /// <summary>The organisation the category belongs to. Required, greater than 0.</summary>
+    /// <example>12</example>
+    public int OrganizationId { get; set; }
+
+    /// <summary>
+    /// Required, at most 50 characters. Leading and trailing spaces are trimmed.
+    /// </summary>
+    /// <example>Development</example>
+    public string? CategoryName { get; set; }
+
+    /// <summary>
+    /// The user performing the save, written to <c>CreatedBy</c> on add.
+    /// Required, greater than 0. <b>Temporary</b>, as
+    /// <c>UserRoleSaveRequest.CreatedBy</c> is: it comes from the token once
+    /// authentication is on.
+    /// </summary>
+    public int CreatedBy { get; set; }
+}
+
+/// <summary>
+/// The row <c>dbo.spc_AddEditTimesheetProjectCategory</c> returns - the
+/// category just saved. The same columns as <see cref="ProjectCategoryDetail"/>,
+/// but its own type: EF Core maps one CLR type to one result set.
+/// </summary>
+public class ProjectCategorySaveDetail
+{
+    public int CategoryId { get; set; }
+
+    public string? CategoryName { get; set; }
+}
+
+/// <summary>
+/// Body of <c>remove-timesheet-project-category</c>.
+/// <para>
+/// A <b>soft</b> delete: the row is never removed. It is marked
+/// <c>IsDelete = 1</c> and stamped with <c>DeletedDate</c> and
+/// <c>Deletedby</c>, and from then on the category list and
+/// <c>add-edit-timesheet-project-category</c> no longer see it.
+/// </para>
+/// <para>
+/// Validated by <c>AdminService</c>, not by a FluentValidation validator.
+/// </para>
+/// </summary>
+public class ProjectCategoryDeleteRequest
+{
+    /// <summary>The category to remove. Required, greater than 0.</summary>
+    /// <example>3</example>
+    public int CategoryId { get; set; }
+
+    /// <summary>
+    /// The organisation the category must belong to. Required, greater than 0.
+    /// A category of another organisation is a 404, never removed.
+    /// </summary>
+    /// <example>12</example>
+    public int OrganizationId { get; set; }
+
+    /// <summary>
+    /// The user performing the remove, written to <c>Deletedby</c>. Required,
+    /// greater than 0. <b>Temporary</b>, as <c>UserRoleDeleteRequest.DeletedBy</c>
+    /// is: it comes from the token once authentication is on.
+    /// </summary>
+    public int DeletedBy { get; set; }
+}
