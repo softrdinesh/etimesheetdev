@@ -110,6 +110,18 @@ public class Context : DbContext
     /// </summary>
     public DbSet<TimesheetProjectCategory> TimesheetProjectCategory { get; set; } = null!;
 
+    /// <summary>
+    /// The <c>dbo.TimesheetProject</c> table - the projects of each
+    /// organisation. No soft delete: a removed project is physically deleted.
+    /// </summary>
+    public DbSet<TimesheetProject> TimesheetProject { get; set; } = null!;
+
+    /// <summary>
+    /// The <c>dbo.TimesheetProjectBudget</c> table - the budget lines of each
+    /// project. No soft delete: a removed line is physically deleted.
+    /// </summary>
+    public DbSet<TimesheetProjectBudget> TimesheetProjectBudget { get; set; } = null!;
+
     // =====================================================================
     // STORED PROCEDURES  -  property name == procedure name
     //
@@ -199,6 +211,36 @@ public class Context : DbContext
     /// category.
     /// </summary>
     public DbSet<ProjectCategorySaveDetail> spc_AddEditTimesheetProjectCategory { get; set; } = null!;
+
+    /// <summary>
+    /// Result set of <c>dbo.spc_GetTimesheetProject</c> - the projects of one
+    /// organisation, ordered by name.
+    /// </summary>
+    public DbSet<TimesheetProjectDetail> spc_GetTimesheetProject { get; set; } = null!;
+
+    /// <summary>
+    /// Result set of <c>dbo.spc_AddEditTimesheetProject</c> - the project just
+    /// added or updated, or no row when an update names a missing project.
+    /// </summary>
+    public DbSet<TimesheetProjectSaveDetail> spc_AddEditTimesheetProject { get; set; } = null!;
+
+    /// <summary>
+    /// Result set of <c>dbo.spc_GetTimesheetProjectStatus</c> - every project
+    /// status, ordered by id.
+    /// </summary>
+    public DbSet<TimesheetProjectStatusDetail> spc_GetTimesheetProjectStatus { get; set; } = null!;
+
+    /// <summary>
+    /// Result set of <c>dbo.spc_GetTimesheetProjectBudget</c> - the budget
+    /// lines of one project, ordered by period start.
+    /// </summary>
+    public DbSet<TimesheetProjectBudgetDetail> spc_GetTimesheetProjectBudget { get; set; } = null!;
+
+    /// <summary>
+    /// Result set of <c>dbo.spc_AddEditTimesheetProjectBudget</c> - the budget
+    /// line just added or updated, or no row when an update names a missing line.
+    /// </summary>
+    public DbSet<TimesheetProjectBudgetSaveDetail> spc_AddEditTimesheetProjectBudget { get; set; } = null!;
 
     // dbo.spc_GetUsersTaskList has NO DbSet, deliberately. It returns two
     // result sets and EF Core materialises only the first, so
@@ -484,6 +526,86 @@ public class Context : DbContext
             // The same aliases as spc_GetTimesheetProjectCategory.
             category.Property(row => row.CategoryId).HasColumnName("CategoryID");
             category.Property(row => row.CategoryName).HasColumnName("CategoryName");
+        });
+
+        modelBuilder.Entity<TimesheetProjectDetail>(project =>
+        {
+            project.HasNoKey();
+            project.ToView(null);
+
+            // Aliased by the procedure: Projectname AS ProjectName,
+            // Totalhours AS TotalHours, TimesheetProjectStatus.Status AS StatusName.
+            project.Property(row => row.ProjectId).HasColumnName("ProjectID");
+            project.Property(row => row.Code).HasColumnName("Code");
+            project.Property(row => row.ProjectName).HasColumnName("ProjectName");
+            project.Property(row => row.TotalBudget).HasColumnName("TotalBudget").HasColumnType("decimal(18,2)");
+            project.Property(row => row.TotalHours).HasColumnName("TotalHours").HasColumnType("decimal(18,2)");
+            project.Property(row => row.StartDate).HasColumnName("StartDate");
+            project.Property(row => row.EndDate).HasColumnName("EndDate");
+            project.Property(row => row.CurrencyCode).HasColumnName("CurrencyCode");
+            project.Property(row => row.Status).HasColumnName("Status");
+            project.Property(row => row.StatusName).HasColumnName("StatusName");
+        });
+
+        modelBuilder.Entity<TimesheetProjectSaveDetail>(project =>
+        {
+            project.HasNoKey();
+            project.ToView(null);
+
+            // The same aliases as spc_GetTimesheetProject.
+            project.Property(row => row.ProjectId).HasColumnName("ProjectID");
+            project.Property(row => row.Code).HasColumnName("Code");
+            project.Property(row => row.ProjectName).HasColumnName("ProjectName");
+            project.Property(row => row.TotalBudget).HasColumnName("TotalBudget").HasColumnType("decimal(18,2)");
+            project.Property(row => row.TotalHours).HasColumnName("TotalHours").HasColumnType("decimal(18,2)");
+            project.Property(row => row.StartDate).HasColumnName("StartDate");
+            project.Property(row => row.EndDate).HasColumnName("EndDate");
+            project.Property(row => row.CurrencyCode).HasColumnName("CurrencyCode");
+            project.Property(row => row.Status).HasColumnName("Status");
+            project.Property(row => row.StatusName).HasColumnName("StatusName");
+        });
+
+        modelBuilder.Entity<TimesheetProjectStatusDetail>(status =>
+        {
+            status.HasNoKey();
+            status.ToView(null);
+
+            status.Property(row => row.StatusId).HasColumnName("StatusID");
+            status.Property(row => row.Status).HasColumnName("Status");
+        });
+
+        modelBuilder.Entity<TimesheetProjectBudgetDetail>(budget =>
+        {
+            budget.HasNoKey();
+            budget.ToView(null);
+
+            // Aliased by the procedure: Hourlyrate AS HourlyRate, Allocated_amount AS AllocatedAmount.
+            budget.Property(row => row.BudgetId).HasColumnName("BudgetID");
+            budget.Property(row => row.ProjectCode).HasColumnName("ProjectCode");
+            budget.Property(row => row.ProjectCategoryId).HasColumnName("ProjectCategoryID");
+            budget.Property(row => row.CategoryName).HasColumnName("CategoryName");
+            budget.Property(row => row.AllocatedHours).HasColumnName("AllocatedHours").HasColumnType("decimal(18,2)");
+            budget.Property(row => row.HourlyRate).HasColumnName("HourlyRate").HasColumnType("decimal(18,2)");
+            budget.Property(row => row.AllocatedAmount).HasColumnName("AllocatedAmount").HasColumnType("decimal(18,2)");
+            budget.Property(row => row.PeriodStart).HasColumnName("PeriodStart");
+            budget.Property(row => row.PeriodEnd).HasColumnName("PeriodEnd");
+        });
+
+        modelBuilder.Entity<TimesheetProjectBudgetSaveDetail>(budget =>
+        {
+            budget.HasNoKey();
+            budget.ToView(null);
+
+            // The same aliases as spc_GetTimesheetProjectBudget.
+            budget.Property(row => row.BudgetId).HasColumnName("BudgetID");
+            budget.Property(row => row.ProjectCode).HasColumnName("ProjectCode");
+            budget.Property(row => row.ProjectCategoryId).HasColumnName("ProjectCategoryID");
+            budget.Property(row => row.CategoryName).HasColumnName("CategoryName");
+            budget.Property(row => row.AllocatedHours).HasColumnName("AllocatedHours").HasColumnType("decimal(18,2)");
+            budget.Property(row => row.HourlyRate).HasColumnName("HourlyRate").HasColumnType("decimal(18,2)");
+            budget.Property(row => row.AllocatedAmount).HasColumnName("AllocatedAmount").HasColumnType("decimal(18,2)");
+            budget.Property(row => row.PeriodStart).HasColumnName("PeriodStart");
+            budget.Property(row => row.PeriodEnd).HasColumnName("PeriodEnd");
         });
     }
 }

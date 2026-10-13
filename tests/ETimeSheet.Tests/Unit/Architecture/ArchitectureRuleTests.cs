@@ -27,6 +27,8 @@ public class ArchitectureRuleTests
     [InlineData(typeof(CountryRepository), typeof(ICountryRepository))]
     [InlineData(typeof(MasterAdminService), typeof(IMasterAdminService))]
     [InlineData(typeof(MasterAdminRepository), typeof(IMasterAdminRepository))]
+    [InlineData(typeof(TimesheetProjectService), typeof(ITimesheetProjectService))]
+    [InlineData(typeof(TimesheetProjectRepository), typeof(ITimesheetProjectRepository))]
     public void EveryPublicMethodIsDeclaredOnTheInterface(
         Type implementationType,
         Type interfaceType)

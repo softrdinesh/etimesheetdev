@@ -26,6 +26,7 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<ISheetSubmissionService, SheetSubmissionService>();
         services.AddScoped<ISchedulerService, SchedulerService>();
         services.AddScoped<IMasterAdminService, MasterAdminService>();
+        services.AddScoped<ITimesheetProjectService, TimesheetProjectService>();
 
         // Picks up every AbstractValidator in this assembly, so a new validator
         // is wired up by the act of creating it.

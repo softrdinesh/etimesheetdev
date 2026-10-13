@@ -3,7 +3,7 @@
 Every endpoint the API exposes today, with its purpose, input payload, success
 response and failure responses — each with a worked example.
 
-Generated from the code on branch `develop` (2026-10-12). If you change a
+Generated from the code on branch `develop` (2026-10-13). If you change a
 controller, DTO or validator, change this file with it.
 
 ---
@@ -46,6 +46,14 @@ controller, DTO or validator, change this file with it.
   - [Client List](#19-client-list)
   - [Add / Edit Client Setup](#20-add--edit-client-setup)
   - [Remove Client Setup](#21-remove-client-setup)
+- [TimesheetProject](#timesheetproject)
+  - [Project List](#25-project-list)
+  - [Add / Edit Project](#26-add--edit-project)
+  - [Project Status List](#27-project-status-list)
+  - [Remove Project](#28-remove-project)
+  - [Project Budget List](#29-project-budget-list)
+  - [Add / Edit Project Budget](#30-add--edit-project-budget)
+  - [Remove Project Budget](#31-remove-project-budget)
 - [Health endpoints](#health-endpoints)
 - [Enumerations](#enumerations)
 - [Endpoint summary table](#endpoint-summary-table)
@@ -3314,6 +3322,561 @@ success, and the first `DeleteDate` is never overwritten:
 
 ---
 
+## TimesheetProject
+
+`TimesheetProjectController` — `api/v1/TimesheetProject`. An organisation's
+projects (`dbo.TimesheetProject`), the project status lookup
+(`dbo.TimesheetProjectStatus`), and each project's budget
+(`dbo.TimesheetProjectBudget`).
+
+Validation for every endpoint here runs in **`TimesheetProjectService`**, not a
+FluentValidation validator. The 400 is the same shape and lists **every**
+failing field at once.
+
+**Removes are hard deletes.** Neither `dbo.TimesheetProject` nor
+`dbo.TimesheetProjectBudget` has a soft-delete or audit column, so a removed
+row is physically gone and nothing records who removed it.
+
+---
+
+### 25. Project List
+
+`GET /api/v1/TimesheetProject/get-timesheet-project-by-orgID/{orgID}`
+
+**Purpose** — Every project of one organisation, each with its status name.
+Read through `dbo.spc_GetTimesheetProject`.
+
+#### Route parameters
+
+| Name | Type | Rules |
+|---|---|---|
+| `orgID` | int | `> 0` — checked by the service, so a `0` is a 400 naming the field rather than a missed route |
+
+#### Example request
+
+```
+GET /api/v1/TimesheetProject/get-timesheet-project-by-orgID/12
+```
+
+#### Success response — `200 OK`
+
+`data` is an array of `TimesheetProjectResponse`, ordered by `projectName`,
+then `projectId`:
+
+| Field | Type | Notes |
+|---|---|---|
+| `projectId` | int | `dbo.TimesheetProject.ProjectID` |
+| `code` | string \| null | Generated on add — `PR0001`, `PR0002` … — and never changed |
+| `projectName` | string \| null | The `Projectname` column |
+| `totalBudget` | decimal \| null | `decimal(18,2)` |
+| `totalHours` | decimal \| null | A **number of hours** (`37.5` is 37½ hours), may exceed 24 |
+| `startDate` | datetime \| null | |
+| `endDate` | datetime \| null | |
+| `currencyCode` | int \| null | |
+| `status` | int \| null | A `statusId` from [Project Status List](#27-project-status-list) |
+| `statusName` | string \| null | `Open` / `Closed` / `Pending`; `null` when `status` is null or unknown |
+
+`organizationId` is **not** returned — the caller already sent it in the URL.
+
+#### Example response
+
+```json
+{
+  "success": true,
+  "message": "",
+  "data": [
+    {
+      "projectId": 4,
+      "code": "PR0004",
+      "projectName": "Website redesign",
+      "totalBudget": 25000.00,
+      "totalHours": 320.50,
+      "startDate": "2026-10-01T00:00:00",
+      "endDate": "2026-12-31T00:00:00",
+      "currencyCode": 1,
+      "status": 1,
+      "statusName": "Open"
+    }
+  ],
+  "errors": []
+}
+```
+
+#### Empty result
+
+An organisation with no projects is `data: []` — a 200, not a 404.
+
+#### Error responses
+
+**400** — `orgID <= 0`: `orgID: orgID is required and must be greater than 0.`
+
+**500** — unhandled defect, or the procedure has not been created in the
+database yet.
+
+---
+
+### 26. Add / Edit Project
+
+`POST /api/v1/TimesheetProject/add-edit-timesheet-project`
+
+**Purpose** — Add a project to an organisation, or update one. **One endpoint
+for both**, chosen by `projectId`. Written through
+`dbo.spc_AddEditTimesheetProject`.
+
+| `projectId` sent | Result |
+|---|---|
+| absent or `0` | **Adds** a project to `organizationId`, with the next code in the sequence `PR0001`, `PR0002` … `PR9999`, `PR10000` … |
+| `> 0`, a project of `organizationId` | **Updates** it. `code` and `organizationId` never change |
+| `> 0`, but no such project, or another organisation's | **404** — never edited |
+
+**No `code` is sent.** The database generates it on add, as the highest
+existing `PR` + digits code **across every organisation** plus one, under a
+lock so two adds at once cannot get the same code. One sequence for the whole
+table, as with client codes.
+
+**An update overwrites every field.** A field left out is saved as `null`, not
+left as it was — send the whole project.
+
+#### Request body — `TimesheetProjectSaveRequest` (JSON)
+
+| Field | Type | Required | Rules | Notes |
+|---|---|---|---|---|
+| `projectId` | int \| null | no | `>= 0` | absent / `0` adds; an id updates |
+| `organizationId` | int | yes | `> 0` | On update, the project must belong to it |
+| `projectName` | string \| null | no | `<= 100` characters **after trimming** | Blank is saved as `null` |
+| `totalBudget` | decimal \| null | no | `>= 0` | Two decimal places are stored |
+| `totalHours` | decimal \| null | no | `>= 0` | A **number of hours**, not `hh:mm:ss` — `120.5`. May exceed 24 |
+| `startDate` | datetime \| null | no | | |
+| `endDate` | datetime \| null | no | not before `startDate` when both are sent | |
+| `currencyCode` | int \| null | no | `> 0` when sent | |
+| `status` | int \| null | no | `> 0` when sent | A `statusId` — 1 Open, 2 Closed, 3 Pending. **Not** checked against the lookup |
+
+#### Example request — add
+
+```json
+{
+  "projectId": 0,
+  "organizationId": 12,
+  "projectName": "Website redesign",
+  "totalBudget": 25000.00,
+  "totalHours": 320.5,
+  "startDate": "2026-10-01T00:00:00",
+  "endDate": "2026-12-31T00:00:00",
+  "currencyCode": 1,
+  "status": 1
+}
+```
+
+#### Example request — update
+
+```json
+{
+  "projectId": 4,
+  "organizationId": 12,
+  "projectName": "Website redesign - phase 2",
+  "totalBudget": 30000.00,
+  "totalHours": 400,
+  "startDate": "2026-10-01T00:00:00",
+  "endDate": "2027-01-31T00:00:00",
+  "currencyCode": 1,
+  "status": 3
+}
+```
+
+#### Success response — `200 OK`
+
+`data` is a `TimesheetProjectResponse` — the saved project, with its
+`projectId` and generated `code`; the same shape as
+[Project List](#25-project-list):
+
+```json
+{
+  "success": true,
+  "message": "Project saved.",
+  "data": {
+    "projectId": 4,
+    "code": "PR0004",
+    "projectName": "Website redesign",
+    "totalBudget": 25000.00,
+    "totalHours": 320.50,
+    "startDate": "2026-10-01T00:00:00",
+    "endDate": "2026-12-31T00:00:00",
+    "currencyCode": 1,
+    "status": 1,
+    "statusName": "Open"
+  },
+  "errors": []
+}
+```
+
+#### Error responses
+
+**400 — validation** (every failure listed):
+
+| Trigger | Message |
+|---|---|
+| `projectId < 0` | `ProjectId must be 0 (or left out) to add a project, or the id of the project to update.` |
+| `organizationId <= 0` | `OrganizationId is required and must be greater than 0.` |
+| `projectName` longer than 100 | `ProjectName must be 100 characters or fewer.` |
+| `totalBudget < 0` | `TotalBudget must not be negative.` |
+| `totalHours < 0` | `TotalHours must not be negative.` |
+| `endDate` before `startDate` | `EndDate must not be before StartDate.` |
+| `currencyCode <= 0` | `CurrencyCode must be greater than 0 when sent.` |
+| `status <= 0` | `Status must be greater than 0 when sent.` |
+
+**404** — `projectId > 0` names no project of `organizationId`:
+
+```json
+{ "success": false, "message": "Project '4' was not found.", "data": null, "errors": [] }
+```
+
+**500** — unhandled defect, the procedure has not been created in the
+database yet, or (error `50001`) the code sequence has outgrown the
+20-character `Code` column.
+
+---
+
+### 27. Project Status List
+
+`GET /api/v1/TimesheetProject/get-timesheet-project-status-list`
+
+**Purpose** — Every project status from the `dbo.TimesheetProjectStatus`
+lookup, for a status picker. The `statusId` is what
+[Add / Edit Project](#26-add--edit-project) takes as `status`. Read through
+`dbo.spc_GetTimesheetProjectStatus`.
+
+#### Parameters
+
+None — the lookup is shared by every organisation.
+
+#### Example request
+
+```
+GET /api/v1/TimesheetProject/get-timesheet-project-status-list
+```
+
+#### Success response — `200 OK`
+
+`data` is an array of `TimesheetProjectStatusResponse`, ordered by `statusId`:
+
+| Field | Type | Notes |
+|---|---|---|
+| `statusId` | int | `dbo.TimesheetProjectStatus.StatusID` |
+| `status` | string | The status's name |
+
+```json
+{
+  "success": true,
+  "message": "",
+  "data": [
+    { "statusId": 1, "status": "Open" },
+    { "statusId": 2, "status": "Closed" },
+    { "statusId": 3, "status": "Pending" }
+  ],
+  "errors": []
+}
+```
+
+The rows are seeded by hand —
+`docs/database/data/dbo.TimesheetProjectStatus_Insert.sql`. Until that has run,
+the list is empty.
+
+#### Error responses
+
+**500** — unhandled defect, or the procedure has not been created in the
+database yet.
+
+---
+
+### 28. Remove Project
+
+`POST /api/v1/TimesheetProject/remove-timesheet-project`
+
+**Purpose** — Delete a project of an organisation **and its budget**. Both are
+**hard** deletes, done together in one transaction — both go or neither does —
+by the API through EF Core; no stored procedure. Every budget row of the
+project is removed, duplicates included.
+
+A POST rather than an HTTP DELETE, as with
+[Remove Project Category](#24-remove-project-category).
+
+#### Request body — `TimesheetProjectDeleteRequest` (JSON)
+
+| Field | Type | Required | Rules | Notes |
+|---|---|---|---|---|
+| `projectId` | int | yes | `> 0` | |
+| `organizationId` | int | yes | `> 0` | The project must belong to it — another organisation's project is a 404, never removed |
+
+#### Example request
+
+```json
+{ "projectId": 4, "organizationId": 12 }
+```
+
+#### Success response — `200 OK`
+
+```json
+{ "success": true, "message": "Project removed.", "data": null, "errors": [] }
+```
+
+#### Error responses
+
+**400 — validation:**
+
+| Trigger | Message |
+|---|---|
+| `projectId <= 0` | `ProjectId is required and must be greater than 0.` |
+| `organizationId <= 0` | `OrganizationId is required and must be greater than 0.` |
+
+**404** — no project with that id in that organisation. Removing one twice is
+**not** a silent success:
+
+```json
+{
+  "success": false,
+  "message": "Project '4' was not found in organization '12'.",
+  "data": null,
+  "errors": []
+}
+```
+
+**500** — unhandled defect.
+
+---
+
+### 29. Project Budget List
+
+`GET /api/v1/TimesheetProject/get-timesheet-project-budget-by-projectID/{projectID}`
+
+**Purpose** — The budget of one project, with its category name. Read through
+`dbo.spc_GetTimesheetProjectBudget`.
+
+A project has **one** budget, so the list normally holds one item. It is still
+a list: rows saved before the one-budget rule may give a project more than one,
+and none of them is hidden.
+
+#### Route parameters
+
+| Name | Type | Rules |
+|---|---|---|
+| `projectID` | int | `> 0` — checked by the service |
+
+#### Example request
+
+```
+GET /api/v1/TimesheetProject/get-timesheet-project-budget-by-projectID/4
+```
+
+#### Success response — `200 OK`
+
+`data` is an array of `TimesheetProjectBudgetResponse`, ordered by
+`periodStart`, then `budgetId`:
+
+| Field | Type | Notes |
+|---|---|---|
+| `budgetId` | int | `dbo.TimesheetProjectBudget.BudgetID` |
+| `projectCode` | string \| null | The project's `code`, copied on save. `null` on a row not saved since the column was added |
+| `projectCategoryId` | int \| null | |
+| `categoryName` | string \| null | From `dbo.TimesheetProjectCategory`; `null` when the category is null, unknown or deleted |
+| `allocatedHours` | decimal \| null | A number of hours |
+| `hourlyRate` | decimal \| null | The `Hourlyrate` column |
+| `allocatedAmount` | decimal \| null | The `Allocated_amount` column — hours × rate, worked out on save |
+| `periodStart` | datetime \| null | A date; the time part is always midnight |
+| `periodEnd` | datetime \| null | A date; the time part is always midnight |
+
+`projectId` is **not** returned — the caller already sent it in the URL.
+
+#### Example response
+
+```json
+{
+  "success": true,
+  "message": "",
+  "data": [
+    {
+      "budgetId": 8,
+      "projectCode": "PR0004",
+      "projectCategoryId": 3,
+      "categoryName": "Development",
+      "allocatedHours": 120.50,
+      "hourlyRate": 45.00,
+      "allocatedAmount": 5422.50,
+      "periodStart": "2026-10-01T00:00:00",
+      "periodEnd": "2026-12-31T00:00:00"
+    }
+  ],
+  "errors": []
+}
+```
+
+#### Empty result
+
+A project with no budget — or no such project — is `data: []`, a 200.
+
+#### Error responses
+
+**400** — `projectID <= 0`: `projectID: projectID is required and must be greater than 0.`
+
+**500** — unhandled defect, or the procedure has not been created in the
+database yet.
+
+---
+
+### 30. Add / Edit Project Budget
+
+`POST /api/v1/TimesheetProject/add-edit-timesheet-project-budget`
+
+**Purpose** — Save the budget of a project. **One endpoint for both add and
+update**, and **the project decides** — there is no budget id. Written through
+`dbo.spc_AddEditTimesheetProjectBudget`.
+
+| The project … | Result |
+|---|---|
+| has no budget | **Adds** one. `BudgetID` is `IDENTITY` — it comes back in the response |
+| has a budget | **Updates** it. Should it hold more than one row from before the rule, the lowest `budgetId` is the one updated |
+| does not exist | **404** |
+
+The lookup runs under a lock, so two saves for one project at the same moment
+cannot both add a row — the second waits, then updates.
+
+Neither of these is sent; both are derived:
+
+- **`projectCode`** — copied from the project's `code` by the procedure, on add
+  and on every update.
+- **`allocatedAmount`** — `allocatedHours × hourlyRate`, rounded to two decimal
+  places (half away from zero); `null` when either is missing.
+
+**An update overwrites every field.** A field left out is saved as `null` —
+send the whole budget.
+
+#### Request body — `TimesheetProjectBudgetSaveRequest` (JSON)
+
+| Field | Type | Required | Rules | Notes |
+|---|---|---|---|---|
+| `projectId` | int | yes | `> 0`; the project must exist | Decides add or update |
+| `projectCategoryId` | int \| null | no | `> 0` when sent; a **live** category of the **project's** organisation | |
+| `allocatedHours` | decimal \| null | no | `>= 0` | A number of hours, not `hh:mm:ss`. May exceed 24 |
+| `hourlyRate` | decimal \| null | no | `>= 0` | |
+| `periodStart` | datetime \| null | no | | Only the date is stored |
+| `periodEnd` | datetime \| null | no | not before `periodStart` when both are sent | Only the date is stored |
+
+#### Example request
+
+```json
+{
+  "projectId": 4,
+  "projectCategoryId": 3,
+  "allocatedHours": 120.5,
+  "hourlyRate": 45.00,
+  "periodStart": "2026-10-01",
+  "periodEnd": "2026-12-31"
+}
+```
+
+#### Success response — `200 OK`
+
+`data` is a `TimesheetProjectBudgetResponse` — the saved budget, the same shape
+as [Project Budget List](#29-project-budget-list):
+
+```json
+{
+  "success": true,
+  "message": "Project budget saved.",
+  "data": {
+    "budgetId": 8,
+    "projectCode": "PR0004",
+    "projectCategoryId": 3,
+    "categoryName": "Development",
+    "allocatedHours": 120.50,
+    "hourlyRate": 45.00,
+    "allocatedAmount": 5422.50,
+    "periodStart": "2026-10-01T00:00:00",
+    "periodEnd": "2026-12-31T00:00:00"
+  },
+  "errors": []
+}
+```
+
+#### Error responses
+
+**400 — validation** (every shape failure listed):
+
+| Trigger | Message |
+|---|---|
+| `projectId <= 0` | `ProjectId is required and must be greater than 0.` |
+| `projectCategoryId <= 0` | `ProjectCategoryId must be greater than 0 when sent.` |
+| `allocatedHours < 0` | `AllocatedHours must not be negative.` |
+| `hourlyRate < 0` | `HourlyRate must not be negative.` |
+| `periodEnd` before `periodStart` | `PeriodEnd must not be before PeriodStart.` |
+
+**400** — the category is not a live category of the project's organisation
+(checked after the project is found; a single entry):
+
+```json
+{
+  "success": false,
+  "message": "One or more validation errors occurred.",
+  "data": null,
+  "errors": ["ProjectCategoryId: Project category '9' is not a category of this project's organization."]
+}
+```
+
+**404** — the project does not exist:
+
+```json
+{ "success": false, "message": "Project '4' was not found.", "data": null, "errors": [] }
+```
+
+**500** — unhandled defect, or the procedure has not been created in the
+database yet.
+
+---
+
+### 31. Remove Project Budget
+
+`POST /api/v1/TimesheetProject/remove-timesheet-project-budget`
+
+**Purpose** — Delete the budget of a project. Only `projectId` is sent — a
+project has one budget — and **every** budget row of the project is removed,
+duplicates included, in one transaction. A **hard** delete, by the API through
+EF Core; no stored procedure.
+
+Removing the project itself ([Remove Project](#28-remove-project)) removes its
+budget too; this endpoint removes the budget and keeps the project.
+
+#### Request body — `TimesheetProjectBudgetDeleteRequest` (JSON)
+
+| Field | Type | Required | Rules |
+|---|---|---|---|
+| `projectId` | int | yes | `> 0` |
+
+#### Example request
+
+```json
+{ "projectId": 4 }
+```
+
+#### Success response — `200 OK`
+
+```json
+{ "success": true, "message": "Project budget removed.", "data": null, "errors": [] }
+```
+
+#### Error responses
+
+**400** — `projectId <= 0`: `ProjectId: ProjectId is required and must be greater than 0.`
+
+**404** — the project has no budget. Removing one twice is **not** a silent
+success:
+
+```json
+{ "success": false, "message": "Project '4' has no budget.", "data": null, "errors": [] }
+```
+
+**500** — unhandled defect.
+
+---
+
 ## Health endpoints
 
 Anonymous, outside the `ApiResponse` envelope, and outside `/api/v1`.
@@ -3415,6 +3978,13 @@ authentication is off.
 | 22 | Project Category List | GET | `/api/v1/Admin/get-timesheet-project-category-by-orgID/{orgID}` | An organisation's live project categories, by name | route param | `ProjectCategoryResponse[]` (`categoryId`, `categoryName`) | 400, 500 |
 | 23 | Add / Edit Project Category | POST | `/api/v1/Admin/add-edit-timesheet-project-category` | Add a category (`categoryId` 0 / absent) or rename one | `ProjectCategorySaveRequest` | `ProjectCategoryResponse` | 400, 404, 500 |
 | 24 | Remove Project Category | POST | `/api/v1/Admin/remove-timesheet-project-category` | Soft-delete a project category of an organisation | `ProjectCategoryDeleteRequest` | `null` | 400, 404, 500 |
+| 25 | Project List | GET | `/api/v1/TimesheetProject/get-timesheet-project-by-orgID/{orgID}` | An organisation's projects with status name, by name | route param | `TimesheetProjectResponse[]` | 400, 500 |
+| 26 | Add / Edit Project | POST | `/api/v1/TimesheetProject/add-edit-timesheet-project` | Add a project (`projectId` 0 / absent; code `PR0001`… generated) or update one | `TimesheetProjectSaveRequest` | `TimesheetProjectResponse` | 400, 404, 500 |
+| 27 | Project Status List | GET | `/api/v1/TimesheetProject/get-timesheet-project-status-list` | The status lookup — Open, Closed, Pending | — | `TimesheetProjectStatusResponse[]` (`statusId`, `status`) | 500 |
+| 28 | Remove Project | POST | `/api/v1/TimesheetProject/remove-timesheet-project` | Hard-delete a project **and its budget**, together | `TimesheetProjectDeleteRequest` | `null` | 400, 404, 500 |
+| 29 | Project Budget List | GET | `/api/v1/TimesheetProject/get-timesheet-project-budget-by-projectID/{projectID}` | A project's budget, with category name | route param | `TimesheetProjectBudgetResponse[]` | 400, 500 |
+| 30 | Add / Edit Project Budget | POST | `/api/v1/TimesheetProject/add-edit-timesheet-project-budget` | Save a project's one budget — the project decides add or update; amount = hours × rate | `TimesheetProjectBudgetSaveRequest` | `TimesheetProjectBudgetResponse` | 400, 404, 500 |
+| 31 | Remove Project Budget | POST | `/api/v1/TimesheetProject/remove-timesheet-project-budget` | Hard-delete every budget row of a project | `TimesheetProjectBudgetDeleteRequest` | `null` | 400, 404, 500 |
 | — | Health | GET | `/health`, `/health/live`, `/health/ready` | Liveness / readiness | — | *(unenveloped)* | 503 |
 
 ---
@@ -3541,3 +4111,28 @@ Documented so nobody has to rediscover them:
 31. **Removing a project category does not check what uses it.** Nothing
     records which projects reference a category, so Remove Project Category
     cannot refuse one that is still in use.
+32. **The TimesheetProject procedures are DRAFT.** `spc_GetTimesheetProject`,
+    `spc_AddEditTimesheetProject`, `spc_GetTimesheetProjectStatus`,
+    `spc_GetTimesheetProjectBudget` and `spc_AddEditTimesheetProjectBudget` are
+    recorded in `docs/database/procedures/` and must be created by hand; each
+    matching endpoint answers 500 until its procedure exists in its latest
+    version.
+33. **Project removes are hard deletes.** Neither `dbo.TimesheetProject` nor
+    `dbo.TimesheetProjectBudget` has a soft-delete or audit column, so a removed
+    project or budget cannot be recovered and nothing records who removed it.
+34. **One budget per project is kept by the procedure, not the table.** No
+    unique constraint on `dbo.TimesheetProjectBudget.ProjectID` was reported, so
+    rows written before the rule (or by anything other than
+    `spc_AddEditTimesheetProjectBudget`) can give a project several budgets.
+    Add / Edit Project Budget updates the lowest `budgetId`; the list shows them
+    all; Remove Project Budget removes them all.
+35. **A project's `status` and `currencyCode` are not checked against their
+    lookups.** Any positive number is saved; an unknown `status` comes back with
+    `statusName: null`. No foreign keys were reported.
+36. **The budget endpoints have no organisation check.** Project Budget List
+    and Remove Project Budget take a
+    `projectId` alone, so — while authentication is off — any caller can read or
+    remove any project's budget.
+37. **`projectCode` on a budget is a copy.** It is refreshed from the project's
+    `code` on every budget save; budget rows saved before the column was added
+    show `projectCode: null` until they are saved again.
