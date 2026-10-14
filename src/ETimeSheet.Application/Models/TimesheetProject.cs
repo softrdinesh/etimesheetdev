@@ -51,8 +51,8 @@ public class TimesheetProjectResponse
     public int? Status { get; set; }
 
     /// <summary>
-    /// The status's name from <c>dbo.TimesheetProjectStatus</c> - Open, Closed,
-    /// Pending. Null when <see cref="Status"/> is null or names no status.
+    /// The status's name from <c>dbo.TimesheetProjectStatus</c>. Null when
+    /// <see cref="Status"/> is null or names no status.
     /// </summary>
     public string? StatusName { get; set; }
 
@@ -158,8 +158,8 @@ public class TimesheetProjectSaveRequest
     public int? CurrencyCode { get; set; }
 
     /// <summary>
-    /// Optional. A <c>dbo.TimesheetProjectStatus.StatusID</c> - 1 Open,
-    /// 2 Closed, 3 Pending. Greater than 0 when sent.
+    /// Optional. A <c>dbo.TimesheetProjectStatus.StatusID</c> of the
+    /// organisation. Greater than 0 when sent.
     /// </summary>
     /// <example>1</example>
     public int? Status { get; set; }
@@ -232,16 +232,20 @@ public class TimesheetProjectDeleteRequest
 }
 
 /// <summary>
-/// One status from the <c>dbo.TimesheetProjectStatus</c> lookup, as
-/// <c>get-timesheet-project-status-list</c> returns it.
+/// One status of an organisation from <c>dbo.TimesheetProjectStatus</c>, as
+/// <c>get-timesheet-project-status-by-orgID</c> and
+/// <c>add-edit-timesheet-project-status</c> return it.
 /// </summary>
 public class TimesheetProjectStatusResponse
 {
     /// <summary>The <c>StatusID</c> - the value a project's <c>Status</c> holds.</summary>
     public int StatusId { get; set; }
 
-    /// <summary>The status's name - Open, Closed, Pending.</summary>
+    /// <summary>The status's name.</summary>
     public string Status { get; set; } = string.Empty;
+
+    /// <summary>The display colour, as it was saved. Null when none was set.</summary>
+    public string? ColorCode { get; set; }
 }
 
 /// <summary>
@@ -253,6 +257,91 @@ public class TimesheetProjectStatusDetail
     public int StatusId { get; set; }
 
     public string Status { get; set; } = string.Empty;
+
+    public string? ColorCode { get; set; }
+}
+
+/// <summary>
+/// Body of <c>add-edit-timesheet-project-status</c> - <b>one payload for both
+/// add and edit</b>, chosen by <see cref="StatusId"/>.
+/// <para>
+/// Validated by <c>TimesheetProjectService</c>, not by a FluentValidation
+/// validator.
+/// </para>
+/// </summary>
+public class TimesheetProjectStatusSaveRequest
+{
+    /// <summary>Absent or <c>0</c> to add; the id of a live status in this organisation to edit it.</summary>
+    /// <example>0</example>
+    public int? StatusId { get; set; }
+
+    /// <summary>The organisation the status belongs to. Required, greater than 0.</summary>
+    /// <example>12</example>
+    public int OrganizationId { get; set; }
+
+    /// <summary>
+    /// Required, at most 20 characters. Leading and trailing spaces are trimmed.
+    /// </summary>
+    /// <example>In Progress</example>
+    public string? Status { get; set; }
+
+    /// <summary>
+    /// Optional, at most 25 characters - stored as sent, so any format the
+    /// client draws with. An edit that leaves it out clears it, as an edit
+    /// overwrites every field.
+    /// </summary>
+    /// <example>#1E88E5</example>
+    public string? ColorCode { get; set; }
+
+    /// <summary>
+    /// The user performing the save, written to <c>CreatedBy</c> on add and
+    /// <c>Updatedby</c> on edit. Required, greater than 0. <b>Temporary</b>,
+    /// as <c>ProjectCategorySaveRequest.CreatedBy</c> is: it comes from the
+    /// token once authentication is on.
+    /// </summary>
+    /// <example>7</example>
+    public int UserId { get; set; }
+}
+
+/// <summary>
+/// The row <c>dbo.spc_AddEditTimesheetProjectStatus</c> returns - the status
+/// just saved. The same columns as <see cref="TimesheetProjectStatusDetail"/>,
+/// but its own type: EF Core maps one CLR type to one result set.
+/// </summary>
+public class TimesheetProjectStatusSaveDetail
+{
+    public int StatusId { get; set; }
+
+    public string Status { get; set; } = string.Empty;
+
+    public string? ColorCode { get; set; }
+}
+
+/// <summary>
+/// Body of <c>remove-timesheet-project-status</c>.
+/// <para>
+/// A <b>soft</b> delete: the row is never removed. It is stamped with
+/// <c>DeletedDate</c> and <c>Deletedby</c>, and from then on the status list
+/// and <c>add-edit-timesheet-project-status</c> no longer see it.
+/// </para>
+/// <para>
+/// Validated by <c>TimesheetProjectService</c>, not by a FluentValidation
+/// validator.
+/// </para>
+/// </summary>
+public class TimesheetProjectStatusDeleteRequest
+{
+    /// <summary>The status to remove. Required, greater than 0.</summary>
+    /// <example>3</example>
+    public int StatusId { get; set; }
+
+    /// <summary>
+    /// The user performing the remove, written to <c>Deletedby</c>. Required,
+    /// greater than 0. <b>Temporary</b>: it comes from the token once
+    /// authentication is on.
+    /// </summary>
+    /// <example>7</example>
+    public int DeletedBy { get; set; }
 }
 
 /// <summary>

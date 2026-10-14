@@ -69,7 +69,7 @@ public class MasterAdminServiceTests
     public async Task ListReturnsEveryRowWithItsCurrency()
     {
         _repository
-            .Setup(repository => repository.GetClientListAsync(It.IsAny<CancellationToken>()))
+            .Setup(repository => repository.GetClientListAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new[]
             {
                 new ClientListDetail
@@ -80,7 +80,7 @@ public class MasterAdminServiceTests
                 new ClientListDetail { ClientId = 2, ClientCode = "CL0002", ClientName = "Beta" },
             });
 
-        var result = await CreateService().GetClientListAsync();
+        var result = await CreateService().GetClientListAsync(MasterAdminTestData.OrganizationId);
 
         Assert.Equal(new[] { "CL0001", "CL0002" }, result.Select(client => client.ClientCode));
 
@@ -95,10 +95,10 @@ public class MasterAdminServiceTests
     public async Task AnEmptyListIsAnEmptyListNotAnError()
     {
         _repository
-            .Setup(repository => repository.GetClientListAsync(It.IsAny<CancellationToken>()))
+            .Setup(repository => repository.GetClientListAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Array.Empty<ClientListDetail>());
 
-        Assert.Empty(await CreateService().GetClientListAsync());
+        Assert.Empty(await CreateService().GetClientListAsync(MasterAdminTestData.OrganizationId));
     }
 
     // ---------------------------------------------------------------- save

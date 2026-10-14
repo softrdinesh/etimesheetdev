@@ -22,7 +22,8 @@ namespace ETimeSheet.Tests.Integration;
 [Collection(IntegrationTestCollection.Name)]
 public class MasterAdminEndpointTests : IntegrationTestBase
 {
-    private const string ListUrl = "/api/v1/MasterAdmin/get-client-list";
+    // Every seeded client belongs to MasterAdminTestData.OrganizationId.
+    private static readonly string ListUrl = $"/api/v1/MasterAdmin/get-client-list/{MasterAdminTestData.OrganizationId}";
     private const string SaveUrl = "/api/v1/MasterAdmin/add-or-edit-client-setup";
     private const string RemoveUrl = "/api/v1/MasterAdmin/remove-client-setup";
 

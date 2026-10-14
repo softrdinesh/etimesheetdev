@@ -48,6 +48,15 @@ internal static class TimesheetProjectMappings
     {
         StatusId = status.StatusId,
         Status = status.Status,
+        ColorCode = status.ColorCode,
+    };
+
+    /// <summary>Projects the row <c>spc_AddEditTimesheetProjectStatus</c> returns to the status response.</summary>
+    internal static TimesheetProjectStatusResponse ToResponse(this TimesheetProjectStatusSaveDetail status) => new()
+    {
+        StatusId = status.StatusId,
+        Status = status.Status,
+        ColorCode = status.ColorCode,
     };
 
     /// <summary>Projects a budget row from <c>spc_GetTimesheetProjectBudget</c> to the budget response.</summary>

@@ -11,11 +11,12 @@ namespace ETimeSheet.Application.Interfaces.Repositories;
 public interface IMasterAdminRepository
 {
     /// <summary>
-    /// Returns every live client, ordered by name, via
+    /// Returns the live clients of one organisation, ordered by name, via
     /// <c>spc_GetClientListForMasterAdmin</c>. The procedure excludes
     /// soft-deleted clients (<c>IsDeleted = 1</c>).
     /// </summary>
     Task<IReadOnlyList<ClientListDetail>> GetClientListAsync(
+        int organizationId,
         CancellationToken cancellationToken = default);
 
     /// <summary>

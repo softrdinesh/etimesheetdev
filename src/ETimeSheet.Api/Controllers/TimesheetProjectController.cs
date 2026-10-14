@@ -108,21 +108,6 @@ public class TimesheetProjectController : ControllerBase
     }
 
     /// <summary>
-    /// Returns every project status from the <c>dbo.TimesheetProjectStatus</c>
-    /// lookup - Open, Closed, Pending - ordered by id. The <c>statusId</c> is
-    /// what <c>add-edit-timesheet-project</c> takes as <c>status</c>.
-    /// </summary>
-    /// <response code="200">The statuses.</response>
-    [HttpGet("get-timesheet-project-status-list")]
-    [ProducesResponseType(typeof(ApiResponse<IReadOnlyList<TimesheetProjectStatusResponse>>), StatusCodes.Status200OK)]
-    public async Task<IActionResult> GetTimesheetProjectStatusList(
-        CancellationToken cancellationToken)
-    {
-        var result = await _timesheetProjectService.GetStatusListAsync(cancellationToken);
-        return Ok(ApiResponse.Ok(result));
-    }
-
-    /// <summary>
     /// Returns the budget lines of one project, from
     /// <c>dbo.TimesheetProjectBudget</c>, ordered by period start, each with
     /// its category name.
@@ -191,5 +176,76 @@ public class TimesheetProjectController : ControllerBase
     {
         await _timesheetProjectService.DeleteBudgetAsync(request, cancellationToken);
         return Ok(ApiResponse.Ok("Project budget removed."));
+    }
+
+    /// <summary>
+    /// Returns the project statuses of one organisation, from
+    /// <c>dbo.TimesheetProjectStatus</c>, ordered by id - the order they were
+    /// added in. Deleted statuses are not included. The <c>statusId</c> is what
+    /// <c>add-edit-timesheet-project</c> takes as <c>status</c>.
+    /// </summary>
+    /// <param name="orgID">The organisation whose statuses to list, as a route segment.</param>
+    /// <response code="200">The statuses. An organisation with none is an empty list, not a 404.</response>
+    /// <response code="400">An organisation id that is not greater than zero.</response>
+    [HttpGet("get-timesheet-project-status-by-orgID/{orgID:int}")]
+    [ProducesResponseType(typeof(ApiResponse<IReadOnlyList<TimesheetProjectStatusResponse>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> GetTimesheetProjectStatusByOrgId(
+        // :int without :min(1): a 0 has to reach the service so it can answer
+        // 400 saying what is wrong.
+        [FromRoute] int orgID,
+        CancellationToken cancellationToken)
+    {
+        var result = await _timesheetProjectService.GetStatusListByOrganizationIdAsync(orgID, cancellationToken);
+        return Ok(ApiResponse.Ok(result));
+    }
+
+    /// <summary>
+    /// Adds a project status to an organisation, or edits one - <b>one
+    /// endpoint for both</b>.
+    /// <para>
+    /// Send <c>statusId</c> as <c>0</c> (or leave it out) to add a status to
+    /// <c>organizationId</c>. Send an existing status's <c>statusId</c> to
+    /// edit it; the status must belong to <c>organizationId</c>. An edit
+    /// overwrites <c>status</c> and <c>colorCode</c>, so send both.
+    /// </para>
+    /// </summary>
+    /// <response code="200">The saved status, including its <c>statusId</c>.</response>
+    /// <response code="400">The payload failed validation - every failing field is listed.</response>
+    /// <response code="404">A <c>statusId</c> was sent, but no live status of that organisation has it.</response>
+    [HttpPost("add-edit-timesheet-project-status")]
+    [ProducesResponseType(typeof(ApiResponse<TimesheetProjectStatusResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> AddEditTimesheetProjectStatus(
+        [FromBody] TimesheetProjectStatusSaveRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await _timesheetProjectService.SaveStatusAsync(request, cancellationToken);
+        return Ok(ApiResponse.Ok(result, "Project status saved."));
+    }
+
+    /// <summary>
+    /// Soft-deletes a project status. The row is kept, stamped with
+    /// <c>DeletedDate</c> and <c>Deletedby</c>; nothing is physically deleted.
+    /// <para>
+    /// A POST rather than an HTTP DELETE, matching
+    /// <c>remove-timesheet-project</c>: every argument in this API travels in
+    /// the payload.
+    /// </para>
+    /// </summary>
+    /// <response code="200">The status was removed.</response>
+    /// <response code="400">A <c>statusId</c> or <c>deletedBy</c> that is not greater than zero.</response>
+    /// <response code="404">No live status has that id; removing one twice is not a silent success.</response>
+    [HttpPost("remove-timesheet-project-status")]
+    [ProducesResponseType(typeof(ApiResponse<object?>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> RemoveTimesheetProjectStatus(
+        [FromBody] TimesheetProjectStatusDeleteRequest request,
+        CancellationToken cancellationToken)
+    {
+        await _timesheetProjectService.DeleteStatusAsync(request, cancellationToken);
+        return Ok(ApiResponse.Ok("Project status removed."));
     }
 }

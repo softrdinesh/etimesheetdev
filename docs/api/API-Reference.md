@@ -3,7 +3,7 @@
 Every endpoint the API exposes today, with its purpose, input payload, success
 response and failure responses — each with a worked example.
 
-Generated from the code on branch `develop` (2026-10-14). If you change a
+Generated from the code on branch `develop` (2026-10-15). If you change a
 controller, DTO or validator, change this file with it.
 
 ---
@@ -51,6 +51,8 @@ controller, DTO or validator, change this file with it.
   - [Project List](#25-project-list)
   - [Add / Edit Project](#26-add--edit-project)
   - [Project Status List](#27-project-status-list)
+  - [Add / Edit Project Status](#33-add--edit-project-status)
+  - [Remove Project Status](#34-remove-project-status)
   - [Remove Project](#28-remove-project)
   - [Project Budget List](#29-project-budget-list)
   - [Add / Edit Project Budget](#30-add--edit-project-budget)
@@ -3047,20 +3049,23 @@ appear.
 
 ### 19. Client List
 
-`GET /api/v1/MasterAdmin/get-client-list`
+`GET /api/v1/MasterAdmin/get-client-list/{orgID}`
 
-**Purpose** — Every live client (`IsDeleted = 0`), ordered by name, then id.
-Read through `dbo.spc_GetClientListForMasterAdmin`.
+**Purpose** — The live clients (`IsDeleted = 0`) of one organisation, ordered
+by name, then id. Read through `dbo.spc_GetClientListForMasterAdmin`.
 
 #### Parameters
 
-None. No paging and no organisation filter — `dbo.TimesheetClientSetup` has no
-organisation column.
+| Parameter | In | Type | Required | Rules |
+|---|---|---|---|---|
+| `orgID` | route | int | yes | `> 0`. Omitted, the URL matches no route and is a `404` |
+
+No paging.
 
 #### Example request
 
 ```
-GET /api/v1/MasterAdmin/get-client-list
+GET /api/v1/MasterAdmin/get-client-list/12
 ```
 
 #### Success response — `200 OK`
@@ -3099,11 +3104,25 @@ GET /api/v1/MasterAdmin/get-client-list
 
 #### Empty result
 
-No clients is `data: []`.
+An organisation with no clients is `data: []`.
 
 #### Error responses
 
-**500** — unhandled defect.
+**400** — `orgID` is `0` or negative:
+
+```json
+{
+  "success": false,
+  "message": "One or more validation errors occurred.",
+  "data": null,
+  "errors": [
+    "orgID: orgID is required and must be greater than 0."
+  ]
+}
+```
+
+**500** — unhandled defect, or `spc_GetClientListForMasterAdmin` does not yet
+take `@POrgID` in the database.
 
 ---
 
@@ -3391,7 +3410,7 @@ database yet.
 ## TimesheetProject
 
 `TimesheetProjectController` — `api/v1/TimesheetProject`. An organisation's
-projects (`dbo.TimesheetProject`), the project status lookup
+projects (`dbo.TimesheetProject`), its project statuses
 (`dbo.TimesheetProjectStatus`), and each project's budget
 (`dbo.TimesheetProjectBudget`).
 
@@ -3399,9 +3418,11 @@ Validation for every endpoint here runs in **`TimesheetProjectService`**, not a
 FluentValidation validator. The 400 is the same shape and lists **every**
 failing field at once.
 
-**Removes are hard deletes.** Neither `dbo.TimesheetProject` nor
-`dbo.TimesheetProjectBudget` has a soft-delete or audit column, so a removed
-row is physically gone and nothing records who removed it.
+**Project and budget removes are hard deletes.** Neither
+`dbo.TimesheetProject` nor `dbo.TimesheetProjectBudget` has a soft-delete or
+audit column, so a removed row is physically gone and nothing records who
+removed it. **A status remove is a soft delete**: `dbo.TimesheetProjectStatus`
+keeps the row, stamped with `DeletedDate` and `Deletedby`.
 
 ---
 
@@ -3520,7 +3541,7 @@ left as it was — send the whole project.
 | `startDate` | datetime \| null | no | | |
 | `endDate` | datetime \| null | no | not before `startDate` when both are sent | |
 | `currencyCode` | int \| null | no | `> 0` when sent | |
-| `status` | int \| null | no | `> 0` when sent | A `statusId` — 1 Open, 2 Closed, 3 Pending. **Not** checked against the lookup |
+| `status` | int \| null | no | `> 0` when sent | A `statusId` from [Project Status List](#27-project-status-list). **Not** checked against the organisation's statuses |
 | `clientId` | int | **yes** | `> 0`; a **live** (not deleted) client | The client the project is for. An update can change it |
 
 #### Example request — add
@@ -3627,53 +3648,58 @@ database yet, or (error `50001`) the code sequence has outgrown the
 
 ### 27. Project Status List
 
-`GET /api/v1/TimesheetProject/get-timesheet-project-status-list`
+`GET /api/v1/TimesheetProject/get-timesheet-project-status-by-orgID/{orgID}`
 
-**Purpose** — Every project status from the `dbo.TimesheetProjectStatus`
-lookup, for a status picker. The `statusId` is what
-[Add / Edit Project](#26-add--edit-project) takes as `status`. Read through
-`dbo.spc_GetTimesheetProjectStatus`.
+**Purpose** — The live project statuses of one organisation, for a status
+picker. Deleted statuses (`DeletedDate` set) are not included. The `statusId`
+is what [Add / Edit Project](#26-add--edit-project) takes as `status`. Read
+through `dbo.spc_GetTimesheetProjectStatus`.
 
 #### Parameters
 
-None — the lookup is shared by every organisation.
+| Parameter | In | Type | Required | Rules |
+|---|---|---|---|---|
+| `orgID` | route | int | yes | `> 0`. Omitted, the URL matches no route and is a `404` |
 
 #### Example request
 
 ```
-GET /api/v1/TimesheetProject/get-timesheet-project-status-list
+GET /api/v1/TimesheetProject/get-timesheet-project-status-by-orgID/12
 ```
 
 #### Success response — `200 OK`
 
-`data` is an array of `TimesheetProjectStatusResponse`, ordered by `statusId`:
+`data` is an array of `TimesheetProjectStatusResponse`, ordered by `statusId`
+— the order the organisation added them in:
 
 | Field | Type | Notes |
 |---|---|---|
 | `statusId` | int | `dbo.TimesheetProjectStatus.StatusID` |
 | `status` | string | The status's name |
+| `colorCode` | string \| null | The display colour, as saved |
 
 ```json
 {
   "success": true,
   "message": "",
   "data": [
-    { "statusId": 1, "status": "Open" },
-    { "statusId": 2, "status": "Closed" },
-    { "statusId": 3, "status": "Pending" }
+    { "statusId": 1, "status": "Open", "colorCode": "#1E88E5" },
+    { "statusId": 2, "status": "Closed", "colorCode": null }
   ],
   "errors": []
 }
 ```
 
-The rows are seeded by hand —
-`docs/database/data/dbo.TimesheetProjectStatus_Insert.sql`. Until that has run,
-the list is empty.
+#### Empty result
+
+An organisation with no statuses is `data: []`.
 
 #### Error responses
 
-**500** — unhandled defect, or the procedure has not been created in the
-database yet.
+**400** — `orgID <= 0`: `orgID: orgID is required and must be greater than 0.`
+
+**500** — unhandled defect, or the procedure does not yet take `@POrgID` in
+the database.
 
 ---
 
@@ -3966,6 +3992,102 @@ success:
 
 ---
 
+### 33. Add / Edit Project Status
+
+`POST /api/v1/TimesheetProject/add-edit-timesheet-project-status`
+
+**Purpose** — Add a project status to an organisation, or edit one — **one
+endpoint for both**. `statusId` `0` (or absent) adds; an existing
+`statusId` edits that status, which must belong to `organizationId` and be
+live. An edit overwrites `status` and `colorCode`, so send both. Written
+through `dbo.spc_AddEditTimesheetProjectStatus`.
+
+#### Request body — `TimesheetProjectStatusSaveRequest` (JSON)
+
+| Field | Type | Required | Rules |
+|---|---|---|---|
+| `statusId` | int \| null | no | `0` / absent to add; `> 0` to edit |
+| `organizationId` | int | yes | `> 0` |
+| `status` | string | yes | Not blank, at most 20 characters; trimmed |
+| `colorCode` | string \| null | no | At most 25 characters; stored as sent. Blank is saved as `null` |
+| `userId` | int | yes | `> 0`. Written to `CreatedBy` on add, `Updatedby` on edit. Temporary — from the token once authentication is on |
+
+#### Example request
+
+```json
+{ "statusId": 0, "organizationId": 12, "status": "In Progress", "colorCode": "#1E88E5", "userId": 7 }
+```
+
+#### Success response — `200 OK`
+
+`data` is the saved `TimesheetProjectStatusResponse`:
+
+```json
+{
+  "success": true,
+  "message": "Project status saved.",
+  "data": { "statusId": 4, "status": "In Progress", "colorCode": "#1E88E5" },
+  "errors": []
+}
+```
+
+#### Error responses
+
+**400** — every failing field is listed together, e.g.
+`Status: Status is required.`, `UserId: UserId is required: the row records who created or last updated it.`
+
+**404** — a `statusId` was sent, but no live status of that organisation has
+it: `Project status '4' was not found.`
+
+**500** — unhandled defect, or the procedure has not been created in the
+database yet.
+
+---
+
+### 34. Remove Project Status
+
+`POST /api/v1/TimesheetProject/remove-timesheet-project-status`
+
+**Purpose** — Soft-delete a project status. The row stays, stamped with
+`DeletedDate` and `Deletedby`, and the status list and Add / Edit Project
+Status no longer see it. By the API through EF Core; no stored procedure.
+
+Projects already holding the status keep it, and still show its name.
+
+#### Request body — `TimesheetProjectStatusDeleteRequest` (JSON)
+
+| Field | Type | Required | Rules |
+|---|---|---|---|
+| `statusId` | int | yes | `> 0` |
+| `deletedBy` | int | yes | `> 0`. Written to `Deletedby`. Temporary — from the token once authentication is on |
+
+#### Example request
+
+```json
+{ "statusId": 4, "deletedBy": 7 }
+```
+
+#### Success response — `200 OK`
+
+```json
+{ "success": true, "message": "Project status removed.", "data": null, "errors": [] }
+```
+
+#### Error responses
+
+**400** — `statusId` or `deletedBy` `<= 0`; both are listed when both fail.
+
+**404** — no live status has that id. Removing one twice is **not** a silent
+success:
+
+```json
+{ "success": false, "message": "Project status '4' was not found.", "data": null, "errors": [] }
+```
+
+**500** — unhandled defect.
+
+---
+
 ## Health endpoints
 
 Anonymous, outside the `ApiResponse` envelope, and outside `/api/v1`.
@@ -4061,7 +4183,7 @@ authentication is off.
 | 16 | User Role List | GET | `/api/v1/Admin/get-user-role-list-by-orgid/{orgID}` | An organisation's live roles, by name | route param | `UserRoleResponse[]` (`roleId`, `roleName`) | 400, 500 |
 | 17 | Add / Edit User Role | POST | `/api/v1/Admin/add-edit-user-role` | Add a role (`roleId` 0 / absent) or rename one; name unique per organisation | `UserRoleSaveRequest` | `UserRoleResponse` | 400, 404, 409, 500 |
 | 18 | Delete User Role | POST | `/api/v1/Admin/delete-user-role` | Soft-delete a role of an organisation | `UserRoleDeleteRequest` | `null` | 400, 404, 500 |
-| 19 | Client List | GET | `/api/v1/MasterAdmin/get-client-list` | Every live client with its currency, by name | — | `ClientResponse[]` | 500 |
+| 19 | Client List | GET | `/api/v1/MasterAdmin/get-client-list/{orgID}` | An organisation's live clients with their currency, by name. **Procedure still DRAFT — 500 until applied** | route param | `ClientResponse[]` | 400, 500 |
 | 20 | Add / Edit Client Setup | POST **form** | `/api/v1/MasterAdmin/add-or-edit-client-setup` | Add (`CL0001`…) or edit a client; uploads `ClientLogo`; currency from country; billing email unique | `ClientSaveRequest` (`multipart/form-data`) | `ClientResponse` | 400, 404, 409, 415, 502, 500 |
 | 21 | Remove Client Setup | POST | `/api/v1/MasterAdmin/remove-client-setup` | Soft-delete a client | `ClientDeleteRequest` | `null` | 400, 404, 500 |
 | 22 | Project Category List | GET | `/api/v1/Admin/get-timesheet-project-category-by-orgID/{orgID}` | An organisation's live project categories, by name | route param | `ProjectCategoryResponse[]` (`categoryId`, `categoryName`) | 400, 500 |
@@ -4069,12 +4191,14 @@ authentication is off.
 | 24 | Remove Project Category | POST | `/api/v1/Admin/remove-timesheet-project-category` | Soft-delete a project category of an organisation | `ProjectCategoryDeleteRequest` | `null` | 400, 404, 500 |
 | 25 | Project List | GET | `/api/v1/TimesheetProject/get-timesheet-project-by-orgID/{orgID}` | An organisation's projects with status and client name, by name | route param | `TimesheetProjectResponse[]` | 400, 500 |
 | 26 | Add / Edit Project | POST | `/api/v1/TimesheetProject/add-edit-timesheet-project` | Add a project (`projectId` 0 / absent; code `PR0001`… generated) or update one; `clientId` required | `TimesheetProjectSaveRequest` | `TimesheetProjectResponse` | 400, 404, 500 |
-| 27 | Project Status List | GET | `/api/v1/TimesheetProject/get-timesheet-project-status-list` | The status lookup — Open, Closed, Pending | — | `TimesheetProjectStatusResponse[]` (`statusId`, `status`) | 500 |
+| 27 | Project Status List | GET | `/api/v1/TimesheetProject/get-timesheet-project-status-by-orgID/{orgID}` | An organisation's live statuses, by id | route param | `TimesheetProjectStatusResponse[]` (`statusId`, `status`, `colorCode`) | 400, 500 |
 | 28 | Remove Project | POST | `/api/v1/TimesheetProject/remove-timesheet-project` | Hard-delete a project **and its budget**, together | `TimesheetProjectDeleteRequest` | `null` | 400, 404, 500 |
 | 29 | Project Budget List | GET | `/api/v1/TimesheetProject/get-timesheet-project-budget-by-projectID/{projectID}` | A project's budget, with category name | route param | `TimesheetProjectBudgetResponse[]` | 400, 500 |
 | 30 | Add / Edit Project Budget | POST | `/api/v1/TimesheetProject/add-edit-timesheet-project-budget` | Save a project's one budget — the project decides add or update; amount = hours × rate | `TimesheetProjectBudgetSaveRequest` | `TimesheetProjectBudgetResponse` | 400, 404, 500 |
 | 31 | Remove Project Budget | POST | `/api/v1/TimesheetProject/remove-timesheet-project-budget` | Hard-delete every budget row of a project | `TimesheetProjectBudgetDeleteRequest` | `null` | 400, 404, 500 |
 | 32 | Organization List | GET | `/api/v1/MasterAdmin/get-all-organization` | Every organisation — id, name, country — by name | — | `OrganizationResponse[]` | 500 |
+| 33 | Add / Edit Project Status | POST | `/api/v1/TimesheetProject/add-edit-timesheet-project-status` | Add a status (`statusId` 0 / absent) or edit one, with its colour | `TimesheetProjectStatusSaveRequest` | `TimesheetProjectStatusResponse` | 400, 404, 500 |
+| 34 | Remove Project Status | POST | `/api/v1/TimesheetProject/remove-timesheet-project-status` | Soft-delete a project status | `TimesheetProjectStatusDeleteRequest` | `null` | 400, 404, 500 |
 | — | Health | GET | `/health`, `/health/live`, `/health/ready` | Liveness / readiness | — | *(unenveloped)* | 503 |
 
 ---
@@ -4203,7 +4327,8 @@ Documented so nobody has to rediscover them:
     cannot refuse one that is still in use.
 32. **The TimesheetProject procedures are DRAFT.** `spc_GetTimesheetProject`,
     `spc_AddEditTimesheetProject`, `spc_GetTimesheetProjectStatus`,
-    `spc_GetTimesheetProjectBudget` and `spc_AddEditTimesheetProjectBudget` are
+    `spc_AddEditTimesheetProjectStatus`, `spc_GetTimesheetProjectBudget` and
+    `spc_AddEditTimesheetProjectBudget` are
     recorded in `docs/database/procedures/` and must be created by hand; each
     matching endpoint answers 500 until its procedure exists in its latest
     version.
@@ -4216,9 +4341,10 @@ Documented so nobody has to rediscover them:
     `spc_AddEditTimesheetProjectBudget`) can give a project several budgets.
     Add / Edit Project Budget updates the lowest `budgetId`; the list shows them
     all; Remove Project Budget removes them all.
-35. **A project's `status` and `currencyCode` are not checked against their
-    lookups.** Any positive number is saved; an unknown `status` comes back with
-    `statusName: null`. No foreign keys were reported.
+35. **A project's `status` and `currencyCode` are not checked.** Any positive
+    number is saved — including another organisation's status, or a removed
+    one. An unknown `status` comes back with `statusName: null`. No foreign
+    keys were reported.
 36. **The budget endpoints have no organisation check.** Project Budget List
     and Remove Project Budget take a
     `projectId` alone, so — while authentication is off — any caller can read or
@@ -4228,12 +4354,18 @@ Documented so nobody has to rediscover them:
     show `projectCode: null` until they are saved again.
 38. **`spc_GetOrganizationList` is DRAFT.** Organization List answers 500
     until the owner creates it from `docs/database/procedures/`.
-39. **Client List returns every organisation's clients.** Clients now carry an
-    `organizationId`, but `spc_GetClientListForMasterAdmin` takes no parameter
-    and filters nothing, and billing-email uniqueness is still checked across
-    all organisations, not within one.
+39. **Billing-email uniqueness spans organisations.** Client List is filtered
+    by `orgID`, but a billing email is still checked against every
+    organisation's clients, not within one.
 40. **A client's `organizationId` is not checked against `dbo.Organization`.**
     Any positive number is saved; no foreign key was reported.
 41. **A project's client is not checked against the project's organisation.**
     Add / Edit Project only checks that `clientId` names a live client, so a
     project can name another organisation's client.
+42. **Project status names are not unique, and a removed status is not checked
+    for use.** Add / Edit Project Status does not refuse a second live status
+    of the same name in an organisation, and Remove Project Status does not
+    refuse a status projects still hold.
+43. **Remove Project Status has no organisation check.** It takes a
+    `statusId` alone, so — while authentication is off — any caller can
+    remove any organisation's status.

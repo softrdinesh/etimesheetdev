@@ -1,5 +1,6 @@
 using ETimeSheet.Application.Common.Mapping;
 using ETimeSheet.Application.Interfaces.Repositories;
+using ETimeSheet.Application.Interfaces.Services;
 using ETimeSheet.Application.Models;
 using ETimeSheet.Application.Services.Interfaces;
 using ETimeSheet.Shared.Exceptions;
@@ -24,14 +25,23 @@ public class TimesheetProjectService : ITimesheetProjectService
     /// <summary><c>dbo.TimesheetProject.Projectname</c> is <c>nvarchar(100)</c>.</summary>
     private const int ProjectNameMaximumLength = 100;
 
+    /// <summary><c>dbo.TimesheetProjectStatus.Status</c> is <c>nvarchar(20)</c>.</summary>
+    private const int StatusNameMaximumLength = 20;
+
+    /// <summary><c>dbo.TimesheetProjectStatus.Colorcode</c> is <c>nvarchar(25)</c>.</summary>
+    private const int ColorCodeMaximumLength = 25;
+
     private readonly ITimesheetProjectRepository _timesheetProjectRepository;
+    private readonly IDateTimeProvider _dateTimeProvider;
     private readonly ILogger<TimesheetProjectService> _logger;
 
     public TimesheetProjectService(
         ITimesheetProjectRepository timesheetProjectRepository,
+        IDateTimeProvider dateTimeProvider,
         ILogger<TimesheetProjectService> logger)
     {
         _timesheetProjectRepository = timesheetProjectRepository;
+        _dateTimeProvider = dateTimeProvider;
         _logger = logger;
     }
 
@@ -235,14 +245,6 @@ public class TimesheetProjectService : ITimesheetProjectService
             budgets.Count);
     }
 
-    public async Task<IReadOnlyList<TimesheetProjectStatusResponse>> GetStatusListAsync(
-        CancellationToken cancellationToken = default)
-    {
-        var statuses = await _timesheetProjectRepository.GetStatusListAsync(cancellationToken);
-
-        return statuses.Select(status => status.ToResponse()).ToList();
-    }
-
     public async Task<IReadOnlyList<TimesheetProjectBudgetResponse>> GetBudgetListByProjectIdAsync(
         int projectId,
         CancellationToken cancellationToken = default)
@@ -396,5 +398,158 @@ public class TimesheetProjectService : ITimesheetProjectService
             "Budget of project {ProjectId} deleted ({Count} row(s)).",
             request.ProjectId,
             budgets.Count);
+    }
+
+    public async Task<IReadOnlyList<TimesheetProjectStatusResponse>> GetStatusListByOrganizationIdAsync(
+        int organizationId,
+        CancellationToken cancellationToken = default)
+    {
+        // Checked here rather than by a route constraint: a 0 is told what is
+        // wrong with it instead of missing the route.
+        if (organizationId <= 0)
+        {
+            throw new ValidationException(
+                "orgID",
+                "orgID is required and must be greater than 0.");
+        }
+
+        var statuses = await _timesheetProjectRepository.GetStatusListByOrganizationIdAsync(
+            organizationId,
+            cancellationToken);
+
+        return statuses.Select(status => status.ToResponse()).ToList();
+    }
+
+    public async Task<TimesheetProjectStatusResponse> SaveStatusAsync(
+        TimesheetProjectStatusSaveRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        // Every rule is checked here, before anything is written, and every
+        // failure is collected - the caller is told about all of them in one
+        // 400, keyed on the field names it sent.
+        var statusName = request.Status?.Trim();
+        var colorCode = string.IsNullOrWhiteSpace(request.ColorCode) ? null : request.ColorCode.Trim();
+        var failures = new Dictionary<string, string[]>();
+
+        if (request.StatusId < 0)
+        {
+            failures[nameof(TimesheetProjectStatusSaveRequest.StatusId)] = new[]
+            {
+                "StatusId must be 0 (or left out) to add a status, or the id of the status to edit."
+            };
+        }
+
+        if (request.OrganizationId <= 0)
+        {
+            failures[nameof(TimesheetProjectStatusSaveRequest.OrganizationId)] = new[]
+            {
+                "OrganizationId is required and must be greater than 0."
+            };
+        }
+
+        if (string.IsNullOrEmpty(statusName))
+        {
+            failures[nameof(TimesheetProjectStatusSaveRequest.Status)] = new[] { "Status is required." };
+        }
+        else if (statusName.Length > StatusNameMaximumLength)
+        {
+            failures[nameof(TimesheetProjectStatusSaveRequest.Status)] = new[]
+            {
+                $"Status must be {StatusNameMaximumLength} characters or fewer."
+            };
+        }
+
+        if (colorCode?.Length > ColorCodeMaximumLength)
+        {
+            failures[nameof(TimesheetProjectStatusSaveRequest.ColorCode)] = new[]
+            {
+                $"ColorCode must be {ColorCodeMaximumLength} characters or fewer."
+            };
+        }
+
+        if (request.UserId <= 0)
+        {
+            failures[nameof(TimesheetProjectStatusSaveRequest.UserId)] = new[]
+            {
+                "UserId is required: the row records who created or last updated it."
+            };
+        }
+
+        if (failures.Count > 0)
+        {
+            throw new ValidationException(failures);
+        }
+
+        // Null and 0 both mean "add" - a negative id was refused above.
+        var statusId = request.StatusId is > 0 ? request.StatusId : null;
+
+        // Only an edit can come back empty: the status it names does not
+        // exist, is deleted, or belongs to another organisation.
+        var saved = await _timesheetProjectRepository.SaveStatusAsync(
+                statusId,
+                request.OrganizationId,
+                statusName!,
+                colorCode,
+                request.UserId,
+                _dateTimeProvider.UtcNow,
+                cancellationToken)
+            ?? throw NotFoundException.For("Project status", statusId ?? 0);
+
+        _logger.LogInformation(
+            "Project status {StatusId} {Action} for organization {OrganizationId} by user {UserId}.",
+            saved.StatusId,
+            statusId is null ? "added" : "updated",
+            request.OrganizationId,
+            request.UserId);
+
+        return saved.ToResponse();
+    }
+
+    public async Task DeleteStatusAsync(
+        TimesheetProjectStatusDeleteRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        // Every rule is checked before anything is read, and every failure is
+        // reported together.
+        var failures = new Dictionary<string, string[]>();
+
+        if (request.StatusId <= 0)
+        {
+            failures[nameof(TimesheetProjectStatusDeleteRequest.StatusId)] = new[]
+            {
+                "StatusId is required and must be greater than 0."
+            };
+        }
+
+        if (request.DeletedBy <= 0)
+        {
+            failures[nameof(TimesheetProjectStatusDeleteRequest.DeletedBy)] = new[]
+            {
+                "DeletedBy is required: a soft delete records who performed it."
+            };
+        }
+
+        if (failures.Count > 0)
+        {
+            throw new ValidationException(failures);
+        }
+
+        // The repository hides deleted statuses, so one deleted already is a
+        // 404 - never re-stamped over the first DeletedDate.
+        var status = await _timesheetProjectRepository.GetStatusForUpdateAsync(request.StatusId, cancellationToken)
+            ?? throw NotFoundException.For("Project status", request.StatusId);
+
+        // A soft delete, never a DELETE statement: the row stays, and the
+        // entity's query filter and both status procedures stop returning it.
+        status.DeletedDate = _dateTimeProvider.UtcNow;
+        status.DeletedBy = request.DeletedBy;
+
+        await _timesheetProjectRepository.UpdateStatusAsync(status, cancellationToken);
+
+        _logger.LogInformation(
+            "Project status {StatusId} of organization {OrganizationId} soft-deleted by user {DeletedBy}.",
+            status.StatusId,
+            status.OrganizationId,
+            request.DeletedBy);
     }
 }

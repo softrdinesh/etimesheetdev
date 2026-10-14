@@ -122,6 +122,13 @@ public class Context : DbContext
     /// </summary>
     public DbSet<TimesheetProjectBudget> TimesheetProjectBudget { get; set; } = null!;
 
+    /// <summary>
+    /// The <c>dbo.TimesheetProjectStatus</c> table - the project statuses
+    /// defined per organisation. Rows with a <c>DeletedDate</c> are hidden by a
+    /// query filter.
+    /// </summary>
+    public DbSet<TimesheetProjectStatus> TimesheetProjectStatus { get; set; } = null!;
+
     // =====================================================================
     // STORED PROCEDURES  -  property name == procedure name
     //
@@ -225,10 +232,16 @@ public class Context : DbContext
     public DbSet<TimesheetProjectSaveDetail> spc_AddEditTimesheetProject { get; set; } = null!;
 
     /// <summary>
-    /// Result set of <c>dbo.spc_GetTimesheetProjectStatus</c> - every project
-    /// status, ordered by id.
+    /// Result set of <c>dbo.spc_GetTimesheetProjectStatus</c> - the live
+    /// project statuses of one organisation, ordered by id.
     /// </summary>
     public DbSet<TimesheetProjectStatusDetail> spc_GetTimesheetProjectStatus { get; set; } = null!;
+
+    /// <summary>
+    /// Result set of <c>dbo.spc_AddEditTimesheetProjectStatus</c> - the status
+    /// just added or edited, or no row when an edit names a missing status.
+    /// </summary>
+    public DbSet<TimesheetProjectStatusSaveDetail> spc_AddEditTimesheetProjectStatus { get; set; } = null!;
 
     /// <summary>
     /// Result set of <c>dbo.spc_GetTimesheetProjectBudget</c> - the budget
@@ -582,8 +595,21 @@ public class Context : DbContext
             status.HasNoKey();
             status.ToView(null);
 
+            // Aliased by the procedure: Colorcode AS ColorCode.
             status.Property(row => row.StatusId).HasColumnName("StatusID");
             status.Property(row => row.Status).HasColumnName("Status");
+            status.Property(row => row.ColorCode).HasColumnName("ColorCode");
+        });
+
+        modelBuilder.Entity<TimesheetProjectStatusSaveDetail>(status =>
+        {
+            status.HasNoKey();
+            status.ToView(null);
+
+            // The same aliases as spc_GetTimesheetProjectStatus.
+            status.Property(row => row.StatusId).HasColumnName("StatusID");
+            status.Property(row => row.Status).HasColumnName("Status");
+            status.Property(row => row.ColorCode).HasColumnName("ColorCode");
         });
 
         modelBuilder.Entity<TimesheetProjectBudgetDetail>(budget =>

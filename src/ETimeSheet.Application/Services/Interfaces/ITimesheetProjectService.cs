@@ -54,13 +54,6 @@ public interface ITimesheetProjectService
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Returns every project status from the <c>dbo.TimesheetProjectStatus</c>
-    /// lookup, ordered by id, via <c>spc_GetTimesheetProjectStatus</c>.
-    /// </summary>
-    Task<IReadOnlyList<TimesheetProjectStatusResponse>> GetStatusListAsync(
-        CancellationToken cancellationToken = default);
-
-    /// <summary>
     /// Returns the budget lines of one project, ordered by period start, via
     /// <c>spc_GetTimesheetProjectBudget</c>. A project with no lines - or no
     /// such project - is an empty list, not a 404.
@@ -104,5 +97,49 @@ public interface ITimesheetProjectService
     /// </exception>
     Task DeleteBudgetAsync(
         TimesheetProjectBudgetDeleteRequest request,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns the live project statuses of one organisation, ordered by id,
+    /// via <c>spc_GetTimesheetProjectStatus</c>. An organisation with no
+    /// statuses is an empty list, not a 404.
+    /// </summary>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.ValidationException">
+    /// <paramref name="organizationId"/> is not a positive id.
+    /// </exception>
+    Task<IReadOnlyList<TimesheetProjectStatusResponse>> GetStatusListByOrganizationIdAsync(
+        int organizationId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Adds a project status to an organisation, or edits one - <b>one method
+    /// for both</b>, via <c>spc_AddEditTimesheetProjectStatus</c>. A
+    /// <see cref="TimesheetProjectStatusSaveRequest.StatusId"/> absent or
+    /// <c>0</c> adds; any greater value edits that status.
+    /// </summary>
+    /// <returns>The saved status, including its <c>StatusId</c>.</returns>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.ValidationException">
+    /// Any field fails its rule - every failing field is reported together.
+    /// </exception>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.NotFoundException">
+    /// A <c>StatusId</c> was sent, but no live status of this organisation has it.
+    /// </exception>
+    Task<TimesheetProjectStatusResponse> SaveStatusAsync(
+        TimesheetProjectStatusSaveRequest request,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Soft-deletes a project status: the row stays, stamped with
+    /// <c>DeletedDate</c> and <c>Deletedby</c>.
+    /// </summary>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.ValidationException">
+    /// A <c>StatusId</c> or <c>DeletedBy</c> that is not positive.
+    /// </exception>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.NotFoundException">
+    /// No live status has that id - including one removed already, so
+    /// removing twice is a 404.
+    /// </exception>
+    Task DeleteStatusAsync(
+        TimesheetProjectStatusDeleteRequest request,
         CancellationToken cancellationToken = default);
 }

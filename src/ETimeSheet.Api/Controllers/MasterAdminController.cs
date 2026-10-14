@@ -30,15 +30,23 @@ public class MasterAdminController : ControllerBase
     }
 
     /// <summary>
-    /// Returns every client, ordered by name. Deleted clients are not included.
+    /// Returns the clients of one organisation, ordered by name. Deleted clients
+    /// are not included.
     /// </summary>
+    /// <param name="orgID">The organisation whose clients to list, as a route segment.</param>
     /// <response code="200">The clients. None is an empty list, not a 404.</response>
-    [HttpGet("get-client-list")]
+    /// <response code="400">No organisation id, or one that is not greater than zero.</response>
+    [HttpGet("get-client-list/{orgID:int}")]
     [ProducesResponseType(typeof(ApiResponse<IReadOnlyList<ClientResponse>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> GetClientList(
+        // Spelled orgID, matching the route token character for character, and
+        // :int without :min(1) so a 0 reaches the service and gets a 400 - see
+        // AdminController.GetAllEmployeesByOrgId.
+        [FromRoute] int orgID,
         CancellationToken cancellationToken)
     {
-        var result = await _masterAdminService.GetClientListAsync(cancellationToken);
+        var result = await _masterAdminService.GetClientListAsync(orgID, cancellationToken);
         return Ok(ApiResponse.Ok(result));
     }
 

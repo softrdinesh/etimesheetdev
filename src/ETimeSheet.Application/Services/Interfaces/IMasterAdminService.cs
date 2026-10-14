@@ -13,10 +13,14 @@ namespace ETimeSheet.Application.Services.Interfaces;
 public interface IMasterAdminService
 {
     /// <summary>
-    /// Returns every live client, ordered by name. No clients is an empty list,
-    /// not a 404.
+    /// Returns the live clients of one organisation, ordered by name. No
+    /// clients is an empty list, not a 404.
     /// </summary>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.ValidationException">
+    /// <paramref name="organizationId"/> is not greater than zero.
+    /// </exception>
     Task<IReadOnlyList<ClientResponse>> GetClientListAsync(
+        int organizationId,
         CancellationToken cancellationToken = default);
 
     /// <summary>
