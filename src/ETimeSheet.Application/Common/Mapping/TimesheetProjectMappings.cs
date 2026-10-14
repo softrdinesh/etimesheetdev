@@ -22,6 +22,8 @@ internal static class TimesheetProjectMappings
         CurrencyCode = project.CurrencyCode,
         Status = project.Status,
         StatusName = project.StatusName,
+        ClientId = project.ClientId,
+        ClientName = project.ClientName,
     };
 
     /// <summary>Projects the project <c>spc_AddEditTimesheetProject</c> saved to the project response.</summary>
@@ -37,6 +39,8 @@ internal static class TimesheetProjectMappings
         CurrencyCode = project.CurrencyCode,
         Status = project.Status,
         StatusName = project.StatusName,
+        ClientId = project.ClientId,
+        ClientName = project.ClientName,
     };
 
     /// <summary>Projects a status row from <c>spc_GetTimesheetProjectStatus</c> to the status response.</summary>

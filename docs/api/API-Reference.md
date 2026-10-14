@@ -3,7 +3,7 @@
 Every endpoint the API exposes today, with its purpose, input payload, success
 response and failure responses — each with a worked example.
 
-Generated from the code on branch `develop` (2026-10-13). If you change a
+Generated from the code on branch `develop` (2026-10-14). If you change a
 controller, DTO or validator, change this file with it.
 
 ---
@@ -46,6 +46,7 @@ controller, DTO or validator, change this file with it.
   - [Client List](#19-client-list)
   - [Add / Edit Client Setup](#20-add--edit-client-setup)
   - [Remove Client Setup](#21-remove-client-setup)
+  - [Organization List](#32-organization-list)
 - [TimesheetProject](#timesheetproject)
   - [Project List](#25-project-list)
   - [Add / Edit Project](#26-add--edit-project)
@@ -2999,8 +3000,12 @@ Controller: `src/ETimeSheet.Api/Controllers/MasterAdminController.cs`
 Service: `MasterAdminService` · Prefix: `/api/v1/MasterAdmin`
 
 Client setup over `dbo.TimesheetClientSetup`: list, add / edit with a logo
-upload, and soft delete. Like Admin, it has **no permission** behind it while
-authentication is off.
+upload, and soft delete — plus the organisation list from `dbo.Organization`.
+Like Admin, it has **no permission** behind it while authentication is off.
+
+**Every client belongs to an organisation.** `OrganizationId` is required on
+add / edit and returned on every read. The client list is still **not**
+filtered by organisation — it returns every live client.
 
 **Currency is derived, never sent.** A client's `currencyId` is the
 `dbo.CountryCurrency.CurrencyID` of its `countryId` (one row per country), stored
@@ -3028,6 +3033,7 @@ Returned by all three read/write endpoints below, in this order:
 | `currencySymbol` | string \| null | `"₹"`. **Not unique** — `"$"` is shared by many currencies; show it beside `currencyName` |
 | `countryId` | int \| null | `dbo.Country.ID` |
 | `taxIdentifier` | string \| null | |
+| `organizationId` | int | The organisation the client belongs to |
 
 `isDeleted` and `deleteDate` are **never** returned — deleted clients never
 appear.
@@ -3083,7 +3089,8 @@ GET /api/v1/MasterAdmin/get-client-list
       "currencyName": "Indian Rupee",
       "currencySymbol": "₹",
       "countryId": 103,
-      "taxIdentifier": "29ABCDE1234F1Z5"
+      "taxIdentifier": "29ABCDE1234F1Z5",
+      "organizationId": 12
     }
   ],
   "errors": []
@@ -3132,6 +3139,7 @@ endpoint for both**, chosen by `clientId`. Written through
 | `PaymentTermsDays` | int | yes | `>= 0` | |
 | `CountryId` | int | yes | `> 0`, and must have a currency | The currency is taken from it; changing it on edit changes the currency |
 | `TaxIdentifier` | string | no | `<= 50` | |
+| `OrganizationId` | int | **yes** | `> 0` | The organisation the client belongs to. Written on add and on edit |
 
 There is **no** `clientCode`, `avatar`, `currencyCode` / `currencyId`,
 `isDeleted` or `deleteDate` field — all are generated, derived or managed by the
@@ -3169,7 +3177,8 @@ curl -X POST 'http://localhost:5041/api/v1/MasterAdmin/add-or-edit-client-setup'
   -F 'PaymentTermsDays=30' \
   -F 'CountryId=103' \
   -F 'BillingAddress=12 MG Road, Bengaluru' \
-  -F 'TaxIdentifier=29ABCDE1234F1Z5'
+  -F 'TaxIdentifier=29ABCDE1234F1Z5' \
+  -F 'OrganizationId=12'
 ```
 
 #### Example request — edit, keeping the logo
@@ -3181,7 +3190,8 @@ curl -X POST 'http://localhost:5041/api/v1/MasterAdmin/add-or-edit-client-setup'
   -F 'BillingEmail=billing@acme.test' \
   -F 'PhoneNumber=+91 98765 43210' \
   -F 'PaymentTermsDays=45' \
-  -F 'CountryId=103'
+  -F 'CountryId=103' \
+  -F 'OrganizationId=12'
 ```
 
 #### Success response — `200 OK`
@@ -3208,7 +3218,8 @@ new `clientId`, `clientCode`, `avatar` and currency:
     "currencyName": "Indian Rupee",
     "currencySymbol": "₹",
     "countryId": 103,
-    "taxIdentifier": "29ABCDE1234F1Z5"
+    "taxIdentifier": "29ABCDE1234F1Z5",
+    "organizationId": 12
   },
   "errors": []
 }
@@ -3230,6 +3241,8 @@ new `clientId`, `clientCode`, `avatar` and currency:
 | `PaymentTermsDays` missing / negative | `PaymentTermsDays is required.` / `PaymentTermsDays must be 0 or more.` |
 | `CountryId` missing / not positive | `CountryId is required: the client's currency is taken from its country.` / `CountryId must be greater than 0.` |
 | `TaxIdentifier` too long | `TaxIdentifier must be 50 characters or fewer.` |
+| `OrganizationId` missing | `OrganizationId is required: a client belongs to an organisation.` |
+| `OrganizationId <= 0` | `OrganizationId must be greater than 0.` |
 
 **400 — the country has no currency** (Antarctica, `CountryId = 8`):
 
@@ -3322,6 +3335,59 @@ success, and the first `DeleteDate` is never overwritten:
 
 ---
 
+### 32. Organization List
+
+`GET /api/v1/MasterAdmin/get-all-organization`
+
+**Purpose** — Every organisation in `dbo.Organization`, for an organisation
+picker — for example the `OrganizationId` of
+[Add / Edit Client Setup](#20-add--edit-client-setup). Read through
+`dbo.spc_GetOrganizationList`.
+
+#### Parameters
+
+None.
+
+#### Example request
+
+```
+GET /api/v1/MasterAdmin/get-all-organization
+```
+
+#### Success response — `200 OK`
+
+`data` is an array of `OrganizationResponse`, ordered by `organizationName`,
+then `organizationId`:
+
+| Field | Type | Notes |
+|---|---|---|
+| `organizationId` | int | `dbo.Organization.OrganizationID` |
+| `organizationName` | string \| null | Nullable on the table |
+| `countryId` | int \| null | |
+
+```json
+{
+  "success": true,
+  "message": "",
+  "data": [
+    { "organizationId": 12, "organizationName": "Acme Corp", "countryId": 103 },
+    { "organizationId": 7, "organizationName": "Globex", "countryId": 236 }
+  ],
+  "errors": []
+}
+```
+
+#### Empty result
+
+No organisations is `data: []` — a 200, not a 404.
+
+#### Error responses
+
+**500** — unhandled defect, or the procedure has not been created in the
+database yet.
+
+---
+
 ## TimesheetProject
 
 `TimesheetProjectController` — `api/v1/TimesheetProject`. An organisation's
@@ -3343,7 +3409,8 @@ row is physically gone and nothing records who removed it.
 
 `GET /api/v1/TimesheetProject/get-timesheet-project-by-orgID/{orgID}`
 
-**Purpose** — Every project of one organisation, each with its status name.
+**Purpose** — Every project of one organisation, each with its status name
+and client name.
 Read through `dbo.spc_GetTimesheetProject`.
 
 #### Route parameters
@@ -3375,6 +3442,8 @@ then `projectId`:
 | `currencyCode` | int \| null | |
 | `status` | int \| null | A `statusId` from [Project Status List](#27-project-status-list) |
 | `statusName` | string \| null | `Open` / `Closed` / `Pending`; `null` when `status` is null or unknown |
+| `clientId` | int | The client the project is for — `dbo.TimesheetClientSetup.ClientID` |
+| `clientName` | string \| null | The client's name — shown even if the client has since been removed; `null` only when the id names no client |
 
 `organizationId` is **not** returned — the caller already sent it in the URL.
 
@@ -3395,7 +3464,9 @@ then `projectId`:
       "endDate": "2026-12-31T00:00:00",
       "currencyCode": 1,
       "status": 1,
-      "statusName": "Open"
+      "statusName": "Open",
+      "clientId": 5,
+      "clientName": "Acme Ltd"
     }
   ],
   "errors": []
@@ -3450,6 +3521,7 @@ left as it was — send the whole project.
 | `endDate` | datetime \| null | no | not before `startDate` when both are sent | |
 | `currencyCode` | int \| null | no | `> 0` when sent | |
 | `status` | int \| null | no | `> 0` when sent | A `statusId` — 1 Open, 2 Closed, 3 Pending. **Not** checked against the lookup |
+| `clientId` | int | **yes** | `> 0`; a **live** (not deleted) client | The client the project is for. An update can change it |
 
 #### Example request — add
 
@@ -3463,7 +3535,8 @@ left as it was — send the whole project.
   "startDate": "2026-10-01T00:00:00",
   "endDate": "2026-12-31T00:00:00",
   "currencyCode": 1,
-  "status": 1
+  "status": 1,
+  "clientId": 5
 }
 ```
 
@@ -3479,7 +3552,8 @@ left as it was — send the whole project.
   "startDate": "2026-10-01T00:00:00",
   "endDate": "2027-01-31T00:00:00",
   "currencyCode": 1,
-  "status": 3
+  "status": 3,
+  "clientId": 5
 }
 ```
 
@@ -3503,7 +3577,9 @@ left as it was — send the whole project.
     "endDate": "2026-12-31T00:00:00",
     "currencyCode": 1,
     "status": 1,
-    "statusName": "Open"
+    "statusName": "Open",
+    "clientId": 5,
+    "clientName": "Acme Ltd"
   },
   "errors": []
 }
@@ -3523,6 +3599,19 @@ left as it was — send the whole project.
 | `endDate` before `startDate` | `EndDate must not be before StartDate.` |
 | `currencyCode <= 0` | `CurrencyCode must be greater than 0 when sent.` |
 | `status <= 0` | `Status must be greater than 0 when sent.` |
+| `clientId <= 0` (or left out) | `ClientId is required and must be greater than 0.` |
+
+**400** — `clientId` names no client, or a removed one (checked after the shape
+checks; a single entry):
+
+```json
+{
+  "success": false,
+  "message": "One or more validation errors occurred.",
+  "data": null,
+  "errors": ["ClientId: Client '5' does not exist or has been removed."]
+}
+```
 
 **404** — `projectId > 0` names no project of `organizationId`:
 
@@ -3978,13 +4067,14 @@ authentication is off.
 | 22 | Project Category List | GET | `/api/v1/Admin/get-timesheet-project-category-by-orgID/{orgID}` | An organisation's live project categories, by name | route param | `ProjectCategoryResponse[]` (`categoryId`, `categoryName`) | 400, 500 |
 | 23 | Add / Edit Project Category | POST | `/api/v1/Admin/add-edit-timesheet-project-category` | Add a category (`categoryId` 0 / absent) or rename one | `ProjectCategorySaveRequest` | `ProjectCategoryResponse` | 400, 404, 500 |
 | 24 | Remove Project Category | POST | `/api/v1/Admin/remove-timesheet-project-category` | Soft-delete a project category of an organisation | `ProjectCategoryDeleteRequest` | `null` | 400, 404, 500 |
-| 25 | Project List | GET | `/api/v1/TimesheetProject/get-timesheet-project-by-orgID/{orgID}` | An organisation's projects with status name, by name | route param | `TimesheetProjectResponse[]` | 400, 500 |
-| 26 | Add / Edit Project | POST | `/api/v1/TimesheetProject/add-edit-timesheet-project` | Add a project (`projectId` 0 / absent; code `PR0001`… generated) or update one | `TimesheetProjectSaveRequest` | `TimesheetProjectResponse` | 400, 404, 500 |
+| 25 | Project List | GET | `/api/v1/TimesheetProject/get-timesheet-project-by-orgID/{orgID}` | An organisation's projects with status and client name, by name | route param | `TimesheetProjectResponse[]` | 400, 500 |
+| 26 | Add / Edit Project | POST | `/api/v1/TimesheetProject/add-edit-timesheet-project` | Add a project (`projectId` 0 / absent; code `PR0001`… generated) or update one; `clientId` required | `TimesheetProjectSaveRequest` | `TimesheetProjectResponse` | 400, 404, 500 |
 | 27 | Project Status List | GET | `/api/v1/TimesheetProject/get-timesheet-project-status-list` | The status lookup — Open, Closed, Pending | — | `TimesheetProjectStatusResponse[]` (`statusId`, `status`) | 500 |
 | 28 | Remove Project | POST | `/api/v1/TimesheetProject/remove-timesheet-project` | Hard-delete a project **and its budget**, together | `TimesheetProjectDeleteRequest` | `null` | 400, 404, 500 |
 | 29 | Project Budget List | GET | `/api/v1/TimesheetProject/get-timesheet-project-budget-by-projectID/{projectID}` | A project's budget, with category name | route param | `TimesheetProjectBudgetResponse[]` | 400, 500 |
 | 30 | Add / Edit Project Budget | POST | `/api/v1/TimesheetProject/add-edit-timesheet-project-budget` | Save a project's one budget — the project decides add or update; amount = hours × rate | `TimesheetProjectBudgetSaveRequest` | `TimesheetProjectBudgetResponse` | 400, 404, 500 |
 | 31 | Remove Project Budget | POST | `/api/v1/TimesheetProject/remove-timesheet-project-budget` | Hard-delete every budget row of a project | `TimesheetProjectBudgetDeleteRequest` | `null` | 400, 404, 500 |
+| 32 | Organization List | GET | `/api/v1/MasterAdmin/get-all-organization` | Every organisation — id, name, country — by name | — | `OrganizationResponse[]` | 500 |
 | — | Health | GET | `/health`, `/health/live`, `/health/ready` | Liveness / readiness | — | *(unenveloped)* | 503 |
 
 ---
@@ -4136,3 +4226,14 @@ Documented so nobody has to rediscover them:
 37. **`projectCode` on a budget is a copy.** It is refreshed from the project's
     `code` on every budget save; budget rows saved before the column was added
     show `projectCode: null` until they are saved again.
+38. **`spc_GetOrganizationList` is DRAFT.** Organization List answers 500
+    until the owner creates it from `docs/database/procedures/`.
+39. **Client List returns every organisation's clients.** Clients now carry an
+    `organizationId`, but `spc_GetClientListForMasterAdmin` takes no parameter
+    and filters nothing, and billing-email uniqueness is still checked across
+    all organisations, not within one.
+40. **A client's `organizationId` is not checked against `dbo.Organization`.**
+    Any positive number is saved; no foreign key was reported.
+41. **A project's client is not checked against the project's organisation.**
+    Add / Edit Project only checks that `clientId` names a live client, so a
+    project can name another organisation's client.

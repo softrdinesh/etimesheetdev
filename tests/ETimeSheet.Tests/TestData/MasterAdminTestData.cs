@@ -24,6 +24,9 @@ public static class MasterAdminTestData
     /// <summary>Antarctica - the one country the schema script gives no currency.</summary>
     public const int CountryWithoutCurrencyId = 8;
 
+    /// <summary>The organisation every test client belongs to; <c>OrganizationID</c> is NOT NULL.</summary>
+    public const int OrganizationId = 12;
+
     /// <summary>
     /// A save payload that passes validation; a test changes only what it is
     /// about. Each call carries a different billing email.
@@ -45,6 +48,7 @@ public static class MasterAdminTestData
         PaymentTermsDays = 30,
         CountryId = countryId,
         TaxIdentifier = "29ABCDE1234F1Z5",
+        OrganizationId = OrganizationId,
     };
 
     /// <summary>A client row as it would sit in <c>dbo.TimesheetClientSetup</c>.</summary>
@@ -66,6 +70,7 @@ public static class MasterAdminTestData
         CountryId = countryId,
         IsDeleted = isDeleted,
         DeleteDate = isDeleted ? TimeLogTestData.Now.AddDays(-1) : null,
+        OrganizationId = OrganizationId,
     };
 
     /// <summary>A row as <c>spc_AddEditClientSetup</c> returns it.</summary>
@@ -86,5 +91,6 @@ public static class MasterAdminTestData
         CurrencySymbol = "₹",
         CountryId = IndiaCountryId,
         TaxIdentifier = "29ABCDE1234F1Z5",
+        OrganizationId = OrganizationId,
     };
 }

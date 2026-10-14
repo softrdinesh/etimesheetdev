@@ -129,9 +129,26 @@ public class TimesheetProjectService : ITimesheetProjectService
             };
         }
 
+        if (request.ClientId <= 0)
+        {
+            failures[nameof(TimesheetProjectSaveRequest.ClientId)] = new[]
+            {
+                "ClientId is required and must be greater than 0."
+            };
+        }
+
         if (failures.Count > 0)
         {
             throw new ValidationException(failures);
+        }
+
+        // Then the database: the column is NOT NULL with no foreign key, so
+        // nothing else stops a project naming a client that is not there.
+        if (!await _timesheetProjectRepository.ClientExistsAsync(request.ClientId, cancellationToken))
+        {
+            throw new ValidationException(
+                nameof(TimesheetProjectSaveRequest.ClientId),
+                $"Client '{request.ClientId}' does not exist or has been removed.");
         }
 
         // Null and 0 both mean "add" - a negative id was refused above.
@@ -149,6 +166,7 @@ public class TimesheetProjectService : ITimesheetProjectService
                 request.EndDate,
                 request.CurrencyCode,
                 request.Status,
+                request.ClientId,
                 cancellationToken)
             ?? throw NotFoundException.For("Project", projectId ?? 0);
 

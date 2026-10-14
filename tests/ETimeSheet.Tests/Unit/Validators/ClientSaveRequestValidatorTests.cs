@@ -49,6 +49,7 @@ public class ClientSaveRequestValidatorTests
             PhoneNumber = "123",
             PaymentTermsDays = 0,
             CountryId = MasterAdminTestData.IndiaCountryId,
+            OrganizationId = MasterAdminTestData.OrganizationId,
         };
 
         Assert.True(_validator.Validate(request).IsValid);

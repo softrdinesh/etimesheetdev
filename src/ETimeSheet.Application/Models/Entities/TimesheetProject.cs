@@ -41,4 +41,7 @@ public class TimesheetProject
 
     /// <summary>A <c>dbo.TimesheetProjectStatus.StatusID</c>; no foreign key.</summary>
     public int? Status { get; set; }
+
+    /// <summary>The <c>ClientID</c> column - a <c>dbo.TimesheetClientSetup.ClientID</c>. NOT NULL.</summary>
+    public int ClientId { get; set; }
 }

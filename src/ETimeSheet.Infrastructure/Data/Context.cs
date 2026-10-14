@@ -242,6 +242,12 @@ public class Context : DbContext
     /// </summary>
     public DbSet<TimesheetProjectBudgetSaveDetail> spc_AddEditTimesheetProjectBudget { get; set; } = null!;
 
+    /// <summary>
+    /// Result set of <c>dbo.spc_GetOrganizationList</c> - every organisation
+    /// in <c>dbo.Organization</c>, ordered by name.
+    /// </summary>
+    public DbSet<OrganizationListDetail> spc_GetOrganizationList { get; set; } = null!;
+
     // dbo.spc_GetUsersTaskList has NO DbSet, deliberately. It returns two
     // result sets and EF Core materialises only the first, so
     // TimeLogRepository.GetUserTaskListByUserIdAsync runs it on this context's
@@ -462,6 +468,7 @@ public class Context : DbContext
             client.Property(row => row.CurrencySymbol).HasColumnName("CurrencySymbol");
             client.Property(row => row.CountryId).HasColumnName("CountryID");
             client.Property(row => row.TaxIdentifier).HasColumnName("TaxIdentifier");
+            client.Property(row => row.OrganizationId).HasColumnName("OrganizationID");
         });
 
         modelBuilder.Entity<ClientSaveDetail>(client =>
@@ -485,6 +492,7 @@ public class Context : DbContext
             client.Property(row => row.CurrencySymbol).HasColumnName("CurrencySymbol");
             client.Property(row => row.CountryId).HasColumnName("CountryID");
             client.Property(row => row.TaxIdentifier).HasColumnName("TaxIdentifier");
+            client.Property(row => row.OrganizationId).HasColumnName("OrganizationID");
         });
 
         modelBuilder.Entity<UserRoleDetail>(role =>
@@ -545,6 +553,8 @@ public class Context : DbContext
             project.Property(row => row.CurrencyCode).HasColumnName("CurrencyCode");
             project.Property(row => row.Status).HasColumnName("Status");
             project.Property(row => row.StatusName).HasColumnName("StatusName");
+            project.Property(row => row.ClientId).HasColumnName("ClientID");
+            project.Property(row => row.ClientName).HasColumnName("ClientName");
         });
 
         modelBuilder.Entity<TimesheetProjectSaveDetail>(project =>
@@ -563,6 +573,8 @@ public class Context : DbContext
             project.Property(row => row.CurrencyCode).HasColumnName("CurrencyCode");
             project.Property(row => row.Status).HasColumnName("Status");
             project.Property(row => row.StatusName).HasColumnName("StatusName");
+            project.Property(row => row.ClientId).HasColumnName("ClientID");
+            project.Property(row => row.ClientName).HasColumnName("ClientName");
         });
 
         modelBuilder.Entity<TimesheetProjectStatusDetail>(status =>
@@ -606,6 +618,16 @@ public class Context : DbContext
             budget.Property(row => row.AllocatedAmount).HasColumnName("AllocatedAmount").HasColumnType("decimal(18,2)");
             budget.Property(row => row.PeriodStart).HasColumnName("PeriodStart");
             budget.Property(row => row.PeriodEnd).HasColumnName("PeriodEnd");
+        });
+
+        modelBuilder.Entity<OrganizationListDetail>(organization =>
+        {
+            organization.HasNoKey();
+            organization.ToView(null);
+
+            organization.Property(row => row.OrganizationId).HasColumnName("OrganizationID");
+            organization.Property(row => row.OrganizationName).HasColumnName("OrganizationName");
+            organization.Property(row => row.CountryId).HasColumnName("CountryID");
         });
     }
 }

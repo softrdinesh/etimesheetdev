@@ -1,6 +1,8 @@
 /*
     Procedure: dbo.spc_GetTimesheetProject
     Status:    DRAFT for review - not applied to any database.
+    Revised:   2026-10-14 - ClientID and ClientName (from
+               dbo.TimesheetClientSetup) added to the result.
 
     Returns the projects of one organisation from dbo.TimesheetProject, for
     GET api/v1/TimesheetProject/get-timesheet-project-by-orgID/{orgID}.
@@ -15,13 +17,18 @@
     Result columns:
       ProjectID, Code, ProjectName (aliased from Projectname), TotalBudget,
       TotalHours (aliased from Totalhours), StartDate, EndDate, CurrencyCode,
-      Status, and StatusName from dbo.TimesheetProjectStatus. The aliases are
+      Status, StatusName from dbo.TimesheetProjectStatus, ClientID, and
+      ClientName from dbo.TimesheetClientSetup. The aliases are
       what an EF Core result mapping binds to. OrganizationID is not returned -
       the caller already knows it.
 
       StatusName comes from a LEFT JOIN, so a project whose Status is NULL or
       names no row in dbo.TimesheetProjectStatus is still returned, with a NULL
       StatusName.
+
+      ClientName comes from a LEFT JOIN too, and is NOT filtered on
+      IsDeleted: a project keeps showing the name of a client that has since
+      been removed. Only a ClientID that names no row gives a NULL ClientName.
 
     Order:
       By ProjectName, then ProjectID so two projects with the same name always
@@ -33,6 +40,7 @@
     The tables are recorded at:
       ../schema/dbo.TimesheetProject.sql
       ../schema/dbo.TimesheetProjectStatus.sql
+      ../schema/dbo.Timesheetclientsetup.sql
 */
 
 CREATE OR ALTER PROCEDURE [dbo].[spc_GetTimesheetProject]
@@ -51,10 +59,14 @@ BEGIN
         tp.EndDate          AS EndDate,
         tp.CurrencyCode     AS CurrencyCode,
         tp.Status           AS Status,
-        tps.Status          AS StatusName
+        tps.Status          AS StatusName,
+        tp.ClientID         AS ClientID,
+        tcs.Clientname      AS ClientName
     FROM dbo.TimesheetProject tp
     LEFT JOIN dbo.TimesheetProjectStatus tps
         ON tps.StatusID = tp.Status
+    LEFT JOIN dbo.TimesheetClientSetup tcs
+        ON tcs.ClientID = tp.ClientID
     WHERE tp.OrganizationID = @POrgID
     ORDER BY tp.Projectname, tp.ProjectID;
 END

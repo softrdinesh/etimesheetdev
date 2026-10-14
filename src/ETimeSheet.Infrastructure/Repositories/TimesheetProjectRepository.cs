@@ -40,6 +40,7 @@ public class TimesheetProjectRepository : ITimesheetProjectRepository
         DateTime? endDate,
         int? currencyCode,
         int? status,
+        int clientId,
         CancellationToken cancellationToken = default)
     {
         // Materialised as a list, then the first row taken in memory:
@@ -55,7 +56,8 @@ public class TimesheetProjectRepository : ITimesheetProjectRepository
                 @PStartDate = {startDate},
                 @PEndDate = {endDate},
                 @PCurrencyCode = {currencyCode},
-                @PStatus = {status}")
+                @PStatus = {status},
+                @PClientID = {clientId}")
             .ToListAsync(cancellationToken);
 
         return rows.FirstOrDefault();
@@ -158,4 +160,12 @@ public class TimesheetProjectRepository : ITimesheetProjectRepository
         _db.TimesheetProjectBudget.RemoveRange(budgets);
         await _db.SaveChangesAsync(cancellationToken);
     }
+
+    public async Task<bool> ClientExistsAsync(
+        int clientId,
+        CancellationToken cancellationToken = default) =>
+        // The client's query filter hides deleted clients, so a deleted one
+        // does not count.
+        await _db.TimesheetClientSetup
+            .AnyAsync(client => client.ClientId == clientId, cancellationToken);
 }

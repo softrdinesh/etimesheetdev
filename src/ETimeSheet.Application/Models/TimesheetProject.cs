@@ -55,6 +55,15 @@ public class TimesheetProjectResponse
     /// Pending. Null when <see cref="Status"/> is null or names no status.
     /// </summary>
     public string? StatusName { get; set; }
+
+    /// <summary>The client the project is for - a <c>dbo.TimesheetClientSetup.ClientID</c>.</summary>
+    public int ClientId { get; set; }
+
+    /// <summary>
+    /// The client's name from <c>dbo.TimesheetClientSetup</c> - shown even if
+    /// the client has since been removed. Null only when the id names no client.
+    /// </summary>
+    public string? ClientName { get; set; }
 }
 
 /// <summary>
@@ -83,6 +92,10 @@ public class TimesheetProjectDetail
     public int? Status { get; set; }
 
     public string? StatusName { get; set; }
+
+    public int ClientId { get; set; }
+
+    public string? ClientName { get; set; }
 }
 
 /// <summary>
@@ -150,6 +163,13 @@ public class TimesheetProjectSaveRequest
     /// </summary>
     /// <example>1</example>
     public int? Status { get; set; }
+
+    /// <summary>
+    /// The client the project is for. Required, greater than 0, and must be a
+    /// live (not deleted) client. An update can change it.
+    /// </summary>
+    /// <example>5</example>
+    public int ClientId { get; set; }
 }
 
 /// <summary>
@@ -178,6 +198,10 @@ public class TimesheetProjectSaveDetail
     public int? Status { get; set; }
 
     public string? StatusName { get; set; }
+
+    public int ClientId { get; set; }
+
+    public string? ClientName { get; set; }
 }
 
 /// <summary>

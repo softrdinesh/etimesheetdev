@@ -77,6 +77,8 @@ public class TimesheetClientSetupConfiguration : IEntityTypeConfiguration<Timesh
 
         builder.Property(client => client.IsDeleted).HasColumnName("IsDeleted");
 
+        builder.Property(client => client.OrganizationId).HasColumnName("OrganizationID");
+
         builder.Property(client => client.DeleteDate)
             .HasColumnName("DeleteDate")
             .HasColumnType("datetime");

@@ -37,6 +37,7 @@ public interface ITimesheetProjectRepository
         DateTime? endDate,
         int? currencyCode,
         int? status,
+        int clientId,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -126,5 +127,10 @@ public interface ITimesheetProjectRepository
     /// <summary>Physically deletes the budget rows loaded by <see cref="GetBudgetListForUpdateByProjectIdAsync"/>.</summary>
     Task DeleteBudgetsAsync(
         IReadOnlyList<TimesheetProjectBudget> budgets,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Whether a live (not deleted) client with this id exists.</summary>
+    Task<bool> ClientExistsAsync(
+        int clientId,
         CancellationToken cancellationToken = default);
 }

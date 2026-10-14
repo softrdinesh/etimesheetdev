@@ -5,6 +5,8 @@
                (PR0001, PR0002 ...) and never changed on edit.
     Revised:   2026-10-13 - @PTotalHours is DECIMAL(18,2), following the
                Totalhours column's change from time(7).
+    Revised:   2026-10-14 - @PClientID added (required); ClientID and
+               ClientName returned.
 
     Adds a project to an organisation in dbo.TimesheetProject, or updates one,
     and returns the saved row.
@@ -24,6 +26,10 @@
       @PEndDate       the end date.
       @PCurrencyCode  the currency.
       @PStatus        a dbo.TimesheetProjectStatus.StatusID.
+      @PClientID      the client the project is for -
+                      dbo.TimesheetClientSetup.ClientID. Required: the
+                      column is NOT NULL. Written on add and on edit, so an
+                      edit can move a project to another client.
 
     Add (@PProjectID NULL or 0):
       The project gets the next code in the sequence PR0001, PR0002 ...
@@ -55,13 +61,15 @@
     Validation lives in the API (TimesheetProjectService): a positive @POrgID,
     a @PProjectName of at most 100 characters, a non-negative @PTotalBudget and
     @PTotalHours, @PEndDate not before
-    @PStartDate, and a positive @PCurrencyCode and @PStatus when sent. The
+    @PStartDate, a positive @PCurrencyCode and @PStatus when sent, and a
+    @PClientID that names a live (not deleted) client. The
     procedure does not repeat it. Neither checks that @PStatus names a
     dbo.TimesheetProjectStatus row - no foreign key was reported.
 
     The tables are recorded at:
       ../schema/dbo.TimesheetProject.sql
       ../schema/dbo.TimesheetProjectStatus.sql
+      ../schema/dbo.Timesheetclientsetup.sql
 */
 
 CREATE OR ALTER PROCEDURE [dbo].[spc_AddEditTimesheetProject]
@@ -73,7 +81,8 @@ CREATE OR ALTER PROCEDURE [dbo].[spc_AddEditTimesheetProject]
     @PStartDate     DATETIME        = NULL,
     @PEndDate       DATETIME        = NULL,
     @PCurrencyCode  INT             = NULL,
-    @PStatus        INT             = NULL
+    @PStatus        INT             = NULL,
+    @PClientID      INT
 AS
 BEGIN
     SET NOCOUNT ON;
@@ -115,9 +124,9 @@ BEGIN
             THROW 50001, 'The project code sequence has run out of room: Code holds at most 20 characters.', 1;
 
         INSERT INTO dbo.TimesheetProject
-            (Code, Projectname, TotalBudget, Totalhours, StartDate, EndDate, CurrencyCode, OrganizationID, Status)
+            (Code, Projectname, TotalBudget, Totalhours, StartDate, EndDate, CurrencyCode, OrganizationID, Status, ClientID)
         VALUES
-            (@NextCode, @PProjectName, @PTotalBudget, @PTotalHours, @PStartDate, @PEndDate, @PCurrencyCode, @POrgID, @PStatus);
+            (@NextCode, @PProjectName, @PTotalBudget, @PTotalHours, @PStartDate, @PEndDate, @PCurrencyCode, @POrgID, @PStatus, @PClientID);
 
         SET @ProjectID = CAST(SCOPE_IDENTITY() AS INT);
 
@@ -132,7 +141,8 @@ BEGIN
             StartDate    = @PStartDate,
             EndDate      = @PEndDate,
             CurrencyCode = @PCurrencyCode,
-            Status       = @PStatus
+            Status       = @PStatus,
+            ClientID     = @PClientID
         WHERE ProjectID = @PProjectID
           AND OrganizationID = @POrgID;
 
@@ -152,10 +162,14 @@ BEGIN
         tp.EndDate          AS EndDate,
         tp.CurrencyCode     AS CurrencyCode,
         tp.Status           AS Status,
-        tps.Status          AS StatusName
+        tps.Status          AS StatusName,
+        tp.ClientID         AS ClientID,
+        tcs.Clientname      AS ClientName
     FROM dbo.TimesheetProject tp
     LEFT JOIN dbo.TimesheetProjectStatus tps
         ON tps.StatusID = tp.Status
+    LEFT JOIN dbo.TimesheetClientSetup tcs
+        ON tcs.ClientID = tp.ClientID
     WHERE tp.ProjectID = @ProjectID
       AND tp.OrganizationID = @POrgID;
 END
