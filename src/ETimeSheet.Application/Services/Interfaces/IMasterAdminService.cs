@@ -47,4 +47,11 @@ public interface IMasterAdminService
     Task RemoveClientAsync(
         ClientDeleteRequest request,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns every organisation, ordered by name. No organisations is an
+    /// empty list, not a 404.
+    /// </summary>
+    Task<IReadOnlyList<OrganizationResponse>> GetOrganizationListAsync(
+        CancellationToken cancellationToken = default);
 }

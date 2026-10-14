@@ -4,6 +4,8 @@
     Revised:   2026-10-11 - DRAFT, NOT YET RE-APPLIED: @PCurrencyCode removed;
                the currency is derived from @PCountryID via
                dbo.CountryCurrency, and @PCountryID is now required.
+    Revised:   2026-10-14 - DRAFT: @POrgID added (required) and written to
+               OrganizationID on add and edit; OrganizationID returned.
 
     Adds a client to dbo.TimesheetClientSetup, or edits one, and returns the
     saved row. Called by POST api/v1/MasterAdmin/add-or-edit-client-setup.
@@ -12,6 +14,8 @@
       @PClientID   NULL or 0 adds a new client; any other value edits that
                    client.
       @PCountryID  required: the client's currency is derived from it.
+      @POrgID      required: the organisation the client belongs to, written
+                   to OrganizationID (NOT NULL) on add and on edit.
       the rest     the editable columns. ClientCode, Currencycode, IsDeleted
                    and DeleteDate are never taken as parameters.
 
@@ -62,7 +66,8 @@ CREATE OR ALTER PROCEDURE [dbo].[spc_AddEditClientSetup]
     @PBillingAddress        NVARCHAR(MAX)  = NULL,
     @PPaymentTermsDays      INT,
     @PCountryID             INT,
-    @PTaxIdentifier         NVARCHAR(50)   = NULL
+    @PTaxIdentifier         NVARCHAR(50)   = NULL,
+    @POrgID                 INT
 AS
 BEGIN
     SET NOCOUNT ON;
@@ -124,14 +129,14 @@ BEGIN
             ClientCode, Clientname, Avatar, BillingEmail, PhoneNumber,
             AlternatePhoneNumber, AlternateEmail, BillingAddress,
             payment_terms_days, Currencycode, CountryID, tax_identifier,
-            IsDeleted, DeleteDate
+            IsDeleted, DeleteDate, OrganizationID
         )
         VALUES
         (
             @NextCode, @PClientName, @PAvatar, @PBillingEmail, @PPhoneNumber,
             @PAlternatePhoneNumber, @PAlternateEmail, @PBillingAddress,
             @PPaymentTermsDays, @CurrencyID, @PCountryID, @PTaxIdentifier,
-            0, NULL
+            0, NULL, @POrgID
         );
 
         SET @ClientID = CAST(SCOPE_IDENTITY() AS INT);
@@ -153,7 +158,8 @@ BEGIN
             payment_terms_days    = @PPaymentTermsDays,
             Currencycode          = @CurrencyID,
             CountryID             = @PCountryID,
-            tax_identifier        = @PTaxIdentifier
+            tax_identifier        = @PTaxIdentifier,
+            OrganizationID        = @POrgID
         WHERE ClientID = @PClientID
           AND IsDeleted = 0;
 
@@ -178,7 +184,8 @@ BEGIN
         cc.CurrencyName           AS CurrencyName,
         cc.CurrencySymbol         AS CurrencySymbol,
         tcs.CountryID             AS CountryID,
-        tcs.tax_identifier        AS TaxIdentifier
+        tcs.tax_identifier        AS TaxIdentifier,
+        tcs.OrganizationID        AS OrganizationID
     FROM dbo.TimesheetClientSetup tcs
     -- LEFT: a client saved before currencies were derived may hold a
     -- Currencycode with no CountryCurrency row; it is still listed, with a

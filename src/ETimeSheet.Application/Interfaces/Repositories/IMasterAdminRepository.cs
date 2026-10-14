@@ -78,4 +78,11 @@ public interface IMasterAdminRepository
         string billingEmail,
         int? excludeClientId,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns every organisation, ordered by name, via
+    /// <c>spc_GetOrganizationList</c>.
+    /// </summary>
+    Task<IReadOnlyList<OrganizationListDetail>> GetOrganizationListAsync(
+        CancellationToken cancellationToken = default);
 }

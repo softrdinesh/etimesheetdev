@@ -161,4 +161,11 @@ public class MasterAdminService : IMasterAdminService
 
         return reference;
     }
+
+    public async Task<IReadOnlyList<OrganizationResponse>> GetOrganizationListAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var organizations = await _masterAdminRepository.GetOrganizationListAsync(cancellationToken);
+        return organizations.Select(organization => organization.ToOrganizationResponse()).ToList();
+    }
 }

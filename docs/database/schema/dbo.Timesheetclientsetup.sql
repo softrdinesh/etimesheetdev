@@ -5,9 +5,11 @@
     Revised:  2026-10-11 - ClientID is IDENTITY(1,1) (confirmed by the owner).
     Revised:  2026-10-12 - Avatar widened from varchar(255) to nvarchar(500)
               by the owner, to hold the uploaded logo's path.
+    Revised:  2026-10-14 - by the owner: OrganizationID int NOT NULL added,
+              the organisation the client belongs to.
 
     One row per client: billing details, contact numbers and emails, and the
-    client's code, country and currency.
+    client's code, country, currency and organisation.
 
     Mapped by:
       src/ETimeSheet.Application/Models/Entities/TimesheetClientSetup.cs
@@ -39,6 +41,10 @@
         pre-signed S3 URL of around 365 characters that EXPIRES after 48 hours.
       - DeleteDate is plain datetime - local or UTC is not stated.
       - IsDeleted is NOT NULL; no default was reported.
+      - OrganizationID is the organisation the client belongs to - presumably
+        dbo.Organization's id; no foreign key was reported. Taken from the
+        add/edit payload. Recorded as the last column, where
+        ALTER TABLE ... ADD puts it. No default was reported.
 
     STILL UNCONFIRMED:
       - Whether ClientID is the primary key. It is IDENTITY(1,1), but no key
@@ -69,6 +75,7 @@ CREATE TABLE dbo.TimesheetClientSetup
     CountryID             int             NULL,
     tax_identifier        nvarchar(50)    NULL,
     IsDeleted             bit             NOT NULL,
-    DeleteDate            datetime        NULL
+    DeleteDate            datetime        NULL,
+    OrganizationID        int             NOT NULL
 );
 GO

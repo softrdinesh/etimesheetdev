@@ -51,7 +51,8 @@ public class MasterAdminRepository : IMasterAdminRepository
                 @PBillingAddress = {request.BillingAddress},
                 @PPaymentTermsDays = {request.PaymentTermsDays},
                 @PCountryID = {request.CountryId},
-                @PTaxIdentifier = {request.TaxIdentifier}")
+                @PTaxIdentifier = {request.TaxIdentifier},
+                @POrgID = {request.OrganizationId}")
             .ToListAsync(cancellationToken);
 
         return rows.FirstOrDefault();
@@ -98,4 +99,10 @@ public class MasterAdminRepository : IMasterAdminRepository
                 client => client.BillingEmail == billingEmail
                     && client.ClientId != excludeClientId,
                 cancellationToken);
+
+    public async Task<IReadOnlyList<OrganizationListDetail>> GetOrganizationListAsync(
+        CancellationToken cancellationToken = default) =>
+        // The procedure does the ordering; no LINQ is composed on top, because
+        // SQL Server cannot wrap an EXEC.
+        await _db.spc_GetOrganizationList.FromSqlInterpolated($"EXEC dbo.spc_GetOrganizationList").ToListAsync(cancellationToken);
 }

@@ -82,5 +82,12 @@ public class ClientSaveRequestValidator : AbstractValidator<ClientSaveRequest>
         RuleFor(request => request.TaxIdentifier)
             .MaximumLength(50)
             .WithMessage("TaxIdentifier must be 50 characters or fewer.");
+
+        // Required: OrganizationID is NOT NULL on the table.
+        RuleFor(request => request.OrganizationId)
+            .NotNull()
+            .WithMessage("OrganizationId is required: a client belongs to an organisation.")
+            .GreaterThan(0)
+            .WithMessage("OrganizationId must be greater than 0.");
     }
 }

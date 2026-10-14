@@ -27,6 +27,7 @@ internal static class MasterAdminMappings
         CurrencySymbol = client.CurrencySymbol,
         CountryId = client.CountryId,
         TaxIdentifier = client.TaxIdentifier,
+        OrganizationId = client.OrganizationId,
     };
 
     /// <summary>Projects the saved client to the same shape the client list returns.</summary>
@@ -47,5 +48,14 @@ internal static class MasterAdminMappings
         CurrencySymbol = client.CurrencySymbol,
         CountryId = client.CountryId,
         TaxIdentifier = client.TaxIdentifier,
+        OrganizationId = client.OrganizationId,
+    };
+
+    /// <summary>Projects an organisation row from <c>spc_GetOrganizationList</c> to the organisation response.</summary>
+    internal static OrganizationResponse ToOrganizationResponse(this OrganizationListDetail organization) => new()
+    {
+        OrganizationId = organization.OrganizationId,
+        OrganizationName = organization.OrganizationName,
+        CountryId = organization.CountryId,
     };
 }

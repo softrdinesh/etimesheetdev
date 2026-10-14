@@ -83,6 +83,13 @@ public class ClientSaveRequest
 
     /// <summary>Optional, at most 50 characters.</summary>
     public string? TaxIdentifier { get; set; }
+
+    /// <summary>
+    /// The organisation the client belongs to. Required, greater than 0.
+    /// Written on add and on edit.
+    /// </summary>
+    /// <example>12</example>
+    public int? OrganizationId { get; set; }
 }
 
 /// <summary>
@@ -147,6 +154,8 @@ public class ClientResponse
     public int? CountryId { get; set; }
 
     public string? TaxIdentifier { get; set; }
+
+    public int OrganizationId { get; set; }
 }
 
 /// <summary>
@@ -185,6 +194,8 @@ public class ClientListDetail
     public int? CountryId { get; set; }
 
     public string? TaxIdentifier { get; set; }
+
+    public int OrganizationId { get; set; }
 }
 
 /// <summary>
@@ -223,4 +234,34 @@ public class ClientSaveDetail
     public int? CountryId { get; set; }
 
     public string? TaxIdentifier { get; set; }
+
+    public int OrganizationId { get; set; }
+}
+
+/// <summary>
+/// One organisation from <c>dbo.Organization</c>, as
+/// <c>get-all-organization</c> returns it.
+/// </summary>
+public class OrganizationResponse
+{
+    public int OrganizationId { get; set; }
+
+    /// <summary>The company name. Nullable on the table.</summary>
+    public string? OrganizationName { get; set; }
+
+    /// <summary>Presumably <c>dbo.Country.ID</c>; no foreign key is recorded.</summary>
+    public int? CountryId { get; set; }
+}
+
+/// <summary>
+/// One row of <c>dbo.spc_GetOrganizationList</c>. The mapping is in
+/// <c>Context.ConfigureStoredProcedureResults</c>.
+/// </summary>
+public class OrganizationListDetail
+{
+    public int OrganizationId { get; set; }
+
+    public string? OrganizationName { get; set; }
+
+    public int? CountryId { get; set; }
 }

@@ -104,4 +104,18 @@ public class MasterAdminController : ControllerBase
         await _masterAdminService.RemoveClientAsync(request, cancellationToken);
         return Ok(ApiResponse.Ok("Client setup removed."));
     }
+
+    /// <summary>
+    /// Returns every organisation in <c>dbo.Organization</c> - id, name and
+    /// country - ordered by name.
+    /// </summary>
+    /// <response code="200">The organisations. None is an empty list, not a 404.</response>
+    [HttpGet("get-all-organization")]
+    [ProducesResponseType(typeof(ApiResponse<IReadOnlyList<OrganizationResponse>>), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetAllOrganization(
+        CancellationToken cancellationToken)
+    {
+        var result = await _masterAdminService.GetOrganizationListAsync(cancellationToken);
+        return Ok(ApiResponse.Ok(result));
+    }
 }

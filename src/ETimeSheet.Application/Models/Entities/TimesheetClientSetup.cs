@@ -56,4 +56,7 @@ public class TimesheetClientSetup
     public bool IsDeleted { get; set; }
 
     public DateTime? DeleteDate { get; set; }
+
+    /// <summary>The <c>OrganizationID</c> column - the organisation the client belongs to. NOT NULL.</summary>
+    public int OrganizationId { get; set; }
 }

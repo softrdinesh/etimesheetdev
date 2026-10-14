@@ -4,6 +4,7 @@
     Revised:   2026-10-11 - DRAFT, NOT YET RE-APPLIED: CurrencyCode is now
                returned as CurrencyID, with CurrencyName and CurrencySymbol
                joined from dbo.CountryCurrency.
+    Revised:   2026-10-14 - DRAFT: OrganizationID added to the result.
 
     Returns every live client in dbo.TimesheetClientSetup, for the Master
     Admin client list (GET api/v1/MasterAdmin/get-client-list).
@@ -18,7 +19,7 @@
     Result columns:
       Aliased to one consistent PascalCase spelling, because the table mixes
       conventions: Clientname -> ClientName, payment_terms_days ->
-      PaymentTermsDays, tax_identifier -> TaxIdentifier. Currencycode comes
+      PaymentTermsDays, tax_identifier -> TaxIdentifier, OrganizationID. Currencycode comes
       back as CurrencyID, because that is what it holds:
       dbo.CountryCurrency.CurrencyID.
       The aliases are what an EF Core result mapping binds to.
@@ -52,7 +53,8 @@ BEGIN
         cc.CurrencyName           AS CurrencyName,
         cc.CurrencySymbol         AS CurrencySymbol,
         tcs.CountryID             AS CountryID,
-        tcs.tax_identifier        AS TaxIdentifier
+        tcs.tax_identifier        AS TaxIdentifier,
+        tcs.OrganizationID        AS OrganizationID
     FROM dbo.TimesheetClientSetup tcs
     -- LEFT: a client saved before currencies were derived may hold a
     -- Currencycode with no CountryCurrency row; it is still listed, with a

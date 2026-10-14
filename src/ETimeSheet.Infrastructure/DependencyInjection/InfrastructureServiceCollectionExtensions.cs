@@ -155,6 +155,7 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddScoped<ISheetSubmissionRepository, SheetSubmissionRepository>();
         services.AddScoped<ISchedulerRepository, SchedulerRepository>();
         services.AddScoped<IMasterAdminRepository, MasterAdminRepository>();
+        services.AddScoped<ITimesheetProjectRepository, TimesheetProjectRepository>();
 
         // Not a feature repository: dbo.EmailQueue is written by the scheduler
         // (queueing) and by AdminService (closing a deleted setup's emails).
