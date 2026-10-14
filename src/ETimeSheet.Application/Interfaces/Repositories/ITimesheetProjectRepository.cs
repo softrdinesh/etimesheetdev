@@ -62,10 +62,11 @@ public interface ITimesheetProjectRepository
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Returns every project status, ordered by id, via
-    /// <c>spc_GetTimesheetProjectStatus</c>.
+    /// Returns the live project statuses of one organisation, ordered by id,
+    /// via <c>spc_GetTimesheetProjectStatus</c>.
     /// </summary>
-    Task<IReadOnlyList<TimesheetProjectStatusDetail>> GetStatusListAsync(
+    Task<IReadOnlyList<TimesheetProjectStatusDetail>> GetStatusListByOrganizationIdAsync(
+        int organizationId,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -132,5 +133,39 @@ public interface ITimesheetProjectRepository
     /// <summary>Whether a live (not deleted) client with this id exists.</summary>
     Task<bool> ClientExistsAsync(
         int clientId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Adds or edits a project status via
+    /// <c>spc_AddEditTimesheetProjectStatus</c> and returns the saved row.
+    /// </summary>
+    /// <param name="statusId"><see langword="null"/> to add; the id of the status to edit.</param>
+    /// <param name="status">Already trimmed and validated.</param>
+    /// <param name="userId">Written to <c>CreatedBy</c> on add, <c>Updatedby</c> on edit.</param>
+    /// <param name="now">Written to <c>CreateDate</c> on add, <c>UpdatedDate</c> on edit.</param>
+    /// <returns>
+    /// The saved status, or <see langword="null"/> when an edit names a status
+    /// that does not exist, is deleted, or belongs to another organisation.
+    /// </returns>
+    Task<TimesheetProjectStatusSaveDetail?> SaveStatusAsync(
+        int? statusId,
+        int organizationId,
+        string status,
+        string? colorCode,
+        int userId,
+        DateTime now,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns one live project status, <b>tracked</b> for removal, or
+    /// <see langword="null"/> when it does not exist or is deleted already.
+    /// </summary>
+    Task<TimesheetProjectStatus?> GetStatusForUpdateAsync(
+        int statusId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Saves the changes made to a status loaded by <see cref="GetStatusForUpdateAsync"/>.</summary>
+    Task UpdateStatusAsync(
+        TimesheetProjectStatus status,
         CancellationToken cancellationToken = default);
 }

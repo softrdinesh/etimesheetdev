@@ -86,11 +86,13 @@ public class TimesheetProjectRepository : ITimesheetProjectRepository
         await _db.SaveChangesAsync(cancellationToken);
     }
 
-    public async Task<IReadOnlyList<TimesheetProjectStatusDetail>> GetStatusListAsync(
+    public async Task<IReadOnlyList<TimesheetProjectStatusDetail>> GetStatusListByOrganizationIdAsync(
+        int organizationId,
         CancellationToken cancellationToken = default) =>
-        // The procedure does the ordering; no LINQ is composed on top, because
-        // SQL Server cannot wrap an EXEC.
-        await _db.spc_GetTimesheetProjectStatus.FromSqlInterpolated($"EXEC dbo.spc_GetTimesheetProjectStatus").ToListAsync(cancellationToken);
+        // The procedure filters by organisation, drops deleted statuses and
+        // does the ordering; no LINQ is composed on top, because SQL Server
+        // cannot wrap an EXEC.
+        await _db.spc_GetTimesheetProjectStatus.FromSqlInterpolated($"EXEC dbo.spc_GetTimesheetProjectStatus @POrgID = {organizationId}").ToListAsync(cancellationToken);
 
     public async Task<TimesheetProject?> GetByIdAsync(
         int projectId,
@@ -168,4 +170,42 @@ public class TimesheetProjectRepository : ITimesheetProjectRepository
         // does not count.
         await _db.TimesheetClientSetup
             .AnyAsync(client => client.ClientId == clientId, cancellationToken);
+
+    public async Task<TimesheetProjectStatusSaveDetail?> SaveStatusAsync(
+        int? statusId,
+        int organizationId,
+        string status,
+        string? colorCode,
+        int userId,
+        DateTime now,
+        CancellationToken cancellationToken = default)
+    {
+        // Materialised as a list, then the first row taken in memory:
+        // FirstOrDefault on the query would try to compose SELECT TOP(1) around
+        // the EXEC, which SQL Server cannot do.
+        var rows = await _db.spc_AddEditTimesheetProjectStatus
+            .FromSqlInterpolated($@"EXEC dbo.spc_AddEditTimesheetProjectStatus
+                @PStatusID = {statusId},
+                @POrgID = {organizationId},
+                @PStatus = {status},
+                @PColorCode = {colorCode},
+                @PUserID = {userId},
+                @PDate = {now}")
+            .ToListAsync(cancellationToken);
+
+        return rows.FirstOrDefault();
+    }
+
+    public async Task<TimesheetProjectStatus?> GetStatusForUpdateAsync(
+        int statusId,
+        CancellationToken cancellationToken = default) =>
+        // Tracked on purpose - this is the write path. The query filter still
+        // applies, so a status deleted already is not found.
+        await _db.TimesheetProjectStatus
+            .FirstOrDefaultAsync(status => status.StatusId == statusId, cancellationToken);
+
+    public async Task UpdateStatusAsync(
+        TimesheetProjectStatus status,
+        CancellationToken cancellationToken = default) =>
+        await _db.SaveChangesAsync(cancellationToken);
 }

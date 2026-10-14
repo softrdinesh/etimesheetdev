@@ -17,7 +17,7 @@
 
     Read by:
       ../procedures/dbo.spc_GetClientListForMasterAdmin.sql
-      (MasterAdminRepository, for GET api/v1/MasterAdmin/get-client-list)
+      (MasterAdminRepository, for GET api/v1/MasterAdmin/get-client-list/{orgID})
 
     Written by:
       ../procedures/dbo.spc_AddEditClientSetup.sql

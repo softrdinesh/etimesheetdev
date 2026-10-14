@@ -25,10 +25,12 @@ public class MasterAdminRepository : IMasterAdminRepository
     }
 
     public async Task<IReadOnlyList<ClientListDetail>> GetClientListAsync(
+        int organizationId,
         CancellationToken cancellationToken = default) =>
-        // The procedure filters out deleted clients and does the ordering; no
-        // LINQ is composed on top, because SQL Server cannot wrap an EXEC.
-        await _db.spc_GetClientListForMasterAdmin.FromSqlInterpolated($"EXEC dbo.spc_GetClientListForMasterAdmin").ToListAsync(cancellationToken);
+        // The procedure filters by organisation, drops deleted clients and does
+        // the ordering; no LINQ is composed on top, because SQL Server cannot
+        // wrap an EXEC.
+        await _db.spc_GetClientListForMasterAdmin.FromSqlInterpolated($"EXEC dbo.spc_GetClientListForMasterAdmin @POrgID = {organizationId}").ToListAsync(cancellationToken);
 
     public async Task<ClientSaveDetail?> SaveClientAsync(
         ClientSaveRequest request,
