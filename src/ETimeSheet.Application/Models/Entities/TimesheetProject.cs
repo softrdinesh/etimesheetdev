@@ -44,4 +44,10 @@ public class TimesheetProject
 
     /// <summary>The <c>ClientID</c> column - a <c>dbo.TimesheetClientSetup.ClientID</c>. NOT NULL.</summary>
     public int ClientId { get; set; }
+
+    /// <summary>
+    /// How often the project's timesheets are submitted - see
+    /// <c>Constants.TimesheetProject.SubmissionFrequency</c>. Nullable.
+    /// </summary>
+    public int? SubmissionFrequency { get; set; }
 }

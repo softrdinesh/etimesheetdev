@@ -57,5 +57,6 @@ public class TimesheetProjectConfiguration : IEntityTypeConfiguration<TimesheetP
         builder.Property(project => project.Status).HasColumnName("Status");
 
         builder.Property(project => project.ClientId).HasColumnName("ClientID");
+        builder.Property(project => project.SubmissionFrequency).HasColumnName("SubmissionFrequency");
     }
 }

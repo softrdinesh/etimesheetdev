@@ -58,6 +58,9 @@ controller, DTO or validator, change this file with it.
   - [Add / Edit Project Budget](#30-add--edit-project-budget)
   - [Remove Project Budget](#31-remove-project-budget)
   - [Organisation Project Budget List](#35-organisation-project-budget-list)
+  - [Create Timesheet User](#36-create-timesheet-user)
+  - [Edit Timesheet User](#37-edit-timesheet-user)
+  - [Remove Timesheet User](#38-remove-timesheet-user)
 - [Health endpoints](#health-endpoints)
 - [Enumerations](#enumerations)
 - [Endpoint summary table](#endpoint-summary-table)
@@ -3466,6 +3469,8 @@ then `projectId`:
 | `statusName` | string \| null | `Open` / `Closed` / `Pending`; `null` when `status` is null or unknown |
 | `clientId` | int | The client the project is for — `dbo.TimesheetClientSetup.ClientID` |
 | `clientName` | string \| null | The client's name — shown even if the client has since been removed; `null` only when the id names no client |
+| `submissionFrequency` | int \| null | How often timesheets are submitted: `1` weekly, `2` every 15 days, `3` monthly; `null` when not set |
+| `submissionFrequencyName` | string \| null | `submissionFrequency` as text: `Weekly`, `Every 15 Days` or `Monthly`; `null` when not set. Worked out by the procedure, not stored |
 
 `organizationId` is **not** returned — the caller already sent it in the URL.
 
@@ -3488,7 +3493,9 @@ then `projectId`:
       "status": 1,
       "statusName": "Open",
       "clientId": 5,
-      "clientName": "Acme Ltd"
+      "clientName": "Acme Ltd",
+      "submissionFrequency": 1,
+      "submissionFrequencyName": "Weekly"
     }
   ],
   "errors": []
@@ -3548,6 +3555,7 @@ left as it was — send the whole project.
 | `endDate` | datetime \| null | no | not before `startDate` when both are sent | |
 | `status` | int \| null | no | `> 0` when sent | A `statusId` from [Project Status List](#27-project-status-list). **Not** checked against the organisation's statuses |
 | `clientId` | int | **yes** | `> 0`; a **live** (not deleted) client | The client the project is for, and the source of its currency. An update can change it |
+| `submissionFrequency` | int \| null | no | `1`, `2` or `3` when sent | How often timesheets are submitted: `1` weekly, `2` every 15 days, `3` monthly. Left out, it is saved as `null` — on an update too |
 
 #### Example request — add
 
@@ -3561,7 +3569,8 @@ left as it was — send the whole project.
   "startDate": "2026-10-01T00:00:00",
   "endDate": "2026-12-31T00:00:00",
   "status": 1,
-  "clientId": 5
+  "clientId": 5,
+  "submissionFrequency": 1
 }
 ```
 
@@ -3577,7 +3586,8 @@ left as it was — send the whole project.
   "startDate": "2026-10-01T00:00:00",
   "endDate": "2027-01-31T00:00:00",
   "status": 3,
-  "clientId": 5
+  "clientId": 5,
+  "submissionFrequency": 2
 }
 ```
 
@@ -3603,7 +3613,9 @@ left as it was — send the whole project.
     "status": 1,
     "statusName": "Open",
     "clientId": 5,
-    "clientName": "Acme Ltd"
+    "clientName": "Acme Ltd",
+    "submissionFrequency": 1,
+    "submissionFrequencyName": "Weekly"
   },
   "errors": []
 }
@@ -3623,6 +3635,7 @@ left as it was — send the whole project.
 | `endDate` before `startDate` | `EndDate must not be before StartDate.` |
 | `status <= 0` | `Status must be greater than 0 when sent.` |
 | `clientId <= 0` (or left out) | `ClientId is required and must be greater than 0.` |
+| `submissionFrequency` not 1, 2 or 3 | `SubmissionFrequency must be 1 (weekly), 2 (every 15 days) or 3 (monthly) when sent.` |
 
 **400** — `clientId` names no client, or a removed one (checked after the shape
 checks; a single entry):
@@ -4172,6 +4185,272 @@ database yet.
 
 ---
 
+### 36. Create Timesheet User
+
+`POST /api/v1/TimesheetProject/create-timesheet-user`
+
+**Purpose** — Sign a user up and put them on a project of their organisation.
+Written through `dbo.spc_Signup_timesheet_user`.
+
+| `email` | Result |
+|---|---|
+| not yet a user | **Creates** the user (`dbo.Signup`, role 2), their `dbo.Login` row, and the project assignment. `isNewUser: true` |
+| a live user of `organizationId` | **Adds the project assignment only.** The user is not changed — `fullName`, `countryId` and `address` are ignored. `isNewUser: false` |
+| a removed user, or a user of another organisation | **409** — nothing is written |
+
+The email is matched ignoring case and surrounding spaces, and stored upper
+case.
+
+**Welcome email.** A **new** account is sent the welcome email
+(`WelcomeUserTemplate.html`) straight away, through the email service — nothing
+is queued or stored. The login URL, support address and subject come from the
+`WelcomeEmail` configuration section. An existing user put on another project
+gets no email. **A failed email does not fail the request**: the account is
+already created, so the response is still `200`, with `welcomeEmailSent: false`,
+and the reason is logged.
+
+#### Request body — `TimesheetUserCreateRequest` (JSON)
+
+| Field | Type | Required | Rules | Notes |
+|---|---|---|---|---|
+| `fullName` | string | yes | `<= 50` characters after trimming | |
+| `email` | string | yes | a valid address, `<= 50` characters | |
+| `countryId` | int \| null | no | `> 0`; an existing `dbo.Country` | |
+| `address` | string \| null | no | | Blank is saved as `null` |
+| `organizationId` | int | yes | `> 0`; an existing organisation | |
+| `projectId` | int | yes | `> 0`; a project of `organizationId` | |
+| `projectRoleId` | int \| null | no | `> 0`; a live role of `organizationId` | A `roleId` from `get-user-role-list-by-orgid` |
+| `jobType` | int \| null | no | `> 0` | Not checked against a list |
+| `costRate` | decimal | yes | `>= 0` | Cost per hour |
+| `billRate` | decimal | yes | `>= 0` | Billable rate per hour |
+| `workLocationRange` | int \| null | no | `>= 0` | |
+| `projectLocationLatitude` | string \| null | no | a number from -90 to 90, `<= 25` characters | Saved for a **new** user only |
+| `createdBy` | int | yes | `> 0` | Temporary — from the token once authentication is on |
+
+The procedure's `@Range` and `@Projectloclongtitude` parameters are **not**
+exposed: the procedure never uses either.
+
+#### Example request
+
+```json
+{
+  "fullName": "Priya Shah",
+  "email": "priya.shah@example.com",
+  "countryId": 101,
+  "address": "12 MG Road, Pune",
+  "organizationId": 12,
+  "projectId": 4,
+  "projectRoleId": 3,
+  "jobType": 1,
+  "costRate": 25.00,
+  "billRate": 45.00,
+  "workLocationRange": 500,
+  "projectLocationLatitude": "18.5204",
+  "createdBy": 7
+}
+```
+
+#### Success response — `200 OK`
+
+`data` is a `TimesheetUserCreateResponse` — the user as `dbo.Signup` holds it
+after the save. `message` is `User created.` or `User added to the project.`
+
+| Field | Type | Notes |
+|---|---|---|
+| `userId` | int | `dbo.Signup.UserID` |
+| `name` | string \| null | An existing user keeps their own name |
+| `email` | string \| null | As stored — upper case |
+| `organizationId` | int \| null | |
+| `projectId` | int | |
+| `isNewUser` | bool | `false` when an existing user was only put on the project |
+| `welcomeEmailSent` | bool | Whether the welcome email went out. Always `false` when `isNewUser` is `false` |
+
+```json
+{
+  "success": true,
+  "message": "User created.",
+  "data": {
+    "userId": 58,
+    "name": "Priya Shah",
+    "email": "PRIYA.SHAH@EXAMPLE.COM",
+    "organizationId": 12,
+    "projectId": 4,
+    "isNewUser": true,
+    "welcomeEmailSent": true
+  },
+  "errors": []
+}
+```
+
+#### Error responses
+
+**400 — validation** (every failure listed): a missing or malformed field from
+the table above, then — once the shape is right — an organisation, country,
+project or role that does not exist, e.g.
+`ProjectId: Project '4' does not exist in organization '12'.`
+
+**409** — `The user with email '…' has been removed.` /
+`The user with email '…' belongs to another organization.`
+
+**500** — unhandled defect, the procedure has not been created in the database,
+or the procedure failed. The procedure swallows its own errors without rolling
+back, so the API sees only SQL Server error 266; it rolls the transaction back
+and returns the generic 500. The real cause is not reported.
+
+#### Not checked
+
+Putting the same user on the same project twice adds a second assignment row:
+`dbo.Timesheet_Users_Project_setup` has no unique constraint, and neither the
+procedure nor the API checks for an existing assignment.
+
+---
+
+### 37. Edit Timesheet User
+
+`POST /api/v1/TimesheetProject/edit-timesheet-user`
+
+**Purpose** — Edit one project assignment of a user, and the user's name and
+email. Written through EF Core, not a procedure.
+
+| Field | Saved to |
+|---|---|
+| `fullName`, `email` | The user in `dbo.Signup` — **only when they change**, with `UpdatedDate` / `UpdateBy`. They change for every project the user is on |
+| everything else | The assignment in `dbo.Timesheet_Users_Project_setup` |
+
+Both are saved in one transaction — both or neither. **An edit overwrites every
+field**: an optional field left out is saved as `null`. Send the whole
+assignment.
+
+> Needs `TimesheetUserProjectSetupID` on `dbo.Timesheet_Users_Project_setup` —
+> recorded as a DRAFT, not yet applied. Until it is, this endpoint returns 500.
+
+#### Request body — `TimesheetUserUpdateRequest` (JSON)
+
+| Field | Type | Required | Rules | Notes |
+|---|---|---|---|---|
+| `timesheetUserProjectSetupId` | int | yes | `> 0`; a live assignment | |
+| `organizationId` | int | yes | `> 0` | The assignment's user must belong to it |
+| `fullName` | string | yes | `<= 50` characters after trimming | |
+| `email` | string | yes | a valid address, `<= 50` characters; not another user's | Stored upper case. Compared ignoring case, so a case-only change is not a change |
+| `projectId` | int | yes | `> 0`; a project of `organizationId`; not one the user is on through another live assignment | May move the assignment to another project |
+| `projectRoleId` | int \| null | no | `> 0`; a live role of `organizationId` | |
+| `jobType` | int \| null | no | `> 0` | |
+| `costRate` | decimal | yes | `>= 0` | |
+| `billRate` | decimal | yes | `>= 0` | |
+| `workLocationRange` | int \| null | no | `>= 0` | |
+| `projectLocationLatitude` | string \| null | no | a number from -90 to 90, `<= 25` characters | |
+| `projectLocationLongitude` | string \| null | no | a number from -180 to 180, `<= 25` characters | |
+| `updatedBy` | int | yes | `> 0` | Temporary — from the token once authentication is on |
+
+#### Example request
+
+```json
+{
+  "timesheetUserProjectSetupId": 21,
+  "organizationId": 12,
+  "fullName": "Priya Shah",
+  "email": "priya.shah@example.com",
+  "projectId": 4,
+  "projectRoleId": 3,
+  "jobType": 1,
+  "costRate": 28.00,
+  "billRate": 50.00,
+  "workLocationRange": 500,
+  "projectLocationLatitude": "18.5204",
+  "projectLocationLongitude": "73.8567",
+  "updatedBy": 7
+}
+```
+
+#### Success response — `200 OK`
+
+`data` is a `TimesheetUserResponse`:
+
+```json
+{
+  "success": true,
+  "message": "Timesheet user saved.",
+  "data": {
+    "timesheetUserProjectSetupId": 21,
+    "userId": 58,
+    "name": "Priya Shah",
+    "email": "PRIYA.SHAH@EXAMPLE.COM",
+    "organizationId": 12,
+    "projectId": 4,
+    "projectRoleId": 3,
+    "jobType": 1,
+    "costRate": 28.00,
+    "billRate": 50.00,
+    "workLocationRange": 500,
+    "projectLocationLatitude": "18.5204",
+    "projectLocationLongitude": "73.8567"
+  },
+  "errors": []
+}
+```
+
+#### Error responses
+
+**400 — validation** (every failure listed): a missing or malformed field from
+the table above, then — once the shape is right — a project or role that does
+not exist in the organisation.
+
+**404** — no live assignment has that id, or its user is removed or belongs to
+another organisation: `Timesheet user '21' was not found.`
+
+**409** — `The email '…' is already used by another user.` /
+`User '58' is already on project '4' through another assignment.`
+
+**500** — unhandled defect.
+
+---
+
+### 38. Remove Timesheet User
+
+`POST /api/v1/TimesheetProject/remove-timesheet-user`
+
+**Purpose** — Take a user off a project, by `userId` and `projectId`. A soft
+delete: the user's live assignment to the project in
+`dbo.Timesheet_Users_Project_setup` stays, stamped with `IsDelete = 1`,
+`DeletedDate` (UTC) and `DeletedBy`. Normally one row; if
+`create-timesheet-user` added duplicates, **every** live one is removed. The
+user in `dbo.Signup` and their other projects are **not** touched.
+
+> Needs `TimesheetUserProjectSetupID` on `dbo.Timesheet_Users_Project_setup` —
+> recorded as a DRAFT, not yet applied. EF Core updates rows by that key, so
+> until it is added this endpoint returns 500.
+
+#### Request body — `TimesheetUserDeleteRequest` (JSON)
+
+| Field | Type | Required | Rules |
+|---|---|---|---|
+| `userId` | int | yes | `> 0` — a `dbo.Signup.UserID` |
+| `projectId` | int | yes | `> 0` |
+| `deletedBy` | int | yes | `> 0` — temporary, from the token once authentication is on |
+
+```json
+{ "userId": 58, "projectId": 4, "deletedBy": 7 }
+```
+
+#### Success response — `200 OK`
+
+```json
+{ "success": true, "message": "Timesheet user removed.", "data": null, "errors": [] }
+```
+
+#### Error responses
+
+**400** (every failure listed) — `UserId is required and must be greater than 0.` /
+`ProjectId is required and must be greater than 0.` /
+`DeletedBy is required: a soft delete records who performed it.`
+
+**404** — the user has no live assignment to the project — including one
+removed already: `User '58' is not on project '4'.`
+
+**500** — unhandled defect, or the key column has not been added yet.
+
+---
+
 ## Health endpoints
 
 Anonymous, outside the `ApiResponse` envelope, and outside `/api/v1`.
@@ -4284,6 +4563,9 @@ authentication is off.
 | 33 | Add / Edit Project Status | POST | `/api/v1/TimesheetProject/add-edit-timesheet-project-status` | Add a status (`statusId` 0 / absent) or edit one, with its colour | `TimesheetProjectStatusSaveRequest` | `TimesheetProjectStatusResponse` | 400, 404, 500 |
 | 34 | Remove Project Status | POST | `/api/v1/TimesheetProject/remove-timesheet-project-status` | Soft-delete a project status | `TimesheetProjectStatusDeleteRequest` | `null` | 400, 404, 500 |
 | 35 | Organisation Project Budget List | GET | `/api/v1/TimesheetProject/get-timesheet-project-budget-by-orgID/{orgID}` | Budget lines of every project of an organisation, with project and category name | route param | `TimesheetProjectBudgetByOrgResponse[]` | 400, 500 |
+| 36 | Create Timesheet User | POST | `/api/v1/TimesheetProject/create-timesheet-user` | Sign a user up and put them on a project; an existing user of the organisation gets the assignment only | `TimesheetUserCreateRequest` | `TimesheetUserCreateResponse` | 400, 409, 500 |
+| 37 | Edit Timesheet User | POST | `/api/v1/TimesheetProject/edit-timesheet-user` | Edit an assignment; name/email saved to `dbo.Signup` when changed | `TimesheetUserUpdateRequest` | `TimesheetUserResponse` | 400, 404, 409, 500 |
+| 38 | Remove Timesheet User | POST | `/api/v1/TimesheetProject/remove-timesheet-user` | Take a user off a project by `userId` + `projectId` (soft delete); the user is not touched | `TimesheetUserDeleteRequest` | `null` | 400, 404, 500 |
 | — | Health | GET | `/health`, `/health/live`, `/health/ready` | Liveness / readiness | — | *(unenveloped)* | 503 |
 
 ---

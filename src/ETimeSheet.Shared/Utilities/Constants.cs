@@ -182,6 +182,31 @@ public static class Constants
         }
     }
 
+    /// <summary>Coded column values for the <c>dbo.TimesheetProject</c> table.</summary>
+    public static class TimesheetProject
+    {
+        /// <summary>
+        /// Values of the <c>dbo.TimesheetProject.SubmissionFrequency</c> column -
+        /// how often the project's timesheets are submitted.
+        /// <para>
+        /// <b>1 = Weekly, 2 = every 15 days, 3 = Monthly</b>, or NULL when not
+        /// set. A CHECK constraint on the column allows only these three. They
+        /// are persisted, so they can never be renumbered.
+        /// </para>
+        /// </summary>
+        public static class SubmissionFrequency
+        {
+            /// <summary>Every week. Stored as <c>1</c>.</summary>
+            public const int Weekly = 1;
+
+            /// <summary>Every 15 days. Stored as <c>2</c>.</summary>
+            public const int FifteenDays = 2;
+
+            /// <summary>Every month. Stored as <c>3</c>.</summary>
+            public const int Monthly = 3;
+        }
+    }
+
     /// <summary>Coded column values for the <c>dbo.TimesheetSubmission</c> table.</summary>
     public static class TimesheetSubmission
     {

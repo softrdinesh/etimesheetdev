@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Welcome to Nexora Timesheet</title>
+</head>
+
+<body style="margin:0; padding:0; background-color:#f4f6f8; font-family:Arial, Helvetica, sans-serif;">
+
+    <table width="100%" cellpadding="0" cellspacing="0" border="0"
+           style="background-color:#f4f6f8; padding:30px 0;">
+        <tr>
+            <td align="center">
+
+                <table width="600" cellpadding="0" cellspacing="0" border="0"
+                       style="background-color:#ffffff; border-radius:8px; overflow:hidden;">
+
+                    <!-- Header -->
+                    <tr>
+                        <td style="background-color:#1f4e78; padding:20px 30px; color:#ffffff;">
+                            <h2 style="margin:0; font-size:22px;">
+                                Welcome to Nexora Timesheet
+                            </h2>
+                        </td>
+                    </tr>
+
+                    <!-- Content -->
+                    <tr>
+                        <td style="padding:30px; color:#333333; font-size:15px; line-height:1.6;">
+
+                            <p>Hi <strong>{{UserName}}</strong>,</p>
+
+                            <p>Welcome to <strong>Nexora Timesheet!</strong></p>
+
+                            <p>
+                                Your user account has been successfully created. You can now access
+                                Nexora to manage your timesheets, record your daily work hours, and
+                                track the time you spend on projects and tasks.
+                            </p>
+
+                            <!-- Getting Started -->
+                            <h3 style="margin:25px 0 10px; font-size:17px; color:#1f4e78;">Getting Started</h3>
+
+                            <ol style="margin:0; padding-left:20px;">
+                                <li style="margin-bottom:8px;">
+                                    <strong>Sign in to Nexora</strong> using your registered email
+                                    address and the login credentials provided to you.
+                                </li>
+                                <li style="margin-bottom:8px;">
+                                    <strong>View your assigned projects and tasks</strong> to understand
+                                    where your time should be recorded.
+                                </li>
+                                <li style="margin-bottom:8px;">
+                                    <strong>Enter your daily time logs</strong> by selecting the work
+                                    date, project, task, hours worked, and a brief description of the
+                                    work completed.
+                                </li>
+                                <li style="margin-bottom:8px;">
+                                    <strong>Review your timesheet</strong> to ensure all entries are
+                                    accurate and complete.
+                                </li>
+                                <li style="margin-bottom:8px;">
+                                    <strong>Submit your timesheet</strong> for approval according to
+                                    your organization's process.
+                                </li>
+                            </ol>
+
+                            <!-- Reminders -->
+                            <table width="100%" cellpadding="0" cellspacing="0" border="0"
+                                   style="background-color:#f8f9fa; border-left:4px solid #1f4e78; margin:25px 0;">
+                                <tr>
+                                    <td style="padding:15px;">
+                                        <strong>A Few Important Reminders</strong>
+                                        <ul style="margin:10px 0 0; padding-left:20px;">
+                                            <li>Record your working hours regularly and accurately.</li>
+                                            <li>Provide clear descriptions of the activities performed.</li>
+                                            <li>Ensure your time entries are associated with the correct project and task.</li>
+                                            <li>Submit your timesheet within the required reporting period.</li>
+                                            <li>Check the status of your timesheet to track approvals or any requested corrections.</li>
+                                        </ul>
+                                    </td>
+                                </tr>
+                            </table>
+
+                            <!-- Access -->
+                            <h3 style="margin:25px 0 10px; font-size:17px; color:#1f4e78;">Access Your Account</h3>
+
+                            <p>
+                                Get started here:
+                                <a href="{{NexoraLoginURL}}" style="color:#1f4e78;">{{NexoraLoginURL}}</a>
+                            </p>
+
+                            <p>
+                                If you have any questions or need assistance accessing your account,
+                                please contact
+                                <a href="mailto:{{SupportEmail}}" style="color:#1f4e78;">{{SupportEmail}}</a>.
+                            </p>
+
+                            <p>
+                                We're glad to have you on Nexora and look forward to helping you manage
+                                your time and projects more efficiently.
+                            </p>
+
+                            <p style="margin-top:25px;">
+                                Best regards,<br>
+                                <strong>The Nexora Team</strong><br>
+                                One Platform. Every Possibility.
+                            </p>
+
+                        </td>
+                    </tr>
+
+                    <!-- Footer -->
+                    <tr>
+                        <td style="background-color:#f1f3f5; padding:15px 30px; text-align:center;
+                                   color:#777777; font-size:12px;">
+                            This is an automated email. Please do not reply to this email.
+                        </td>
+                    </tr>
+
+                </table>
+
+            </td>
+        </tr>
+    </table>
+
+</body>
+</html>

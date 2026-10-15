@@ -155,4 +155,61 @@ public interface ITimesheetProjectService
     Task<IReadOnlyList<TimesheetProjectBudgetByOrgResponse>> GetBudgetListByOrganizationIdAsync(
         int organizationId,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Signs a user up and puts them on a project of their organisation, via
+    /// <c>spc_Signup_timesheet_user</c>. An email that is already a live user
+    /// of the same organisation only gets the project assignment; the user
+    /// itself is not changed.
+    /// </summary>
+    /// <returns>The user as <c>dbo.Signup</c> holds it after the save.</returns>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.ValidationException">
+    /// Any field fails its rule, or the organisation, country, project or role
+    /// it names does not exist - every failure is reported together.
+    /// </exception>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.ConflictException">
+    /// The email belongs to a removed user, or to a user of another organisation.
+    /// </exception>
+    Task<TimesheetUserCreateResponse> CreateTimesheetUserAsync(
+        TimesheetUserCreateRequest request,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Edits one project assignment of a user through EF Core. The name and
+    /// email are saved to <c>dbo.Signup</c> when they change; every other field
+    /// to <c>dbo.Timesheet_Users_Project_setup</c>. Both in one transaction.
+    /// </summary>
+    /// <returns>The assignment and the user's name and email, as saved.</returns>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.ValidationException">
+    /// Any field fails its rule, or the project or role it names does not exist
+    /// in the organisation - every failure is reported together.
+    /// </exception>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.NotFoundException">
+    /// No live assignment has that id, or its user is removed or belongs to
+    /// another organisation.
+    /// </exception>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.ConflictException">
+    /// The email belongs to another user, or the user is already on the project
+    /// through another assignment.
+    /// </exception>
+    Task<TimesheetUserResponse> UpdateTimesheetUserAsync(
+        TimesheetUserUpdateRequest request,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Takes a user off a project: soft-deletes every live assignment of the
+    /// user to the project - normally one. The rows stay, stamped with
+    /// <c>IsDelete</c> = 1, <c>DeletedDate</c> and <c>DeletedBy</c>. The user
+    /// in <c>dbo.Signup</c> is not touched.
+    /// </summary>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.ValidationException">
+    /// A <c>UserId</c>, <c>ProjectId</c> or <c>DeletedBy</c> that is not positive.
+    /// </exception>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.NotFoundException">
+    /// The user has no live assignment to the project - including one removed
+    /// already, so removing twice is a 404.
+    /// </exception>
+    Task DeleteTimesheetUserAsync(
+        TimesheetUserDeleteRequest request,
+        CancellationToken cancellationToken = default);
 }

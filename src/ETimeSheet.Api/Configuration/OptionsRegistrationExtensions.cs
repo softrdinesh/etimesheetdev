@@ -25,6 +25,7 @@ public static class OptionsRegistrationExtensions
         services.Configure<CorsSettings>(configuration.GetSection(CorsSettings.SectionName));
 
         services.AddValidatedOptions<EmailServiceSettings>(configuration, EmailServiceSettings.SectionName);
+        services.AddValidatedOptions<WelcomeEmailSettings>(configuration, WelcomeEmailSettings.SectionName);
 
         return services;
     }
