@@ -86,4 +86,20 @@ internal static class TimesheetProjectMappings
         PeriodStart = budget.PeriodStart,
         PeriodEnd = budget.PeriodEnd,
     };
+
+    /// <summary>Projects a budget row from <c>spc_GetTimesheetProjectBudgetByOrgID</c> to the budget-by-organisation response.</summary>
+    internal static TimesheetProjectBudgetByOrgResponse ToResponse(this TimesheetProjectBudgetByOrgDetail budget) => new()
+    {
+        ProjectId = budget.ProjectId,
+        ProjectCode = budget.ProjectCode,
+        ProjectName = budget.ProjectName,
+        BudgetId = budget.BudgetId,
+        ProjectCategoryId = budget.ProjectCategoryId,
+        CategoryName = budget.CategoryName,
+        AllocatedHours = budget.AllocatedHours,
+        HourlyRate = budget.HourlyRate,
+        AllocatedAmount = budget.AllocatedAmount,
+        PeriodStart = budget.PeriodStart,
+        PeriodEnd = budget.PeriodEnd,
+    };
 }

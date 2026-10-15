@@ -57,6 +57,7 @@ controller, DTO or validator, change this file with it.
   - [Project Budget List](#29-project-budget-list)
   - [Add / Edit Project Budget](#30-add--edit-project-budget)
   - [Remove Project Budget](#31-remove-project-budget)
+  - [Organisation Project Budget List](#35-organisation-project-budget-list)
 - [Health endpoints](#health-endpoints)
 - [Enumerations](#enumerations)
 - [Endpoint summary table](#endpoint-summary-table)
@@ -3460,7 +3461,7 @@ then `projectId`:
 | `totalHours` | decimal \| null | A **number of hours** (`37.5` is 37½ hours), may exceed 24 |
 | `startDate` | datetime \| null | |
 | `endDate` | datetime \| null | |
-| `currencyCode` | int \| null | |
+| `currencyCode` | int \| null | The client's currency — `dbo.CountryCurrency.CurrencyID`, copied from the client on every save |
 | `status` | int \| null | A `statusId` from [Project Status List](#27-project-status-list) |
 | `statusName` | string \| null | `Open` / `Closed` / `Pending`; `null` when `status` is null or unknown |
 | `clientId` | int | The client the project is for — `dbo.TimesheetClientSetup.ClientID` |
@@ -3526,6 +3527,11 @@ existing `PR` + digits code **across every organisation** plus one, under a
 lock so two adds at once cannot get the same code. One sequence for the whole
 table, as with client codes.
 
+**No `currencyCode` is sent either.** The project's currency is the client's:
+it is copied from the `Currencycode` of `clientId` on every save, so changing
+the client on an update changes the currency too. A `currencyCode` in the body
+is ignored.
+
 **An update overwrites every field.** A field left out is saved as `null`, not
 left as it was — send the whole project.
 
@@ -3540,9 +3546,8 @@ left as it was — send the whole project.
 | `totalHours` | decimal \| null | no | `>= 0` | A **number of hours**, not `hh:mm:ss` — `120.5`. May exceed 24 |
 | `startDate` | datetime \| null | no | | |
 | `endDate` | datetime \| null | no | not before `startDate` when both are sent | |
-| `currencyCode` | int \| null | no | `> 0` when sent | |
 | `status` | int \| null | no | `> 0` when sent | A `statusId` from [Project Status List](#27-project-status-list). **Not** checked against the organisation's statuses |
-| `clientId` | int | **yes** | `> 0`; a **live** (not deleted) client | The client the project is for. An update can change it |
+| `clientId` | int | **yes** | `> 0`; a **live** (not deleted) client | The client the project is for, and the source of its currency. An update can change it |
 
 #### Example request — add
 
@@ -3555,7 +3560,6 @@ left as it was — send the whole project.
   "totalHours": 320.5,
   "startDate": "2026-10-01T00:00:00",
   "endDate": "2026-12-31T00:00:00",
-  "currencyCode": 1,
   "status": 1,
   "clientId": 5
 }
@@ -3572,7 +3576,6 @@ left as it was — send the whole project.
   "totalHours": 400,
   "startDate": "2026-10-01T00:00:00",
   "endDate": "2027-01-31T00:00:00",
-  "currencyCode": 1,
   "status": 3,
   "clientId": 5
 }
@@ -3618,7 +3621,6 @@ left as it was — send the whole project.
 | `totalBudget < 0` | `TotalBudget must not be negative.` |
 | `totalHours < 0` | `TotalHours must not be negative.` |
 | `endDate` before `startDate` | `EndDate must not be before StartDate.` |
-| `currencyCode <= 0` | `CurrencyCode must be greater than 0 when sent.` |
 | `status <= 0` | `Status must be greater than 0 when sent.` |
 | `clientId <= 0` (or left out) | `ClientId is required and must be greater than 0.` |
 
@@ -4088,6 +4090,88 @@ success:
 
 ---
 
+### 35. Organisation Project Budget List
+
+`GET /api/v1/TimesheetProject/get-timesheet-project-budget-by-orgID/{orgID}`
+
+**Purpose** — The budget lines of every project of one organisation, each with
+its project and category name. Read through
+`dbo.spc_GetTimesheetProjectBudgetByOrgID`.
+
+The organisation is reached through the project — `dbo.TimesheetProjectBudget`
+has no organisation column. A project with no budget is **not** listed; this is
+a list of budget lines, not of projects.
+
+#### Route parameters
+
+| Name | Type | Rules |
+|---|---|---|
+| `orgID` | int | `> 0` — checked by the service |
+
+#### Example request
+
+```
+GET /api/v1/TimesheetProject/get-timesheet-project-budget-by-orgID/12
+```
+
+#### Success response — `200 OK`
+
+`data` is an array of `TimesheetProjectBudgetByOrgResponse`, ordered by
+`projectName`, then `periodStart`, then `budgetId`:
+
+| Field | Type | Notes |
+|---|---|---|
+| `projectId` | int | `dbo.TimesheetProject.ProjectID` |
+| `projectCode` | string \| null | `dbo.TimesheetProject.Code` — read from the project, so never `null` for an old row |
+| `projectName` | string \| null | The `Projectname` column |
+| `budgetId` | int | `dbo.TimesheetProjectBudget.BudgetID` |
+| `projectCategoryId` | int \| null | |
+| `categoryName` | string \| null | From `dbo.TimesheetProjectCategory`; `null` when the category is null, unknown or deleted |
+| `allocatedHours` | decimal \| null | A number of hours |
+| `hourlyRate` | decimal \| null | The `Hourlyrate` column |
+| `allocatedAmount` | decimal \| null | The `Allocated_amount` column — hours × rate, worked out on save |
+| `periodStart` | datetime \| null | A date; the time part is always midnight |
+| `periodEnd` | datetime \| null | A date; the time part is always midnight |
+
+#### Example response
+
+```json
+{
+  "success": true,
+  "message": "",
+  "data": [
+    {
+      "projectId": 4,
+      "projectCode": "PR0004",
+      "projectName": "Website Rebuild",
+      "budgetId": 8,
+      "projectCategoryId": 3,
+      "categoryName": "Development",
+      "allocatedHours": 120.50,
+      "hourlyRate": 45.00,
+      "allocatedAmount": 5422.50,
+      "periodStart": "2026-10-01T00:00:00",
+      "periodEnd": "2026-12-31T00:00:00"
+    }
+  ],
+  "errors": []
+}
+```
+
+#### Empty result
+
+An organisation with no budget lines — or no such organisation — is
+`data: []`, a 200.
+
+#### Error responses
+
+**400** — `orgID <= 0`: `orgID: orgID is required and must be greater than 0.`
+
+**500** — unhandled defect, or the procedure has not been created in the
+database yet.
+
+---
+
 ## Health endpoints
 
 Anonymous, outside the `ApiResponse` envelope, and outside `/api/v1`.
@@ -4190,7 +4274,7 @@ authentication is off.
 | 23 | Add / Edit Project Category | POST | `/api/v1/Admin/add-edit-timesheet-project-category` | Add a category (`categoryId` 0 / absent) or rename one | `ProjectCategorySaveRequest` | `ProjectCategoryResponse` | 400, 404, 500 |
 | 24 | Remove Project Category | POST | `/api/v1/Admin/remove-timesheet-project-category` | Soft-delete a project category of an organisation | `ProjectCategoryDeleteRequest` | `null` | 400, 404, 500 |
 | 25 | Project List | GET | `/api/v1/TimesheetProject/get-timesheet-project-by-orgID/{orgID}` | An organisation's projects with status and client name, by name | route param | `TimesheetProjectResponse[]` | 400, 500 |
-| 26 | Add / Edit Project | POST | `/api/v1/TimesheetProject/add-edit-timesheet-project` | Add a project (`projectId` 0 / absent; code `PR0001`… generated) or update one; `clientId` required | `TimesheetProjectSaveRequest` | `TimesheetProjectResponse` | 400, 404, 500 |
+| 26 | Add / Edit Project | POST | `/api/v1/TimesheetProject/add-edit-timesheet-project` | Add a project (`projectId` 0 / absent; code `PR0001`… generated) or update one; `clientId` required, currency taken from the client | `TimesheetProjectSaveRequest` | `TimesheetProjectResponse` | 400, 404, 500 |
 | 27 | Project Status List | GET | `/api/v1/TimesheetProject/get-timesheet-project-status-by-orgID/{orgID}` | An organisation's live statuses, by id | route param | `TimesheetProjectStatusResponse[]` (`statusId`, `status`, `colorCode`) | 400, 500 |
 | 28 | Remove Project | POST | `/api/v1/TimesheetProject/remove-timesheet-project` | Hard-delete a project **and its budget**, together | `TimesheetProjectDeleteRequest` | `null` | 400, 404, 500 |
 | 29 | Project Budget List | GET | `/api/v1/TimesheetProject/get-timesheet-project-budget-by-projectID/{projectID}` | A project's budget, with category name | route param | `TimesheetProjectBudgetResponse[]` | 400, 500 |
@@ -4199,6 +4283,7 @@ authentication is off.
 | 32 | Organization List | GET | `/api/v1/MasterAdmin/get-all-organization` | Every organisation — id, name, country — by name | — | `OrganizationResponse[]` | 500 |
 | 33 | Add / Edit Project Status | POST | `/api/v1/TimesheetProject/add-edit-timesheet-project-status` | Add a status (`statusId` 0 / absent) or edit one, with its colour | `TimesheetProjectStatusSaveRequest` | `TimesheetProjectStatusResponse` | 400, 404, 500 |
 | 34 | Remove Project Status | POST | `/api/v1/TimesheetProject/remove-timesheet-project-status` | Soft-delete a project status | `TimesheetProjectStatusDeleteRequest` | `null` | 400, 404, 500 |
+| 35 | Organisation Project Budget List | GET | `/api/v1/TimesheetProject/get-timesheet-project-budget-by-orgID/{orgID}` | Budget lines of every project of an organisation, with project and category name | route param | `TimesheetProjectBudgetByOrgResponse[]` | 400, 500 |
 | — | Health | GET | `/health`, `/health/live`, `/health/ready` | Liveness / readiness | — | *(unenveloped)* | 503 |
 
 ---
@@ -4341,10 +4426,10 @@ Documented so nobody has to rediscover them:
     `spc_AddEditTimesheetProjectBudget`) can give a project several budgets.
     Add / Edit Project Budget updates the lowest `budgetId`; the list shows them
     all; Remove Project Budget removes them all.
-35. **A project's `status` and `currencyCode` are not checked.** Any positive
-    number is saved — including another organisation's status, or a removed
-    one. An unknown `status` comes back with `statusName: null`. No foreign
-    keys were reported.
+35. **A project's `status` is not checked.** Any positive number is saved —
+    including another organisation's status, or a removed one. An unknown
+    `status` comes back with `statusName: null`. No foreign keys were
+    reported. (`currencyCode` is no longer sent; it is copied from the client.)
 36. **The budget endpoints have no organisation check.** Project Budget List
     and Remove Project Budget take a
     `projectId` alone, so — while authentication is off — any caller can read or

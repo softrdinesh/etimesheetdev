@@ -500,3 +500,74 @@ public class TimesheetProjectBudgetDeleteRequest
     /// <example>5</example>
     public int ProjectId { get; set; }
 }
+
+/// <summary>
+/// One budget line of one project of an organisation, as
+/// <c>get-timesheet-project-budget-by-orgID</c> returns it - a
+/// <see cref="TimesheetProjectBudgetResponse"/> that also says which project
+/// it belongs to.
+/// </summary>
+public class TimesheetProjectBudgetByOrgResponse
+{
+    public int ProjectId { get; set; }
+
+    /// <summary>The project's code - PR0001 ... - from <c>dbo.TimesheetProject.Code</c>.</summary>
+    public string? ProjectCode { get; set; }
+
+    /// <summary>The project's <c>Projectname</c> column. Nullable on the table.</summary>
+    public string? ProjectName { get; set; }
+
+    public int BudgetId { get; set; }
+
+    public int? ProjectCategoryId { get; set; }
+
+    /// <summary>
+    /// The category's name from <c>dbo.TimesheetProjectCategory</c>. Null when
+    /// <see cref="ProjectCategoryId"/> is null, unknown or deleted.
+    /// </summary>
+    public string? CategoryName { get; set; }
+
+    public decimal? AllocatedHours { get; set; }
+
+    /// <summary>The <c>Hourlyrate</c> column.</summary>
+    public decimal? HourlyRate { get; set; }
+
+    /// <summary>The <c>Allocated_amount</c> column - hours x rate, worked out on save.</summary>
+    public decimal? AllocatedAmount { get; set; }
+
+    /// <summary>A date - the time part is always midnight.</summary>
+    public DateTime? PeriodStart { get; set; }
+
+    /// <summary>A date - the time part is always midnight.</summary>
+    public DateTime? PeriodEnd { get; set; }
+}
+
+/// <summary>
+/// One row of <c>dbo.spc_GetTimesheetProjectBudgetByOrgID</c> - a budget line
+/// of one project of an organisation. Property names follow the procedure's
+/// column aliases; the mapping is in <c>Context.ConfigureStoredProcedureResults</c>.
+/// </summary>
+public class TimesheetProjectBudgetByOrgDetail
+{
+    public int ProjectId { get; set; }
+
+    public string? ProjectCode { get; set; }
+
+    public string? ProjectName { get; set; }
+
+    public int BudgetId { get; set; }
+
+    public int? ProjectCategoryId { get; set; }
+
+    public string? CategoryName { get; set; }
+
+    public decimal? AllocatedHours { get; set; }
+
+    public decimal? HourlyRate { get; set; }
+
+    public decimal? AllocatedAmount { get; set; }
+
+    public DateTime? PeriodStart { get; set; }
+
+    public DateTime? PeriodEnd { get; set; }
+}

@@ -171,4 +171,13 @@ public interface ITimesheetProjectRepository
     Task UpdateStatusAsync(
         TimesheetProjectStatus status,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns the budget lines of every project of one organisation, ordered
+    /// by project name, then period start, via
+    /// <c>spc_GetTimesheetProjectBudgetByOrgID</c>.
+    /// </summary>
+    Task<IReadOnlyList<TimesheetProjectBudgetByOrgDetail>> GetBudgetListByOrganizationIdAsync(
+        int organizationId,
+        CancellationToken cancellationToken = default);
 }

@@ -256,6 +256,13 @@ public class Context : DbContext
     public DbSet<TimesheetProjectBudgetSaveDetail> spc_AddEditTimesheetProjectBudget { get; set; } = null!;
 
     /// <summary>
+    /// Result set of <c>dbo.spc_GetTimesheetProjectBudgetByOrgID</c> - the
+    /// budget lines of every project of one organisation, ordered by project
+    /// name, then period start.
+    /// </summary>
+    public DbSet<TimesheetProjectBudgetByOrgDetail> spc_GetTimesheetProjectBudgetByOrgID { get; set; } = null!;
+
+    /// <summary>
     /// Result set of <c>dbo.spc_GetOrganizationList</c> - every organisation
     /// in <c>dbo.Organization</c>, ordered by name.
     /// </summary>
@@ -637,6 +644,26 @@ public class Context : DbContext
             // The same aliases as spc_GetTimesheetProjectBudget.
             budget.Property(row => row.BudgetId).HasColumnName("BudgetID");
             budget.Property(row => row.ProjectCode).HasColumnName("ProjectCode");
+            budget.Property(row => row.ProjectCategoryId).HasColumnName("ProjectCategoryID");
+            budget.Property(row => row.CategoryName).HasColumnName("CategoryName");
+            budget.Property(row => row.AllocatedHours).HasColumnName("AllocatedHours").HasColumnType("decimal(18,2)");
+            budget.Property(row => row.HourlyRate).HasColumnName("HourlyRate").HasColumnType("decimal(18,2)");
+            budget.Property(row => row.AllocatedAmount).HasColumnName("AllocatedAmount").HasColumnType("decimal(18,2)");
+            budget.Property(row => row.PeriodStart).HasColumnName("PeriodStart");
+            budget.Property(row => row.PeriodEnd).HasColumnName("PeriodEnd");
+        });
+
+        modelBuilder.Entity<TimesheetProjectBudgetByOrgDetail>(budget =>
+        {
+            budget.HasNoKey();
+            budget.ToView(null);
+
+            // Aliased by the procedure: Code AS ProjectCode, Projectname AS ProjectName,
+            // Hourlyrate AS HourlyRate, Allocated_amount AS AllocatedAmount.
+            budget.Property(row => row.ProjectId).HasColumnName("ProjectID");
+            budget.Property(row => row.ProjectCode).HasColumnName("ProjectCode");
+            budget.Property(row => row.ProjectName).HasColumnName("ProjectName");
+            budget.Property(row => row.BudgetId).HasColumnName("BudgetID");
             budget.Property(row => row.ProjectCategoryId).HasColumnName("ProjectCategoryID");
             budget.Property(row => row.CategoryName).HasColumnName("CategoryName");
             budget.Property(row => row.AllocatedHours).HasColumnName("AllocatedHours").HasColumnType("decimal(18,2)");
