@@ -115,6 +115,10 @@ public class TimesheetProjectDetail
 /// ... - and an edit never changes it.
 /// </para>
 /// <para>
+/// There is no currency either: it is taken from <see cref="ClientId"/> - the
+/// client's <c>Currencycode</c> - so changing the client changes it too.
+/// </para>
+/// <para>
 /// Validated by <c>TimesheetProjectService</c>, not by a FluentValidation
 /// validator.
 /// </para>
@@ -152,10 +156,6 @@ public class TimesheetProjectSaveRequest
     /// <summary>Optional. Not before <see cref="StartDate"/> when both are sent.</summary>
     /// <example>2026-12-31T00:00:00</example>
     public DateTime? EndDate { get; set; }
-
-    /// <summary>Optional. Greater than 0 when sent.</summary>
-    /// <example>1</example>
-    public int? CurrencyCode { get; set; }
 
     /// <summary>
     /// Optional. A <c>dbo.TimesheetProjectStatus.StatusID</c> of the
