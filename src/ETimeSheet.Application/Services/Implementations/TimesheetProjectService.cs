@@ -123,14 +123,6 @@ public class TimesheetProjectService : ITimesheetProjectService
             };
         }
 
-        if (request.CurrencyCode <= 0)
-        {
-            failures[nameof(TimesheetProjectSaveRequest.CurrencyCode)] = new[]
-            {
-                "CurrencyCode must be greater than 0 when sent."
-            };
-        }
-
         if (request.Status <= 0)
         {
             failures[nameof(TimesheetProjectSaveRequest.Status)] = new[]
@@ -153,13 +145,12 @@ public class TimesheetProjectService : ITimesheetProjectService
         }
 
         // Then the database: the column is NOT NULL with no foreign key, so
-        // nothing else stops a project naming a client that is not there.
-        if (!await _timesheetProjectRepository.ClientExistsAsync(request.ClientId, cancellationToken))
-        {
-            throw new ValidationException(
+        // nothing else stops a project naming a client that is not there. The
+        // project's currency is the client's, so the one lookup does both.
+        var currencyCode = await _timesheetProjectRepository.GetClientCurrencyCodeAsync(request.ClientId, cancellationToken)
+            ?? throw new ValidationException(
                 nameof(TimesheetProjectSaveRequest.ClientId),
                 $"Client '{request.ClientId}' does not exist or has been removed.");
-        }
 
         // Null and 0 both mean "add" - a negative id was refused above.
         var projectId = request.ProjectId is > 0 ? request.ProjectId : null;
@@ -174,7 +165,7 @@ public class TimesheetProjectService : ITimesheetProjectService
                 request.TotalHours,
                 request.StartDate,
                 request.EndDate,
-                request.CurrencyCode,
+                currencyCode,
                 request.Status,
                 request.ClientId,
                 cancellationToken)

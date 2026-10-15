@@ -130,8 +130,11 @@ public interface ITimesheetProjectRepository
         IReadOnlyList<TimesheetProjectBudget> budgets,
         CancellationToken cancellationToken = default);
 
-    /// <summary>Whether a live (not deleted) client with this id exists.</summary>
-    Task<bool> ClientExistsAsync(
+    /// <summary>
+    /// The <c>Currencycode</c> of the live (not deleted) client with this id,
+    /// or null when no such client exists.
+    /// </summary>
+    Task<int?> GetClientCurrencyCodeAsync(
         int clientId,
         CancellationToken cancellationToken = default);
 

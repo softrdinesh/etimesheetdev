@@ -163,13 +163,16 @@ public class TimesheetProjectRepository : ITimesheetProjectRepository
         await _db.SaveChangesAsync(cancellationToken);
     }
 
-    public async Task<bool> ClientExistsAsync(
+    public async Task<int?> GetClientCurrencyCodeAsync(
         int clientId,
         CancellationToken cancellationToken = default) =>
         // The client's query filter hides deleted clients, so a deleted one
-        // does not count.
+        // comes back null, as a missing one does.
         await _db.TimesheetClientSetup
-            .AnyAsync(client => client.ClientId == clientId, cancellationToken);
+            .AsNoTracking()
+            .Where(client => client.ClientId == clientId)
+            .Select(client => (int?)client.CurrencyCode)
+            .FirstOrDefaultAsync(cancellationToken);
 
     public async Task<TimesheetProjectStatusSaveDetail?> SaveStatusAsync(
         int? statusId,
