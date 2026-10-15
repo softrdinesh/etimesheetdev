@@ -248,4 +248,26 @@ public class TimesheetProjectController : ControllerBase
         await _timesheetProjectService.DeleteStatusAsync(request, cancellationToken);
         return Ok(ApiResponse.Ok("Project status removed."));
     }
+
+    /// <summary>
+    /// Returns the budget lines of every project of one organisation, from
+    /// <c>dbo.TimesheetProjectBudget</c>, ordered by project name, then period
+    /// start. Each line carries its project's id, code and name, and its
+    /// category name. A project with no budget is not listed.
+    /// </summary>
+    /// <param name="orgID">The organisation whose project budgets to list, as a route segment.</param>
+    /// <response code="200">The budget lines. An organisation with none is an empty list, not a 404.</response>
+    /// <response code="400">An organisation id that is not greater than zero.</response>
+    [HttpGet("get-timesheet-project-budget-by-orgID/{orgID:int}")]
+    [ProducesResponseType(typeof(ApiResponse<IReadOnlyList<TimesheetProjectBudgetByOrgResponse>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> GetTimesheetProjectBudgetByOrgId(
+        // :int without :min(1): a 0 has to reach the service so it can answer
+        // 400 saying what is wrong.
+        [FromRoute] int orgID,
+        CancellationToken cancellationToken)
+    {
+        var result = await _timesheetProjectService.GetBudgetListByOrganizationIdAsync(orgID, cancellationToken);
+        return Ok(ApiResponse.Ok(result));
+    }
 }

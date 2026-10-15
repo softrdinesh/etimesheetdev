@@ -543,4 +543,24 @@ public class TimesheetProjectService : ITimesheetProjectService
             status.OrganizationId,
             request.DeletedBy);
     }
+
+    public async Task<IReadOnlyList<TimesheetProjectBudgetByOrgResponse>> GetBudgetListByOrganizationIdAsync(
+        int organizationId,
+        CancellationToken cancellationToken = default)
+    {
+        // Checked here rather than by a route constraint: a 0 is told what is
+        // wrong with it instead of missing the route.
+        if (organizationId <= 0)
+        {
+            throw new ValidationException(
+                "orgID",
+                "orgID is required and must be greater than 0.");
+        }
+
+        var budgets = await _timesheetProjectRepository.GetBudgetListByOrganizationIdAsync(
+            organizationId,
+            cancellationToken);
+
+        return budgets.Select(budget => budget.ToResponse()).ToList();
+    }
 }

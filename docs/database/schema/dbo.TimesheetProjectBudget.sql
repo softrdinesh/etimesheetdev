@@ -17,6 +17,8 @@
     Read by:
       ../procedures/dbo.spc_GetTimesheetProjectBudget.sql
       (TimesheetProjectRepository, for GET api/v1/TimesheetProject/get-timesheet-project-budget-by-projectID/{projectID})
+      ../procedures/dbo.spc_GetTimesheetProjectBudgetByOrgID.sql
+      (TimesheetProjectRepository, for GET api/v1/TimesheetProject/get-timesheet-project-budget-by-orgID/{orgID})
 
     Written by:
       ../procedures/dbo.spc_AddEditTimesheetProjectBudget.sql

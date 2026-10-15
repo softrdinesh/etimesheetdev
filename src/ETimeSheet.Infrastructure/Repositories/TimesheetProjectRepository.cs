@@ -211,4 +211,12 @@ public class TimesheetProjectRepository : ITimesheetProjectRepository
         TimesheetProjectStatus status,
         CancellationToken cancellationToken = default) =>
         await _db.SaveChangesAsync(cancellationToken);
+
+    public async Task<IReadOnlyList<TimesheetProjectBudgetByOrgDetail>> GetBudgetListByOrganizationIdAsync(
+        int organizationId,
+        CancellationToken cancellationToken = default) =>
+        // The procedure does the joins, the organisation filter and the
+        // ordering; no LINQ is composed on top, because SQL Server cannot wrap
+        // an EXEC.
+        await _db.spc_GetTimesheetProjectBudgetByOrgID.FromSqlInterpolated($"EXEC dbo.spc_GetTimesheetProjectBudgetByOrgID @POrgID = {organizationId}").ToListAsync(cancellationToken);
 }
