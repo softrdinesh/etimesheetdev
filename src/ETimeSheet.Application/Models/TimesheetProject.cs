@@ -47,6 +47,13 @@ public class TimesheetProjectResponse
 
     public int? CurrencyCode { get; set; }
 
+    /// <summary>
+    /// The currency's symbol from <c>dbo.CountryCurrency</c> - ₹, €, $ ...
+    /// Null when <see cref="CurrencyCode"/> is null or names no currency. Not
+    /// unique: "$" is shared by many currencies.
+    /// </summary>
+    public string? CurrencySymbol { get; set; }
+
     /// <summary>A <c>dbo.TimesheetProjectStatus.StatusID</c>.</summary>
     public int? Status { get; set; }
 
@@ -101,6 +108,8 @@ public class TimesheetProjectDetail
     public DateTime? EndDate { get; set; }
 
     public int? CurrencyCode { get; set; }
+
+    public string? CurrencySymbol { get; set; }
 
     public int? Status { get; set; }
 
@@ -219,6 +228,8 @@ public class TimesheetProjectSaveDetail
     public DateTime? EndDate { get; set; }
 
     public int? CurrencyCode { get; set; }
+
+    public string? CurrencySymbol { get; set; }
 
     public int? Status { get; set; }
 
@@ -514,20 +525,19 @@ public class TimesheetProjectBudgetSaveDetail
 /// <summary>
 /// Body of <c>remove-timesheet-project-budget</c>.
 /// <para>
-/// A project has one budget, so the project names it - there is no budget id.
-/// Every budget row of the project is removed, including any duplicates saved
-/// before the one-budget rule.
+/// The budget row is named by its own <c>budgetId</c>; only that one row is
+/// removed. Any other row of the same project is left alone.
 /// </para>
 /// <para>
 /// A <b>hard</b> delete: <c>dbo.TimesheetProjectBudget</c> has no soft-delete
-/// or audit columns, so the rows are physically removed.
+/// or audit columns, so the row is physically removed.
 /// </para>
 /// </summary>
 public class TimesheetProjectBudgetDeleteRequest
 {
-    /// <summary>The project whose budget to remove. Required, greater than 0.</summary>
-    /// <example>5</example>
-    public int ProjectId { get; set; }
+    /// <summary>The budget to remove. Required, greater than 0.</summary>
+    /// <example>12</example>
+    public int BudgetId { get; set; }
 }
 
 /// <summary>
@@ -867,4 +877,95 @@ public class TimesheetUserDeleteRequest
     /// </summary>
     /// <example>7</example>
     public int DeletedBy { get; set; }
+}
+
+/// <summary>
+/// One live project assignment of a live user of an organisation, as
+/// <c>get-timesheet-user-by-orgID</c> returns it - the user, the project and
+/// the project role, by id and by name. One per assignment: a user on three
+/// projects is three of these.
+/// </summary>
+public class TimesheetUserListResponse
+{
+    public int TimesheetUserProjectSetupId { get; set; }
+
+    /// <summary><c>dbo.Signup.UserID</c>.</summary>
+    public int UserId { get; set; }
+
+    public string? Name { get; set; }
+
+    /// <summary>As stored: upper case.</summary>
+    public string? Email { get; set; }
+
+    public int? OrganizationId { get; set; }
+
+    public int? ProjectId { get; set; }
+
+    /// <summary>The project's code - PR0001 ... Null when the project is unknown.</summary>
+    public string? ProjectCode { get; set; }
+
+    /// <summary>The project's <c>Projectname</c>. Null when the project is unknown.</summary>
+    public string? ProjectName { get; set; }
+
+    public int? ProjectRoleId { get; set; }
+
+    /// <summary>The role's <c>Rolename</c>. Null when the role is null, unknown or deleted.</summary>
+    public string? ProjectRoleName { get; set; }
+
+    public int? JobType { get; set; }
+
+    /// <summary>The <c>Cost_rate_per_hour</c> column.</summary>
+    public decimal? CostRate { get; set; }
+
+    /// <summary>The <c>Billable_rate_per_hour</c> column.</summary>
+    public decimal? BillRate { get; set; }
+
+    public int? WorkLocationRange { get; set; }
+
+    /// <summary>Text, as stored.</summary>
+    public string? ProjectLocationLatitude { get; set; }
+
+    /// <summary>Text, as stored.</summary>
+    public string? ProjectLocationLongitude { get; set; }
+}
+
+/// <summary>
+/// One row of <c>dbo.spc_GetTimesheetUserListByOrgID</c> - a live project
+/// assignment of a live user of an organisation. Property names follow the
+/// procedure's column aliases; the mapping is in
+/// <c>Context.ConfigureStoredProcedureResults</c>.
+/// </summary>
+public class TimesheetUserListDetail
+{
+    public int TimesheetUserProjectSetupId { get; set; }
+
+    public int UserId { get; set; }
+
+    public string? Name { get; set; }
+
+    public string? Email { get; set; }
+
+    public int? OrganizationId { get; set; }
+
+    public int? ProjectId { get; set; }
+
+    public string? ProjectCode { get; set; }
+
+    public string? ProjectName { get; set; }
+
+    public int? ProjectRoleId { get; set; }
+
+    public string? ProjectRoleName { get; set; }
+
+    public int? JobType { get; set; }
+
+    public decimal? CostRate { get; set; }
+
+    public decimal? BillRate { get; set; }
+
+    public int? WorkLocationRange { get; set; }
+
+    public string? ProjectLocationLatitude { get; set; }
+
+    public string? ProjectLocationLongitude { get; set; }
 }

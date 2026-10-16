@@ -20,6 +20,7 @@ internal static class TimesheetProjectMappings
         StartDate = project.StartDate,
         EndDate = project.EndDate,
         CurrencyCode = project.CurrencyCode,
+        CurrencySymbol = project.CurrencySymbol,
         Status = project.Status,
         StatusName = project.StatusName,
         ClientId = project.ClientId,
@@ -39,6 +40,7 @@ internal static class TimesheetProjectMappings
         StartDate = project.StartDate,
         EndDate = project.EndDate,
         CurrencyCode = project.CurrencyCode,
+        CurrencySymbol = project.CurrencySymbol,
         Status = project.Status,
         StatusName = project.StatusName,
         ClientId = project.ClientId,
@@ -105,4 +107,25 @@ internal static class TimesheetProjectMappings
         AllocatedAmount = budget.AllocatedAmount,
         PeriodStart = budget.PeriodStart,
         PeriodEnd = budget.PeriodEnd,
-    };}
+    };
+
+    internal static TimesheetUserListResponse ToResponse(this TimesheetUserListDetail user) => new()
+    {
+        TimesheetUserProjectSetupId = user.TimesheetUserProjectSetupId,
+        UserId = user.UserId,
+        Name = user.Name,
+        Email = user.Email,
+        OrganizationId = user.OrganizationId,
+        ProjectId = user.ProjectId,
+        ProjectCode = user.ProjectCode,
+        ProjectName = user.ProjectName,
+        ProjectRoleId = user.ProjectRoleId,
+        ProjectRoleName = user.ProjectRoleName,
+        JobType = user.JobType,
+        CostRate = user.CostRate,
+        BillRate = user.BillRate,
+        WorkLocationRange = user.WorkLocationRange,
+        ProjectLocationLatitude = user.ProjectLocationLatitude,
+        ProjectLocationLongitude = user.ProjectLocationLongitude,
+    };
+}

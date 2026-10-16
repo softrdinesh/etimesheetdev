@@ -277,6 +277,13 @@ public class Context : DbContext
     /// </summary>
     public DbSet<OrganizationListDetail> spc_GetOrganizationList { get; set; } = null!;
 
+    /// <summary>
+    /// Result set of <c>dbo.spc_GetTimesheetUserListByOrgID</c> - every live
+    /// project assignment of every live user of one organisation, ordered by
+    /// user name, then project name.
+    /// </summary>
+    public DbSet<TimesheetUserListDetail> spc_GetTimesheetUserListByOrgID { get; set; } = null!;
+
     // dbo.spc_GetUsersTaskList has NO DbSet, deliberately. It returns two
     // result sets and EF Core materialises only the first, so
     // TimeLogRepository.GetUserTaskListByUserIdAsync runs it on this context's
@@ -580,6 +587,7 @@ public class Context : DbContext
             project.Property(row => row.StartDate).HasColumnName("StartDate");
             project.Property(row => row.EndDate).HasColumnName("EndDate");
             project.Property(row => row.CurrencyCode).HasColumnName("CurrencyCode");
+            project.Property(row => row.CurrencySymbol).HasColumnName("CurrencySymbol");
             project.Property(row => row.Status).HasColumnName("Status");
             project.Property(row => row.StatusName).HasColumnName("StatusName");
             project.Property(row => row.ClientId).HasColumnName("ClientID");
@@ -602,6 +610,7 @@ public class Context : DbContext
             project.Property(row => row.StartDate).HasColumnName("StartDate");
             project.Property(row => row.EndDate).HasColumnName("EndDate");
             project.Property(row => row.CurrencyCode).HasColumnName("CurrencyCode");
+            project.Property(row => row.CurrencySymbol).HasColumnName("CurrencySymbol");
             project.Property(row => row.Status).HasColumnName("Status");
             project.Property(row => row.StatusName).HasColumnName("StatusName");
             project.Property(row => row.ClientId).HasColumnName("ClientID");
@@ -694,6 +703,34 @@ public class Context : DbContext
             organization.Property(row => row.OrganizationId).HasColumnName("OrganizationID");
             organization.Property(row => row.OrganizationName).HasColumnName("OrganizationName");
             organization.Property(row => row.CountryId).HasColumnName("CountryID");
+        });
+
+        modelBuilder.Entity<TimesheetUserListDetail>(user =>
+        {
+            user.HasNoKey();
+            user.ToView(null);
+
+            // Aliased by the procedure: Projectname AS ProjectName, Rolename AS
+            // ProjectRoleName, Jobtype AS JobType, Cost_rate_per_hour AS CostRate,
+            // Billable_rate_per_hour AS BillRate, WorklocationRange AS
+            // WorkLocationRange, ProjectlocLatitude / ProjectlocLongtitude AS
+            // ProjectLocationLatitude / ProjectLocationLongitude.
+            user.Property(row => row.TimesheetUserProjectSetupId).HasColumnName("TimesheetUserProjectSetupID");
+            user.Property(row => row.UserId).HasColumnName("UserID");
+            user.Property(row => row.Name).HasColumnName("Name");
+            user.Property(row => row.Email).HasColumnName("Email");
+            user.Property(row => row.OrganizationId).HasColumnName("OrganizationID");
+            user.Property(row => row.ProjectId).HasColumnName("ProjectID");
+            user.Property(row => row.ProjectCode).HasColumnName("ProjectCode");
+            user.Property(row => row.ProjectName).HasColumnName("ProjectName");
+            user.Property(row => row.ProjectRoleId).HasColumnName("ProjectRoleID");
+            user.Property(row => row.ProjectRoleName).HasColumnName("ProjectRoleName");
+            user.Property(row => row.JobType).HasColumnName("JobType");
+            user.Property(row => row.CostRate).HasColumnName("CostRate").HasColumnType("decimal(18,2)");
+            user.Property(row => row.BillRate).HasColumnName("BillRate").HasColumnType("decimal(18,2)");
+            user.Property(row => row.WorkLocationRange).HasColumnName("WorkLocationRange");
+            user.Property(row => row.ProjectLocationLatitude).HasColumnName("ProjectLocationLatitude");
+            user.Property(row => row.ProjectLocationLongitude).HasColumnName("ProjectLocationLongitude");
         });
     }
 }

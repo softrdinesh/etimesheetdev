@@ -3,7 +3,7 @@
 Every endpoint the API exposes today, with its purpose, input payload, success
 response and failure responses — each with a worked example.
 
-Generated from the code on branch `develop` (2026-10-15). If you change a
+Generated from the code on branch `develop` (2026-10-17). If you change a
 controller, DTO or validator, change this file with it.
 
 ---
@@ -61,6 +61,7 @@ controller, DTO or validator, change this file with it.
   - [Create Timesheet User](#36-create-timesheet-user)
   - [Edit Timesheet User](#37-edit-timesheet-user)
   - [Remove Timesheet User](#38-remove-timesheet-user)
+  - [Organisation Timesheet User List](#39-organisation-timesheet-user-list)
 - [Health endpoints](#health-endpoints)
 - [Enumerations](#enumerations)
 - [Endpoint summary table](#endpoint-summary-table)
@@ -3415,8 +3416,19 @@ database yet.
 
 `TimesheetProjectController` — `api/v1/TimesheetProject`. An organisation's
 projects (`dbo.TimesheetProject`), its project statuses
-(`dbo.TimesheetProjectStatus`), and each project's budget
-(`dbo.TimesheetProjectBudget`).
+(`dbo.TimesheetProjectStatus`), each project's budget
+(`dbo.TimesheetProjectBudget`), and its timesheet users' project assignments
+(`dbo.Timesheet_Users_Project_setup`).
+
+**A project and its budget are one-to-one.** A budget row belongs to exactly
+one project (its single `ProjectID`), and a project has at most one budget:
+
+| Rule | How the API keeps it |
+|---|---|
+| One budget → one project | The save takes no `budgetId`, only `projectId`, and an update never changes a budget's project — a budget cannot be moved or shared |
+| One project → one budget | [Add / Edit Project Budget](#30-add--edit-project-budget) updates the project's existing budget and adds one only when it has none, under a lock, so two saves cannot both add |
+
+Neither rule is enforced by the table — see [Known gaps](#known-gaps) 34.
 
 Validation for every endpoint here runs in **`TimesheetProjectService`**, not a
 FluentValidation validator. The 400 is the same shape and lists **every**
@@ -3434,8 +3446,8 @@ keeps the row, stamped with `DeletedDate` and `Deletedby`.
 
 `GET /api/v1/TimesheetProject/get-timesheet-project-by-orgID/{orgID}`
 
-**Purpose** — Every project of one organisation, each with its status name
-and client name.
+**Purpose** — Every project of one organisation, each with its status name,
+client name and currency symbol.
 Read through `dbo.spc_GetTimesheetProject`.
 
 #### Route parameters
@@ -3465,6 +3477,7 @@ then `projectId`:
 | `startDate` | datetime \| null | |
 | `endDate` | datetime \| null | |
 | `currencyCode` | int \| null | The client's currency — `dbo.CountryCurrency.CurrencyID`, copied from the client on every save |
+| `currencySymbol` | string \| null | `dbo.CountryCurrency.CurrencySymbol` of `currencyCode` — `₹`, `€`, `$` …; `null` when the currency is unknown. Not unique |
 | `status` | int \| null | A `statusId` from [Project Status List](#27-project-status-list) |
 | `statusName` | string \| null | `Open` / `Closed` / `Pending`; `null` when `status` is null or unknown |
 | `clientId` | int | The client the project is for — `dbo.TimesheetClientSetup.ClientID` |
@@ -3490,6 +3503,7 @@ then `projectId`:
       "startDate": "2026-10-01T00:00:00",
       "endDate": "2026-12-31T00:00:00",
       "currencyCode": 1,
+      "currencySymbol": "؋",
       "status": 1,
       "statusName": "Open",
       "clientId": 5,
@@ -3610,6 +3624,7 @@ left as it was — send the whole project.
     "startDate": "2026-10-01T00:00:00",
     "endDate": "2026-12-31T00:00:00",
     "currencyCode": 1,
+    "currencySymbol": "؋",
     "status": 1,
     "statusName": "Open",
     "clientId": 5,
@@ -3966,10 +3981,11 @@ database yet.
 
 `POST /api/v1/TimesheetProject/remove-timesheet-project-budget`
 
-**Purpose** — Delete the budget of a project. Only `projectId` is sent — a
-project has one budget — and **every** budget row of the project is removed,
-duplicates included, in one transaction. A **hard** delete, by the API through
-EF Core; no stored procedure.
+**Purpose** — Delete one budget, named by its `budgetId`. Only that row is
+removed; any other budget row of the same project (a duplicate from before the
+one-budget rule) is left alone. The project is kept, and can be given a new
+budget with [Add / Edit Project Budget](#30-add--edit-project-budget). A **hard**
+delete, by the API through EF Core; no stored procedure.
 
 Removing the project itself ([Remove Project](#28-remove-project)) removes its
 budget too; this endpoint removes the budget and keeps the project.
@@ -3978,12 +3994,12 @@ budget too; this endpoint removes the budget and keeps the project.
 
 | Field | Type | Required | Rules |
 |---|---|---|---|
-| `projectId` | int | yes | `> 0` |
+| `budgetId` | int | yes | `> 0` |
 
 #### Example request
 
 ```json
-{ "projectId": 4 }
+{ "budgetId": 12 }
 ```
 
 #### Success response — `200 OK`
@@ -3994,13 +4010,13 @@ budget too; this endpoint removes the budget and keeps the project.
 
 #### Error responses
 
-**400** — `projectId <= 0`: `ProjectId: ProjectId is required and must be greater than 0.`
+**400** — `budgetId <= 0`: `BudgetId: BudgetId is required and must be greater than 0.`
 
-**404** — the project has no budget. Removing one twice is **not** a silent
+**404** — no budget has this id. Removing one twice is **not** a silent
 success:
 
 ```json
-{ "success": false, "message": "Project '4' has no budget.", "data": null, "errors": [] }
+{ "success": false, "message": "Budget '12' was not found.", "data": null, "errors": [] }
 ```
 
 **500** — unhandled defect.
@@ -4451,6 +4467,100 @@ removed already: `User '58' is not on project '4'.`
 
 ---
 
+### 39. Organisation Timesheet User List
+
+`GET /api/v1/TimesheetProject/get-timesheet-user-by-orgID/{orgID}`
+
+**Purpose** — The timesheet users of one organisation: every live project
+assignment in `dbo.Timesheet_Users_Project_setup` of every live user in
+`dbo.Signup` of the organisation, with the user's name and email, the
+project's code and name, and the project role's name. Read through
+`dbo.spc_GetTimesheetUserListByOrgID`.
+
+One row per **assignment**, not per user: a user on three projects is three
+rows, and a user with no live assignment is **not** listed. The organisation is
+the user's (`dbo.Signup.OrganizationID`).
+
+#### Route parameters
+
+| Name | Type | Rules |
+|---|---|---|
+| `orgID` | int | `> 0` — checked by the service |
+
+#### Example request
+
+```
+GET /api/v1/TimesheetProject/get-timesheet-user-by-orgID/12
+```
+
+#### Success response — `200 OK`
+
+`data` is an array of `TimesheetUserListResponse`, ordered by `name`, then
+`projectName`, then `timesheetUserProjectSetupId`:
+
+| Field | Type | Notes |
+|---|---|---|
+| `timesheetUserProjectSetupId` | int | The assignment — the id `edit-timesheet-user` takes |
+| `userId` | int | `dbo.Signup.UserID` |
+| `name` | string \| null | |
+| `email` | string \| null | As stored: upper case |
+| `organizationId` | int \| null | |
+| `projectId` | int \| null | |
+| `projectCode` | string \| null | `dbo.TimesheetProject.Code`; `null` when the project is unknown |
+| `projectName` | string \| null | The `Projectname` column; `null` when the project is unknown |
+| `projectRoleId` | int \| null | |
+| `projectRoleName` | string \| null | From `dbo.TimesheetUserRole`; `null` when the role is null, unknown or deleted |
+| `jobType` | int \| null | |
+| `costRate` | decimal \| null | The `Cost_rate_per_hour` column |
+| `billRate` | decimal \| null | The `Billable_rate_per_hour` column |
+| `workLocationRange` | int \| null | |
+| `projectLocationLatitude` | string \| null | Text, as stored |
+| `projectLocationLongitude` | string \| null | Text, as stored |
+
+#### Example response
+
+```json
+{
+  "success": true,
+  "message": "",
+  "data": [
+    {
+      "timesheetUserProjectSetupId": 31,
+      "userId": 58,
+      "name": "Asha Patel",
+      "email": "ASHA.PATEL@EXAMPLE.COM",
+      "organizationId": 12,
+      "projectId": 4,
+      "projectCode": "PR0004",
+      "projectName": "Website Rebuild",
+      "projectRoleId": 3,
+      "projectRoleName": "Developer",
+      "jobType": 1,
+      "costRate": 30.00,
+      "billRate": 45.00,
+      "workLocationRange": 200,
+      "projectLocationLatitude": "23.0225",
+      "projectLocationLongitude": null
+    }
+  ],
+  "errors": []
+}
+```
+
+#### Empty result
+
+An organisation with no timesheet users — or no such organisation — is
+`data: []`, a 200.
+
+#### Error responses
+
+**400** — `orgID <= 0`: `orgID: orgID is required and must be greater than 0.`
+
+**500** — unhandled defect, or the procedure has not been created in the
+database yet.
+
+---
+
 ## Health endpoints
 
 Anonymous, outside the `ApiResponse` envelope, and outside `/api/v1`.
@@ -4558,7 +4668,7 @@ authentication is off.
 | 28 | Remove Project | POST | `/api/v1/TimesheetProject/remove-timesheet-project` | Hard-delete a project **and its budget**, together | `TimesheetProjectDeleteRequest` | `null` | 400, 404, 500 |
 | 29 | Project Budget List | GET | `/api/v1/TimesheetProject/get-timesheet-project-budget-by-projectID/{projectID}` | A project's budget, with category name | route param | `TimesheetProjectBudgetResponse[]` | 400, 500 |
 | 30 | Add / Edit Project Budget | POST | `/api/v1/TimesheetProject/add-edit-timesheet-project-budget` | Save a project's one budget — the project decides add or update; amount = hours × rate | `TimesheetProjectBudgetSaveRequest` | `TimesheetProjectBudgetResponse` | 400, 404, 500 |
-| 31 | Remove Project Budget | POST | `/api/v1/TimesheetProject/remove-timesheet-project-budget` | Hard-delete every budget row of a project | `TimesheetProjectBudgetDeleteRequest` | `null` | 400, 404, 500 |
+| 31 | Remove Project Budget | POST | `/api/v1/TimesheetProject/remove-timesheet-project-budget` | Hard-delete one budget by its id | `TimesheetProjectBudgetDeleteRequest` | `null` | 400, 404, 500 |
 | 32 | Organization List | GET | `/api/v1/MasterAdmin/get-all-organization` | Every organisation — id, name, country — by name | — | `OrganizationResponse[]` | 500 |
 | 33 | Add / Edit Project Status | POST | `/api/v1/TimesheetProject/add-edit-timesheet-project-status` | Add a status (`statusId` 0 / absent) or edit one, with its colour | `TimesheetProjectStatusSaveRequest` | `TimesheetProjectStatusResponse` | 400, 404, 500 |
 | 34 | Remove Project Status | POST | `/api/v1/TimesheetProject/remove-timesheet-project-status` | Soft-delete a project status | `TimesheetProjectStatusDeleteRequest` | `null` | 400, 404, 500 |
@@ -4566,6 +4676,7 @@ authentication is off.
 | 36 | Create Timesheet User | POST | `/api/v1/TimesheetProject/create-timesheet-user` | Sign a user up and put them on a project; an existing user of the organisation gets the assignment only | `TimesheetUserCreateRequest` | `TimesheetUserCreateResponse` | 400, 409, 500 |
 | 37 | Edit Timesheet User | POST | `/api/v1/TimesheetProject/edit-timesheet-user` | Edit an assignment; name/email saved to `dbo.Signup` when changed | `TimesheetUserUpdateRequest` | `TimesheetUserResponse` | 400, 404, 409, 500 |
 | 38 | Remove Timesheet User | POST | `/api/v1/TimesheetProject/remove-timesheet-user` | Take a user off a project by `userId` + `projectId` (soft delete); the user is not touched | `TimesheetUserDeleteRequest` | `null` | 400, 404, 500 |
+| 39 | Organisation Timesheet User List | GET | `/api/v1/TimesheetProject/get-timesheet-user-by-orgID/{orgID}` | Every live project assignment of every live user of an organisation, with project and role name | route param | `TimesheetUserListResponse[]` | 400, 500 |
 | — | Health | GET | `/health`, `/health/live`, `/health/ready` | Liveness / readiness | — | *(unenveloped)* | 503 |
 
 ---
@@ -4693,9 +4804,11 @@ Documented so nobody has to rediscover them:
     records which projects reference a category, so Remove Project Category
     cannot refuse one that is still in use.
 32. **The TimesheetProject procedures are DRAFT.** `spc_GetTimesheetProject`,
-    `spc_AddEditTimesheetProject`, `spc_GetTimesheetProjectStatus`,
-    `spc_AddEditTimesheetProjectStatus`, `spc_GetTimesheetProjectBudget` and
-    `spc_AddEditTimesheetProjectBudget` are
+    `spc_AddEditTimesheetProject` (both now also return `CurrencySymbol`),
+    `spc_GetTimesheetProjectStatus`, `spc_AddEditTimesheetProjectStatus`,
+    `spc_GetTimesheetProjectBudget`, `spc_AddEditTimesheetProjectBudget`,
+    `spc_GetTimesheetProjectBudgetByOrgID` and
+    `spc_GetTimesheetUserListByOrgID` are
     recorded in `docs/database/procedures/` and must be created by hand; each
     matching endpoint answers 500 until its procedure exists in its latest
     version.
@@ -4703,19 +4816,22 @@ Documented so nobody has to rediscover them:
     `dbo.TimesheetProjectBudget` has a soft-delete or audit column, so a removed
     project or budget cannot be recovered and nothing records who removed it.
 34. **One budget per project is kept by the procedure, not the table.** No
-    unique constraint on `dbo.TimesheetProjectBudget.ProjectID` was reported, so
-    rows written before the rule (or by anything other than
-    `spc_AddEditTimesheetProjectBudget`) can give a project several budgets.
-    Add / Edit Project Budget updates the lowest `budgetId`; the list shows them
-    all; Remove Project Budget removes them all.
+    unique constraint on `dbo.TimesheetProjectBudget.ProjectID`, and no foreign
+    key to `dbo.TimesheetProject`, was reported, and `ProjectID` is nullable.
+    So rows written before the rule (or by anything other than
+    `spc_AddEditTimesheetProjectBudget`) can give a project several budgets,
+    or a budget no project. Add / Edit Project Budget updates the lowest
+    `budgetId`; the lists show them all; Remove Project Budget removes only
+    the `budgetId` named; Remove Project removes them all. A unique constraint
+    and a foreign key on `ProjectID`, added by the owner, would close this.
 35. **A project's `status` is not checked.** Any positive number is saved —
     including another organisation's status, or a removed one. An unknown
     `status` comes back with `statusName: null`. No foreign keys were
     reported. (`currencyCode` is no longer sent; it is copied from the client.)
 36. **The budget endpoints have no organisation check.** Project Budget List
-    and Remove Project Budget take a
-    `projectId` alone, so — while authentication is off — any caller can read or
-    remove any project's budget.
+    takes a `projectId` alone and Remove Project Budget a `budgetId` alone, so
+    — while authentication is off — any caller can read or remove any
+    project's budget.
 37. **`projectCode` on a budget is a copy.** It is refreshed from the project's
     `code` on every budget save; budget rows saved before the column was added
     show `projectCode: null` until they are saved again.
@@ -4736,3 +4852,12 @@ Documented so nobody has to rediscover them:
 43. **Remove Project Status has no organisation check.** It takes a
     `statusId` alone, so — while authentication is off — any caller can
     remove any organisation's status.
+44. **Budget hours and rate have no upper limit.** Add / Edit Project Budget
+    refuses negatives only. A value — or an hours × rate product — beyond
+    `decimal(18,2)` overflows inside SQL Server and answers 500, not 400.
+45. **A budget is not checked against its project.** Its period may fall
+    outside the project's `startDate` / `endDate`, and its hours and amount may
+    exceed the project's `totalHours` / `totalBudget`.
+46. **Organisation Timesheet User List lists assignments, not users.** A user
+    on several projects appears once per project, and a live user with no live
+    assignment does not appear at all.
