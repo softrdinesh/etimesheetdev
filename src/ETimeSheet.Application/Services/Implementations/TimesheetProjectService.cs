@@ -417,32 +417,25 @@ public class TimesheetProjectService : ITimesheetProjectService
         TimesheetProjectBudgetDeleteRequest request,
         CancellationToken cancellationToken = default)
     {
-        if (request.ProjectId <= 0)
+        if (request.BudgetId <= 0)
         {
             throw new ValidationException(
-                nameof(TimesheetProjectBudgetDeleteRequest.ProjectId),
-                "ProjectId is required and must be greater than 0.");
+                nameof(TimesheetProjectBudgetDeleteRequest.BudgetId),
+                "BudgetId is required and must be greater than 0.");
         }
 
-        // Every row of the project, not just the first: a project has one
-        // budget, but duplicates saved before that rule must go too, or the
-        // budget would seem to survive its own removal.
-        var budgets = await _timesheetProjectRepository.GetBudgetListForUpdateByProjectIdAsync(
-            request.ProjectId,
-            cancellationToken);
-
-        if (budgets.Count == 0)
-        {
-            throw new NotFoundException($"Project '{request.ProjectId}' has no budget.");
-        }
+        var budget = await _timesheetProjectRepository.GetBudgetForUpdateAsync(
+                request.BudgetId,
+                cancellationToken)
+            ?? throw NotFoundException.For("Budget", request.BudgetId);
 
         // A hard delete: the table has no soft-delete column.
-        await _timesheetProjectRepository.DeleteBudgetsAsync(budgets, cancellationToken);
+        await _timesheetProjectRepository.DeleteBudgetAsync(budget, cancellationToken);
 
         _logger.LogInformation(
-            "Budget of project {ProjectId} deleted ({Count} row(s)).",
-            request.ProjectId,
-            budgets.Count);
+            "Budget {BudgetId} of project {ProjectId} deleted.",
+            budget.BudgetId,
+            budget.ProjectId);
     }
 
     public async Task<IReadOnlyList<TimesheetProjectStatusResponse>> GetStatusListByOrganizationIdAsync(
@@ -1198,4 +1191,24 @@ public class TimesheetProjectService : ITimesheetProjectService
         // Address == email rejects what MailAddress quietly accepts, such as a
         // display name ("Priya <priya@example.com>").
         MailAddress.TryCreate(email, out var address) && address.Address == email;
+
+    public async Task<IReadOnlyList<TimesheetUserListResponse>> GetTimesheetUserListByOrganizationIdAsync(
+        int organizationId,
+        CancellationToken cancellationToken = default)
+    {
+        // Checked here rather than by a route constraint: a 0 is told what is
+        // wrong with it instead of missing the route.
+        if (organizationId <= 0)
+        {
+            throw new ValidationException(
+                "orgID",
+                "orgID is required and must be greater than 0.");
+        }
+
+        var users = await _timesheetProjectRepository.GetTimesheetUserListByOrganizationIdAsync(
+            organizationId,
+            cancellationToken);
+
+        return users.Select(user => user.ToResponse()).ToList();
+    }
 }

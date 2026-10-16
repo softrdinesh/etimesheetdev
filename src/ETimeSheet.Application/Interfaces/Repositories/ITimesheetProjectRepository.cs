@@ -126,9 +126,17 @@ public interface ITimesheetProjectRepository
         int projectId,
         CancellationToken cancellationToken = default);
 
-    /// <summary>Physically deletes the budget rows loaded by <see cref="GetBudgetListForUpdateByProjectIdAsync"/>.</summary>
-    Task DeleteBudgetsAsync(
-        IReadOnlyList<TimesheetProjectBudget> budgets,
+    /// <summary>
+    /// Returns one budget row, <b>tracked</b> for removal, or null when there
+    /// is no row with this id.
+    /// </summary>
+    Task<TimesheetProjectBudget?> GetBudgetForUpdateAsync(
+        int budgetId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Physically deletes the budget row loaded by <see cref="GetBudgetForUpdateAsync"/>.</summary>
+    Task DeleteBudgetAsync(
+        TimesheetProjectBudget budget,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -290,5 +298,14 @@ public interface ITimesheetProjectRepository
     /// </summary>
     Task UpdateTimesheetUserAsync(
         TimesheetUserProjectSetup setup,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Every live project assignment of every live user of one organisation,
+    /// via <c>spc_GetTimesheetUserListByOrgID</c>, ordered by user name, then
+    /// project name. Empty when the organisation has none.
+    /// </summary>
+    Task<IReadOnlyList<TimesheetUserListDetail>> GetTimesheetUserListByOrganizationIdAsync(
+        int organizationId,
         CancellationToken cancellationToken = default);
 }

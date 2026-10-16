@@ -158,14 +158,12 @@ public class TimesheetProjectController : ControllerBase
     }
 
     /// <summary>
-    /// Deletes the budget of a project. Only <c>projectId</c> is sent - a
-    /// project has one budget - and every budget row of the project is
-    /// removed. <b>A hard delete</b>: the table has no soft-delete column, so
-    /// the rows are physically removed.
+    /// Deletes one budget, named by its <c>budgetId</c>. <b>A hard delete</b>:
+    /// the table has no soft-delete column, so the row is physically removed.
     /// </summary>
     /// <response code="200">The budget was removed.</response>
-    /// <response code="400">A <c>projectId</c> that is not greater than zero.</response>
-    /// <response code="404">The project has no budget; removing one twice is not a silent success.</response>
+    /// <response code="400">A <c>budgetId</c> that is not greater than zero.</response>
+    /// <response code="404">No budget has this id; removing one twice is not a silent success.</response>
     [HttpPost("remove-timesheet-project-budget")]
     [ProducesResponseType(typeof(ApiResponse<object?>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -353,5 +351,28 @@ public class TimesheetProjectController : ControllerBase
     {
         await _timesheetProjectService.DeleteTimesheetUserAsync(request, cancellationToken);
         return Ok(ApiResponse.Ok("Timesheet user removed."));
+    }
+
+    /// <summary>
+    /// Returns the timesheet users of one organisation, through
+    /// <c>dbo.spc_GetTimesheetUserListByOrgID</c> - one row per live project
+    /// assignment of a live user, with the user's name and email, the
+    /// project's code and name, and the project role's name. Ordered by user
+    /// name, then project name. A user with no live assignment is not listed.
+    /// </summary>
+    /// <param name="orgID">The organisation whose users to list, as a route segment.</param>
+    /// <response code="200">The users' assignments. An organisation with none is an empty list, not a 404.</response>
+    /// <response code="400">An organisation id that is not greater than zero.</response>
+    [HttpGet("get-timesheet-user-by-orgID/{orgID:int}")]
+    [ProducesResponseType(typeof(ApiResponse<IReadOnlyList<TimesheetUserListResponse>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> GetTimesheetUserByOrgId(
+        // :int without :min(1): a 0 has to reach the service so it can answer
+        // 400 saying what is wrong.
+        [FromRoute] int orgID,
+        CancellationToken cancellationToken)
+    {
+        var result = await _timesheetProjectService.GetTimesheetUserListByOrganizationIdAsync(orgID, cancellationToken);
+        return Ok(ApiResponse.Ok(result));
     }
 }

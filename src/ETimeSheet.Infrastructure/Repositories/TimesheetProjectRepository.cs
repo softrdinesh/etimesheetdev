@@ -156,12 +156,18 @@ public class TimesheetProjectRepository : ITimesheetProjectRepository
             .Where(budget => budget.ProjectId == projectId)
             .ToListAsync(cancellationToken);
 
-    public async Task DeleteBudgetsAsync(
-        IReadOnlyList<TimesheetProjectBudget> budgets,
+    public async Task<TimesheetProjectBudget?> GetBudgetForUpdateAsync(
+        int budgetId,
+        CancellationToken cancellationToken = default) =>
+        // Tracked on purpose - this is the write path.
+        await _db.TimesheetProjectBudget
+            .FirstOrDefaultAsync(budget => budget.BudgetId == budgetId, cancellationToken);
+
+    public async Task DeleteBudgetAsync(
+        TimesheetProjectBudget budget,
         CancellationToken cancellationToken = default)
     {
-        // One SaveChanges, so every row goes in one transaction or none does.
-        _db.TimesheetProjectBudget.RemoveRange(budgets);
+        _db.TimesheetProjectBudget.Remove(budget);
         await _db.SaveChangesAsync(cancellationToken);
     }
 
@@ -367,4 +373,11 @@ public class TimesheetProjectRepository : ITimesheetProjectRepository
         CancellationToken cancellationToken = default) =>
         // One SaveChanges, so every row is stamped or none is.
         await _db.SaveChangesAsync(cancellationToken);
+
+    public async Task<IReadOnlyList<TimesheetUserListDetail>> GetTimesheetUserListByOrganizationIdAsync(
+        int organizationId,
+        CancellationToken cancellationToken = default) =>
+        // The procedure does the joins, the live-row filters and the ordering;
+        // no LINQ is composed on top, because SQL Server cannot wrap an EXEC.
+        await _db.spc_GetTimesheetUserListByOrgID.FromSqlInterpolated($"EXEC dbo.spc_GetTimesheetUserListByOrgID @POrgID = {organizationId}").ToListAsync(cancellationToken);
 }

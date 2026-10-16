@@ -10,6 +10,8 @@
     Revised:   2026-10-16 - DRAFT: @PSubmissionFrequency added, written on add
                and edit; SubmissionFrequency and SubmissionFrequencyName
                returned.
+    Revised:   2026-10-17 - DRAFT: CurrencySymbol (from dbo.CountryCurrency)
+               returned after CurrencyCode, as spc_GetTimesheetProject does.
 
     Adds a project to an organisation in dbo.TimesheetProject, or updates one,
     and returns the saved row.
@@ -78,6 +80,7 @@
       ../schema/dbo.TimesheetProject.sql
       ../schema/dbo.TimesheetProjectStatus.sql
       ../schema/dbo.Timesheetclientsetup.sql
+      ../schema/dbo.CountryCurrency.sql
 */
 
 CREATE OR ALTER PROCEDURE [dbo].[spc_AddEditTimesheetProject]
@@ -171,6 +174,7 @@ BEGIN
         tp.StartDate        AS StartDate,
         tp.EndDate          AS EndDate,
         tp.CurrencyCode     AS CurrencyCode,
+        cc.CurrencySymbol   AS CurrencySymbol,
         tp.Status           AS Status,
         tps.Status          AS StatusName,
         tp.ClientID         AS ClientID,
@@ -186,6 +190,8 @@ BEGIN
         ON tps.StatusID = tp.Status
     LEFT JOIN dbo.TimesheetClientSetup tcs
         ON tcs.ClientID = tp.ClientID
+    LEFT JOIN dbo.CountryCurrency cc
+        ON cc.CurrencyID = tp.CurrencyCode
     WHERE tp.ProjectID = @ProjectID
       AND tp.OrganizationID = @POrgID;
 END

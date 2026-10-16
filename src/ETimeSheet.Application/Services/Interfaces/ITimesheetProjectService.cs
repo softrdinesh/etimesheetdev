@@ -84,15 +84,14 @@ public interface ITimesheetProjectService
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Physically deletes the budget of a project - every budget row it has,
-    /// duplicates included. The table has no soft-delete column, so nothing of
-    /// the rows is kept.
+    /// Physically deletes one budget row, named by its <c>BudgetId</c>. The
+    /// table has no soft-delete column, so nothing of the row is kept.
     /// </summary>
     /// <exception cref="ETimeSheet.Shared.Exceptions.ValidationException">
-    /// A <c>ProjectId</c> that is not positive.
+    /// A <c>BudgetId</c> that is not positive.
     /// </exception>
     /// <exception cref="ETimeSheet.Shared.Exceptions.NotFoundException">
-    /// The project has no budget - including one removed already, so removing
+    /// No budget has this id - including one removed already, so removing
     /// twice is a 404.
     /// </exception>
     Task DeleteBudgetAsync(
@@ -211,5 +210,18 @@ public interface ITimesheetProjectService
     /// </exception>
     Task DeleteTimesheetUserAsync(
         TimesheetUserDeleteRequest request,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns the timesheet users of one organisation - every live project
+    /// assignment of every live user of it - via
+    /// <c>spc_GetTimesheetUserListByOrgID</c>, ordered by user name, then
+    /// project name. An organisation with none is an empty list, not a 404.
+    /// </summary>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.ValidationException">
+    /// <paramref name="organizationId"/> is not a positive id.
+    /// </exception>
+    Task<IReadOnlyList<TimesheetUserListResponse>> GetTimesheetUserListByOrganizationIdAsync(
+        int organizationId,
         CancellationToken cancellationToken = default);
 }
