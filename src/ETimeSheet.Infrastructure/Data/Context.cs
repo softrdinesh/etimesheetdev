@@ -77,8 +77,10 @@ public class Context : DbContext
     public DbSet<EmailQueue> EmailQueue { get; set; } = null!;
 
     /// <summary>
-    /// The <c>dbo.Signup</c> user table. <b>Read-only</b>: maintained by another
-    /// application. The credential columns are not mapped - see the entity.
+    /// The <c>dbo.Signup</c> user table, maintained by another application.
+    /// Written by <c>spc_Signup_timesheet_user</c>, and through EF Core only by
+    /// the timesheet-user edit (<c>Name</c>, <c>Email</c>, <c>UpdatedDate</c>,
+    /// <c>UpdateBy</c>). The credential columns are not mapped - see the entity.
     /// </summary>
     public DbSet<Signup> Signup { get; set; } = null!;
 
@@ -128,6 +130,13 @@ public class Context : DbContext
     /// query filter.
     /// </summary>
     public DbSet<TimesheetProjectStatus> TimesheetProjectStatus { get; set; } = null!;
+
+    /// <summary>
+    /// The <c>dbo.Timesheet_Users_Project_setup</c> table - each user's
+    /// assignment to a project. Rows with <c>IsDelete</c> = 1 are hidden by a
+    /// query filter.
+    /// </summary>
+    public DbSet<TimesheetUserProjectSetup> Timesheet_Users_Project_setup { get; set; } = null!;
 
     // =====================================================================
     // STORED PROCEDURES  -  property name == procedure name
@@ -575,6 +584,8 @@ public class Context : DbContext
             project.Property(row => row.StatusName).HasColumnName("StatusName");
             project.Property(row => row.ClientId).HasColumnName("ClientID");
             project.Property(row => row.ClientName).HasColumnName("ClientName");
+            project.Property(row => row.SubmissionFrequency).HasColumnName("SubmissionFrequency");
+            project.Property(row => row.SubmissionFrequencyName).HasColumnName("SubmissionFrequencyName");
         });
 
         modelBuilder.Entity<TimesheetProjectSaveDetail>(project =>
@@ -595,6 +606,8 @@ public class Context : DbContext
             project.Property(row => row.StatusName).HasColumnName("StatusName");
             project.Property(row => row.ClientId).HasColumnName("ClientID");
             project.Property(row => row.ClientName).HasColumnName("ClientName");
+            project.Property(row => row.SubmissionFrequency).HasColumnName("SubmissionFrequency");
+            project.Property(row => row.SubmissionFrequencyName).HasColumnName("SubmissionFrequencyName");
         });
 
         modelBuilder.Entity<TimesheetProjectStatusDetail>(status =>

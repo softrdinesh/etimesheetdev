@@ -24,6 +24,8 @@ internal static class TimesheetProjectMappings
         StatusName = project.StatusName,
         ClientId = project.ClientId,
         ClientName = project.ClientName,
+        SubmissionFrequency = project.SubmissionFrequency,
+        SubmissionFrequencyName = project.SubmissionFrequencyName,
     };
 
     /// <summary>Projects the project <c>spc_AddEditTimesheetProject</c> saved to the project response.</summary>
@@ -41,6 +43,8 @@ internal static class TimesheetProjectMappings
         StatusName = project.StatusName,
         ClientId = project.ClientId,
         ClientName = project.ClientName,
+        SubmissionFrequency = project.SubmissionFrequency,
+        SubmissionFrequencyName = project.SubmissionFrequencyName,
     };
 
     /// <summary>Projects a status row from <c>spc_GetTimesheetProjectStatus</c> to the status response.</summary>
@@ -101,5 +105,4 @@ internal static class TimesheetProjectMappings
         AllocatedAmount = budget.AllocatedAmount,
         PeriodStart = budget.PeriodStart,
         PeriodEnd = budget.PeriodEnd,
-    };
-}
+    };}

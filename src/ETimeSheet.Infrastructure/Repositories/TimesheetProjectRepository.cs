@@ -41,6 +41,7 @@ public class TimesheetProjectRepository : ITimesheetProjectRepository
         int? currencyCode,
         int? status,
         int clientId,
+        int? submissionFrequency,
         CancellationToken cancellationToken = default)
     {
         // Materialised as a list, then the first row taken in memory:
@@ -57,7 +58,8 @@ public class TimesheetProjectRepository : ITimesheetProjectRepository
                 @PEndDate = {endDate},
                 @PCurrencyCode = {currencyCode},
                 @PStatus = {status},
-                @PClientID = {clientId}")
+                @PClientID = {clientId},
+                @PSubmissionFrequency = {submissionFrequency}")
             .ToListAsync(cancellationToken);
 
         return rows.FirstOrDefault();
@@ -219,4 +221,150 @@ public class TimesheetProjectRepository : ITimesheetProjectRepository
         // ordering; no LINQ is composed on top, because SQL Server cannot wrap
         // an EXEC.
         await _db.spc_GetTimesheetProjectBudgetByOrgID.FromSqlInterpolated($"EXEC dbo.spc_GetTimesheetProjectBudgetByOrgID @POrgID = {organizationId}").ToListAsync(cancellationToken);
+
+    public async Task<Signup?> GetUserByEmailAsync(
+        string email,
+        CancellationToken cancellationToken = default)
+    {
+        // The procedure's own match: TRIM(UPPER(Email)) = TRIM(UPPER(@Email)).
+        // No IsDelete filter, because the procedure has none either.
+        var normalizedEmail = email.Trim().ToUpperInvariant();
+
+        return await _db.Signup
+            .AsNoTracking()
+            .FirstOrDefaultAsync(user => user.Email.Trim().ToUpper() == normalizedEmail, cancellationToken);
+    }
+
+    public async Task<bool> OrganizationExistsAsync(
+        int organizationId,
+        CancellationToken cancellationToken = default) =>
+        await _db.Organization
+            .AnyAsync(organization => organization.OrganizationId == organizationId, cancellationToken);
+
+    public async Task<bool> CountryExistsAsync(
+        int countryId,
+        CancellationToken cancellationToken = default) =>
+        await _db.Country
+            .AnyAsync(country => country.Id == countryId, cancellationToken);
+
+    public async Task<bool> UserRoleExistsAsync(
+        int roleId,
+        int organizationId,
+        CancellationToken cancellationToken = default) =>
+        // The role's query filter hides deleted roles, so a deleted one does
+        // not count.
+        await _db.TimesheetUserRole
+            .AnyAsync(role => role.RoleId == roleId && role.OrganizationId == organizationId, cancellationToken);
+
+    public async Task CreateTimesheetUserAsync(
+        string fullName,
+        string email,
+        int? countryId,
+        string? address,
+        int organizationId,
+        int? projectRoleId,
+        int? jobType,
+        decimal costRate,
+        decimal billRate,
+        int createdBy,
+        int? workLocationRange,
+        int projectId,
+        string? projectLocationLatitude,
+        CancellationToken cancellationToken = default)
+    {
+        // Opened here so the EXEC and the clean-up below share one connection.
+        await _db.Database.OpenConnectionAsync(cancellationToken);
+
+        try
+        {
+            // @Range and @Projectloclongtitude are left to their NULL defaults:
+            // the procedure never reads either.
+            await _db.Database.ExecuteSqlInterpolatedAsync(
+                $@"EXEC dbo.spc_Signup_timesheet_user
+                    @Fullname = {fullName},
+                    @Email = {email},
+                    @CountryID = {countryId},
+                    @Address = {address},
+                    @OrgID = {organizationId},
+                    @ProjectroleID = {projectRoleId},
+                    @Jobtype = {jobType},
+                    @Costrate = {costRate},
+                    @Billrate = {billRate},
+                    @LoginuserID = {createdBy},
+                    @worklocrange = {workLocationRange},
+                    @projectID = {projectId},
+                    @Projectloclatitude = {projectLocationLatitude}",
+                cancellationToken);
+        }
+        catch
+        {
+            // The procedure's CATCH swallows the real error and does not roll
+            // back, so it ends with its transaction still open and SQL Server
+            // raises error 266 instead. Roll back on this connection before it
+            // goes back to the pool, rather than leave the partial inserts and
+            // their locks waiting for the next borrower's reset.
+            await _db.Database.ExecuteSqlInterpolatedAsync(
+                $"IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;",
+                CancellationToken.None);
+            throw;
+        }
+        finally
+        {
+            await _db.Database.CloseConnectionAsync();
+        }
+    }
+
+    public async Task<TimesheetUserProjectSetup?> GetUserProjectSetupForUpdateAsync(
+        int timesheetUserProjectSetupId,
+        CancellationToken cancellationToken = default) =>
+        // Tracked on purpose - this is the write path. The query filter still
+        // applies, so an assignment deleted already is not found.
+        await _db.Timesheet_Users_Project_setup
+            .FirstOrDefaultAsync(
+                setup => setup.TimesheetUserProjectSetupId == timesheetUserProjectSetupId,
+                cancellationToken);
+
+    public async Task<Signup?> GetUserForUpdateAsync(
+        int userId,
+        CancellationToken cancellationToken = default) =>
+        // Tracked on purpose - the edit may change the name and email.
+        await _db.Signup
+            .FirstOrDefaultAsync(user => user.UserId == userId, cancellationToken);
+
+    public async Task<bool> UserProjectSetupExistsAsync(
+        int userId,
+        int projectId,
+        int excludedTimesheetUserProjectSetupId,
+        CancellationToken cancellationToken = default) =>
+        // The query filter hides deleted assignments, so a deleted one does
+        // not count.
+        await _db.Timesheet_Users_Project_setup
+            .AnyAsync(
+                setup => setup.UserId == userId
+                         && setup.ProjectId == projectId
+                         && setup.TimesheetUserProjectSetupId != excludedTimesheetUserProjectSetupId,
+                cancellationToken);
+
+    public async Task UpdateTimesheetUserAsync(
+        TimesheetUserProjectSetup setup,
+        CancellationToken cancellationToken = default) =>
+        // One SaveChanges, so the assignment and the user's dbo.Signup row go
+        // in one transaction.
+        await _db.SaveChangesAsync(cancellationToken);
+
+    public async Task<IReadOnlyList<TimesheetUserProjectSetup>> GetUserProjectSetupListForUpdateAsync(
+        int userId,
+        int projectId,
+        CancellationToken cancellationToken = default) =>
+        // Tracked on purpose - this is the write path. The query filter hides
+        // assignments deleted already.
+        await _db.Timesheet_Users_Project_setup
+            .Where(setup => setup.UserId == userId && setup.ProjectId == projectId)
+            .ToListAsync(cancellationToken);
+
+    public async Task UpdateTimesheetUsersAsync(
+        IReadOnlyList<TimesheetUserProjectSetup> setups,
+        CancellationToken cancellationToken = default) =>
+        // One SaveChanges, so every row is stamped or none is.
+        await _db.SaveChangesAsync(cancellationToken);
 }

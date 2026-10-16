@@ -270,4 +270,88 @@ public class TimesheetProjectController : ControllerBase
         var result = await _timesheetProjectService.GetBudgetListByOrganizationIdAsync(orgID, cancellationToken);
         return Ok(ApiResponse.Ok(result));
     }
+
+    /// <summary>
+    /// Signs a user up and puts them on a project of their organisation,
+    /// through <c>dbo.spc_Signup_timesheet_user</c>.
+    /// <para>
+    /// An <c>email</c> that is not yet a user creates the user, their login
+    /// row and the project assignment. An <c>email</c> that is already a live
+    /// user of <c>organizationId</c> only adds the project assignment; the user
+    /// is not changed, so <c>fullName</c>, <c>countryId</c> and <c>address</c>
+    /// are ignored. <c>isNewUser</c> in the response says which happened.
+    /// </para>
+    /// </summary>
+    /// <response code="200">The user, with their <c>userId</c>.</response>
+    /// <response code="400">The payload failed validation, or names an organisation, country, project or role that does not exist - every failure is listed.</response>
+    /// <response code="409">The email belongs to a removed user, or to a user of another organisation.</response>
+    [HttpPost("create-timesheet-user")]
+    [ProducesResponseType(typeof(ApiResponse<TimesheetUserCreateResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> CreateTimesheetUser(
+        [FromBody] TimesheetUserCreateRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await _timesheetProjectService.CreateTimesheetUserAsync(request, cancellationToken);
+        return Ok(ApiResponse.Ok(result, result.IsNewUser ? "User created." : "User added to the project."));
+    }
+
+    /// <summary>
+    /// Edits one project assignment of a user, identified by
+    /// <c>timesheetUserProjectSetupId</c>.
+    /// <para>
+    /// <c>fullName</c> and <c>email</c> are saved to the user in
+    /// <c>dbo.Signup</c> when they change - and so change for every project the
+    /// user is on. Every other field is saved to the assignment in
+    /// <c>dbo.Timesheet_Users_Project_setup</c>. Both are written together, or
+    /// neither is.
+    /// </para>
+    /// <para>
+    /// An edit overwrites every field, so send the whole assignment.
+    /// </para>
+    /// </summary>
+    /// <response code="200">The saved assignment, with the user's name and email.</response>
+    /// <response code="400">The payload failed validation, or names a project or role that does not exist in the organisation - every failure is listed.</response>
+    /// <response code="404">No live assignment has that id, or its user is removed or belongs to another organisation.</response>
+    /// <response code="409">The email is used by another user, or the user is already on the project through another assignment.</response>
+    [HttpPost("edit-timesheet-user")]
+    [ProducesResponseType(typeof(ApiResponse<TimesheetUserResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> EditTimesheetUser(
+        [FromBody] TimesheetUserUpdateRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await _timesheetProjectService.UpdateTimesheetUserAsync(request, cancellationToken);
+        return Ok(ApiResponse.Ok(result, "Timesheet user saved."));
+    }
+
+    /// <summary>
+    /// Takes a user off a project, by <c>userId</c> and <c>projectId</c>. A
+    /// soft delete: the user's live assignment to the project in
+    /// <c>dbo.Timesheet_Users_Project_setup</c> is kept, stamped with
+    /// <c>IsDelete</c> = 1, <c>DeletedDate</c> and <c>DeletedBy</c> - every
+    /// live row, if duplicates exist. The user in <c>dbo.Signup</c> and their
+    /// other projects are not touched.
+    /// <para>
+    /// A POST rather than an HTTP DELETE, matching the other removes here:
+    /// every argument in this API travels in the payload.
+    /// </para>
+    /// </summary>
+    /// <response code="200">The user was taken off the project.</response>
+    /// <response code="400">A <c>userId</c>, <c>projectId</c> or <c>deletedBy</c> that is not greater than zero.</response>
+    /// <response code="404">The user is not on the project; removing twice is not a silent success.</response>
+    [HttpPost("remove-timesheet-user")]
+    [ProducesResponseType(typeof(ApiResponse<object?>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> RemoveTimesheetUser(
+        [FromBody] TimesheetUserDeleteRequest request,
+        CancellationToken cancellationToken)
+    {
+        await _timesheetProjectService.DeleteTimesheetUserAsync(request, cancellationToken);
+        return Ok(ApiResponse.Ok("Timesheet user removed."));
+    }
 }

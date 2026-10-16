@@ -10,9 +10,14 @@
               more than 24 hours.
     Revised:  2026-10-14 - by the owner: ClientID int NOT NULL added, the
               client the project is for.
+    Revised:  2026-10-16 - DRAFT, requested by the owner, NOT YET APPLIED:
+              SubmissionFrequency int NULL added, with
+              CK_TimesheetProject_SubmissionFrequency limiting it to 1, 2 or 3.
+              Change to applied once the owner has run it.
 
     One row per project: its code and name, budget in money and in hours,
-    start and end dates, currency, organization, status and client.
+    start and end dates, currency, organization, status, client and how often
+    its timesheets are submitted.
 
     Mapped by:
       src/ETimeSheet.Application/Models/Entities/TimesheetProject.cs
@@ -54,6 +59,12 @@
         reported; the API checks the client exists and is not deleted before
         saving. Recorded as the last column, where ALTER TABLE ... ADD puts
         it. No default was reported.
+      - SubmissionFrequency is how often the project's timesheets are
+        submitted: 1 = weekly, 2 = every 15 days, 3 = monthly. A CHECK
+        constraint allows only those three; NULL is allowed, so projects
+        that existed before the column was added keep NULL until they are
+        given one. No default. Read by spc_GetTimesheetProject and written
+        by spc_AddEditTimesheetProject.
 
     STILL UNCONFIRMED:
       - Whether ProjectID is the primary key. It is IDENTITY(1,1), but no key
@@ -81,6 +92,9 @@ CREATE TABLE dbo.TimesheetProject
     CurrencyCode    int             NULL,
     OrganizationID  int             NULL,
     Status          int             NULL,
-    ClientID        int             NOT NULL
+    ClientID        int             NOT NULL,
+    SubmissionFrequency int         NULL,
+    CONSTRAINT CK_TimesheetProject_SubmissionFrequency
+        CHECK (SubmissionFrequency IN (1, 2, 3))
 );
 GO

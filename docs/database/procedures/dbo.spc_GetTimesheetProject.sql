@@ -3,6 +3,8 @@
     Status:    DRAFT for review - not applied to any database.
     Revised:   2026-10-14 - ClientID and ClientName (from
                dbo.TimesheetClientSetup) added to the result.
+    Revised:   2026-10-16 - DRAFT: SubmissionFrequency and
+               SubmissionFrequencyName added to the result.
 
     Returns the projects of one organisation from dbo.TimesheetProject, for
     GET api/v1/TimesheetProject/get-timesheet-project-by-orgID/{orgID}.
@@ -17,8 +19,12 @@
     Result columns:
       ProjectID, Code, ProjectName (aliased from Projectname), TotalBudget,
       TotalHours (aliased from Totalhours), StartDate, EndDate, CurrencyCode,
-      Status, StatusName from dbo.TimesheetProjectStatus, ClientID, and
-      ClientName from dbo.TimesheetClientSetup. The aliases are
+      Status, StatusName from dbo.TimesheetProjectStatus, ClientID,
+      ClientName from dbo.TimesheetClientSetup, SubmissionFrequency
+      (1 weekly, 2 every 15 days, 3 monthly; NULL when not set), and
+      SubmissionFrequencyName - its text, 'Weekly', 'Every 15 Days' or
+      'Monthly', from a CASE; NULL when SubmissionFrequency is NULL. The
+      aliases are
       what an EF Core result mapping binds to. OrganizationID is not returned -
       the caller already knows it.
 
@@ -61,7 +67,13 @@ BEGIN
         tp.Status           AS Status,
         tps.Status          AS StatusName,
         tp.ClientID         AS ClientID,
-        tcs.Clientname      AS ClientName
+        tcs.Clientname      AS ClientName,
+        tp.SubmissionFrequency AS SubmissionFrequency,
+        CASE tp.SubmissionFrequency
+            WHEN 1 THEN 'Weekly'
+            WHEN 2 THEN 'Every 15 Days'
+            WHEN 3 THEN 'Monthly'
+        END                 AS SubmissionFrequencyName
     FROM dbo.TimesheetProject tp
     LEFT JOIN dbo.TimesheetProjectStatus tps
         ON tps.StatusID = tp.Status

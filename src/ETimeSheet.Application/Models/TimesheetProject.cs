@@ -64,6 +64,19 @@ public class TimesheetProjectResponse
     /// the client has since been removed. Null only when the id names no client.
     /// </summary>
     public string? ClientName { get; set; }
+
+    /// <summary>
+    /// How often the project's timesheets are submitted: <c>1</c> weekly,
+    /// <c>2</c> every 15 days, <c>3</c> monthly. Null when not set.
+    /// </summary>
+    public int? SubmissionFrequency { get; set; }
+
+    /// <summary>
+    /// <see cref="SubmissionFrequency"/> as text: <c>Weekly</c>,
+    /// <c>Every 15 Days</c> or <c>Monthly</c>, from the procedure's CASE.
+    /// Null when it is not set.
+    /// </summary>
+    public string? SubmissionFrequencyName { get; set; }
 }
 
 /// <summary>
@@ -96,6 +109,10 @@ public class TimesheetProjectDetail
     public int ClientId { get; set; }
 
     public string? ClientName { get; set; }
+
+    public int? SubmissionFrequency { get; set; }
+
+    public string? SubmissionFrequencyName { get; set; }
 }
 
 /// <summary>
@@ -170,6 +187,14 @@ public class TimesheetProjectSaveRequest
     /// </summary>
     /// <example>5</example>
     public int ClientId { get; set; }
+
+    /// <summary>
+    /// Optional. How often the project's timesheets are submitted: <c>1</c>
+    /// weekly, <c>2</c> every 15 days, <c>3</c> monthly. Left out, it is saved
+    /// as null - on an update too.
+    /// </summary>
+    /// <example>1</example>
+    public int? SubmissionFrequency { get; set; }
 }
 
 /// <summary>
@@ -202,6 +227,10 @@ public class TimesheetProjectSaveDetail
     public int ClientId { get; set; }
 
     public string? ClientName { get; set; }
+
+    public int? SubmissionFrequency { get; set; }
+
+    public string? SubmissionFrequencyName { get; set; }
 }
 
 /// <summary>
@@ -570,4 +599,272 @@ public class TimesheetProjectBudgetByOrgDetail
     public DateTime? PeriodStart { get; set; }
 
     public DateTime? PeriodEnd { get; set; }
+}
+
+/// <summary>
+/// Body of <c>create-timesheet-user</c> - signs a user up and puts them on a
+/// project, through <c>dbo.spc_Signup_timesheet_user</c>.
+/// <para>
+/// When <see cref="Email"/> is not yet a user, the user is created and put on
+/// the project. When it already is - a live user of the same organisation -
+/// only the project assignment is added, and <see cref="FullName"/>,
+/// <see cref="CountryId"/> and <see cref="Address"/> are ignored: the existing
+/// user is not changed.
+/// </para>
+/// <para>
+/// Validated by <c>TimesheetProjectService</c>, not by a FluentValidation
+/// validator.
+/// </para>
+/// </summary>
+public class TimesheetUserCreateRequest
+{
+    /// <summary>Required. 50 characters or fewer after trimming.</summary>
+    /// <example>Priya Shah</example>
+    public string? FullName { get; set; }
+
+    /// <summary>
+    /// Required. A valid address, 50 characters or fewer. Matched against
+    /// existing users ignoring case and surrounding spaces, and stored upper case.
+    /// </summary>
+    /// <example>priya.shah@example.com</example>
+    public string? Email { get; set; }
+
+    /// <summary>Optional. When sent, a <c>dbo.Country</c> id.</summary>
+    /// <example>101</example>
+    public int? CountryId { get; set; }
+
+    /// <summary>Optional. Blank is saved as null.</summary>
+    /// <example>12 MG Road, Pune</example>
+    public string? Address { get; set; }
+
+    /// <summary>Required, greater than 0, and an existing organisation.</summary>
+    /// <example>12</example>
+    public int OrganizationId { get; set; }
+
+    /// <summary>Required. A project of <see cref="OrganizationId"/>.</summary>
+    /// <example>4</example>
+    public int ProjectId { get; set; }
+
+    /// <summary>
+    /// Optional. When sent, a live role of <see cref="OrganizationId"/> from
+    /// <c>dbo.TimesheetUserRole</c>.
+    /// </summary>
+    /// <example>3</example>
+    public int? ProjectRoleId { get; set; }
+
+    /// <summary>Optional. Greater than 0 when sent.</summary>
+    /// <example>1</example>
+    public int? JobType { get; set; }
+
+    /// <summary>Required. The cost per hour. Not negative.</summary>
+    /// <example>25.00</example>
+    public decimal? CostRate { get; set; }
+
+    /// <summary>Required. The billable rate per hour. Not negative.</summary>
+    /// <example>45.00</example>
+    public decimal? BillRate { get; set; }
+
+    /// <summary>Optional. The work-location range. Not negative.</summary>
+    /// <example>500</example>
+    public int? WorkLocationRange { get; set; }
+
+    /// <summary>
+    /// Optional. The project location's latitude, a number from -90 to 90,
+    /// 25 characters or fewer. Saved for a new user only.
+    /// </summary>
+    /// <example>18.5204</example>
+    public string? ProjectLocationLatitude { get; set; }
+
+    /// <summary>
+    /// The user creating the assignment, written to <c>CreatedBy</c>. Required,
+    /// greater than 0. <b>Temporary</b>: it comes from the token once
+    /// authentication is on.
+    /// </summary>
+    /// <example>7</example>
+    public int CreatedBy { get; set; }
+}
+
+/// <summary>
+/// What <c>create-timesheet-user</c> returns - the user, as
+/// <c>dbo.Signup</c> holds it after the save, and the project they were put on.
+/// </summary>
+public class TimesheetUserCreateResponse
+{
+    /// <summary><c>dbo.Signup.UserID</c>.</summary>
+    public int UserId { get; set; }
+
+    /// <summary>The name on the user's row - an existing user keeps theirs.</summary>
+    public string? Name { get; set; }
+
+    /// <summary>As stored: upper case.</summary>
+    public string? Email { get; set; }
+
+    public int? OrganizationId { get; set; }
+
+    public int ProjectId { get; set; }
+
+    /// <summary>
+    /// <see langword="true"/> when the user was created by this call;
+    /// <see langword="false"/> when an existing user was only put on the project.
+    /// </summary>
+    public bool IsNewUser { get; set; }
+
+    /// <summary>
+    /// Whether the welcome email was sent. Always <see langword="false"/> when
+    /// <see cref="IsNewUser"/> is - only a new account gets one. A new account
+    /// whose email failed is still created; the failure is logged.
+    /// </summary>
+    public bool WelcomeEmailSent { get; set; }
+}
+
+/// <summary>
+/// Body of <c>edit-timesheet-user</c> - edits one project assignment of a
+/// user, and the user's name and email.
+/// <para>
+/// <see cref="FullName"/> and <see cref="Email"/> are saved to
+/// <c>dbo.Signup</c>, and so change for every project the user is on. Every
+/// other field is saved to the assignment in
+/// <c>dbo.Timesheet_Users_Project_setup</c>.
+/// </para>
+/// <para>
+/// An edit overwrites every field with what is sent - an optional field left
+/// out is saved as null, not left as it was. Send the whole assignment.
+/// </para>
+/// <para>
+/// Validated by <c>TimesheetProjectService</c>, not by a FluentValidation
+/// validator.
+/// </para>
+/// </summary>
+public class TimesheetUserUpdateRequest
+{
+    /// <summary>The assignment to edit. Required, greater than 0.</summary>
+    /// <example>21</example>
+    public int TimesheetUserProjectSetupId { get; set; }
+
+    /// <summary>Required. The user of the assignment must belong to it.</summary>
+    /// <example>12</example>
+    public int OrganizationId { get; set; }
+
+    /// <summary>Required. 50 characters or fewer after trimming. Saved to <c>dbo.Signup</c>.</summary>
+    /// <example>Priya Shah</example>
+    public string? FullName { get; set; }
+
+    /// <summary>
+    /// Required. A valid address, 50 characters or fewer, not used by another
+    /// user. Saved to <c>dbo.Signup</c>, upper case.
+    /// </summary>
+    /// <example>priya.shah@example.com</example>
+    public string? Email { get; set; }
+
+    /// <summary>
+    /// Required. A project of <see cref="OrganizationId"/> that the user is not
+    /// already on through another assignment.
+    /// </summary>
+    /// <example>4</example>
+    public int ProjectId { get; set; }
+
+    /// <summary>
+    /// Optional. When sent, a live role of <see cref="OrganizationId"/> from
+    /// <c>dbo.TimesheetUserRole</c>.
+    /// </summary>
+    /// <example>3</example>
+    public int? ProjectRoleId { get; set; }
+
+    /// <summary>Optional. Greater than 0 when sent.</summary>
+    /// <example>1</example>
+    public int? JobType { get; set; }
+
+    /// <summary>Required. The cost per hour. Not negative.</summary>
+    /// <example>25.00</example>
+    public decimal? CostRate { get; set; }
+
+    /// <summary>Required. The billable rate per hour. Not negative.</summary>
+    /// <example>45.00</example>
+    public decimal? BillRate { get; set; }
+
+    /// <summary>Optional. The work-location range. Not negative.</summary>
+    /// <example>500</example>
+    public int? WorkLocationRange { get; set; }
+
+    /// <summary>Optional. A number from -90 to 90, 25 characters or fewer.</summary>
+    /// <example>18.5204</example>
+    public string? ProjectLocationLatitude { get; set; }
+
+    /// <summary>Optional. A number from -180 to 180, 25 characters or fewer.</summary>
+    /// <example>73.8567</example>
+    public string? ProjectLocationLongitude { get; set; }
+
+    /// <summary>
+    /// The user making the edit, written to <c>dbo.Signup.UpdateBy</c> when the
+    /// name or email changes. Required, greater than 0. <b>Temporary</b>: it
+    /// comes from the token once authentication is on.
+    /// </summary>
+    /// <example>7</example>
+    public int UpdatedBy { get; set; }
+}
+
+/// <summary>
+/// One project assignment of a user, with the user's name and email, as
+/// <c>edit-timesheet-user</c> returns it.
+/// </summary>
+public class TimesheetUserResponse
+{
+    public int TimesheetUserProjectSetupId { get; set; }
+
+    /// <summary><c>dbo.Signup.UserID</c>.</summary>
+    public int UserId { get; set; }
+
+    public string? Name { get; set; }
+
+    /// <summary>As stored: upper case.</summary>
+    public string? Email { get; set; }
+
+    public int? OrganizationId { get; set; }
+
+    public int? ProjectId { get; set; }
+
+    public int? ProjectRoleId { get; set; }
+
+    public int? JobType { get; set; }
+
+    /// <summary>The <c>Cost_rate_per_hour</c> column.</summary>
+    public decimal? CostRate { get; set; }
+
+    /// <summary>The <c>Billable_rate_per_hour</c> column.</summary>
+    public decimal? BillRate { get; set; }
+
+    public int? WorkLocationRange { get; set; }
+
+    /// <summary>Text, as stored.</summary>
+    public string? ProjectLocationLatitude { get; set; }
+
+    /// <summary>Text, as stored.</summary>
+    public string? ProjectLocationLongitude { get; set; }
+}
+
+/// <summary>
+/// Body of <c>remove-timesheet-user</c> - takes a user off a project. A
+/// <b>soft</b> delete: the user's live assignment rows to the project in
+/// <c>dbo.Timesheet_Users_Project_setup</c> stay, stamped with
+/// <c>IsDelete</c> = 1, <c>DeletedDate</c> and <c>DeletedBy</c>. Normally one
+/// row; every live one is removed, including duplicates added by
+/// <c>create-timesheet-user</c>. The user in <c>dbo.Signup</c> is not touched.
+/// </summary>
+public class TimesheetUserDeleteRequest
+{
+    /// <summary>The user to take off the project - a <c>dbo.Signup.UserID</c>. Required, greater than 0.</summary>
+    /// <example>58</example>
+    public int UserId { get; set; }
+
+    /// <summary>The project to take the user off. Required, greater than 0.</summary>
+    /// <example>4</example>
+    public int ProjectId { get; set; }
+
+    /// <summary>
+    /// The user performing the delete, written to <c>DeletedBy</c>. Required,
+    /// greater than 0. <b>Temporary</b>: it comes from the token once
+    /// authentication is on.
+    /// </summary>
+    /// <example>7</example>
+    public int DeletedBy { get; set; }
 }

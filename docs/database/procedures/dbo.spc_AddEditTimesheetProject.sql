@@ -7,6 +7,9 @@
                Totalhours column's change from time(7).
     Revised:   2026-10-14 - @PClientID added (required); ClientID and
                ClientName returned.
+    Revised:   2026-10-16 - DRAFT: @PSubmissionFrequency added, written on add
+               and edit; SubmissionFrequency and SubmissionFrequencyName
+               returned.
 
     Adds a project to an organisation in dbo.TimesheetProject, or updates one,
     and returns the saved row.
@@ -30,6 +33,10 @@
                       dbo.TimesheetClientSetup.ClientID. Required: the
                       column is NOT NULL. Written on add and on edit, so an
                       edit can move a project to another client.
+      @PSubmissionFrequency  how often the project's timesheets are
+                      submitted: 1 weekly, 2 every 15 days, 3 monthly, or
+                      NULL. The table's CHECK constraint rejects anything
+                      else.
 
     Add (@PProjectID NULL or 0):
       The project gets the next code in the sequence PR0001, PR0002 ...
@@ -61,8 +68,9 @@
     Validation lives in the API (TimesheetProjectService): a positive @POrgID,
     a @PProjectName of at most 100 characters, a non-negative @PTotalBudget and
     @PTotalHours, @PEndDate not before
-    @PStartDate, a positive @PCurrencyCode and @PStatus when sent, and a
-    @PClientID that names a live (not deleted) client. The
+    @PStartDate, a positive @PStatus when sent, a @PSubmissionFrequency of
+    1, 2 or 3 when sent, and a @PClientID that names a live (not deleted)
+    client. The
     procedure does not repeat it. Neither checks that @PStatus names a
     dbo.TimesheetProjectStatus row - no foreign key was reported.
 
@@ -82,7 +90,8 @@ CREATE OR ALTER PROCEDURE [dbo].[spc_AddEditTimesheetProject]
     @PEndDate       DATETIME        = NULL,
     @PCurrencyCode  INT             = NULL,
     @PStatus        INT             = NULL,
-    @PClientID      INT
+    @PClientID      INT,
+    @PSubmissionFrequency INT       = NULL
 AS
 BEGIN
     SET NOCOUNT ON;
@@ -124,9 +133,9 @@ BEGIN
             THROW 50001, 'The project code sequence has run out of room: Code holds at most 20 characters.', 1;
 
         INSERT INTO dbo.TimesheetProject
-            (Code, Projectname, TotalBudget, Totalhours, StartDate, EndDate, CurrencyCode, OrganizationID, Status, ClientID)
+            (Code, Projectname, TotalBudget, Totalhours, StartDate, EndDate, CurrencyCode, OrganizationID, Status, ClientID, SubmissionFrequency)
         VALUES
-            (@NextCode, @PProjectName, @PTotalBudget, @PTotalHours, @PStartDate, @PEndDate, @PCurrencyCode, @POrgID, @PStatus, @PClientID);
+            (@NextCode, @PProjectName, @PTotalBudget, @PTotalHours, @PStartDate, @PEndDate, @PCurrencyCode, @POrgID, @PStatus, @PClientID, @PSubmissionFrequency);
 
         SET @ProjectID = CAST(SCOPE_IDENTITY() AS INT);
 
@@ -142,7 +151,8 @@ BEGIN
             EndDate      = @PEndDate,
             CurrencyCode = @PCurrencyCode,
             Status       = @PStatus,
-            ClientID     = @PClientID
+            ClientID     = @PClientID,
+            SubmissionFrequency = @PSubmissionFrequency
         WHERE ProjectID = @PProjectID
           AND OrganizationID = @POrgID;
 
@@ -164,7 +174,13 @@ BEGIN
         tp.Status           AS Status,
         tps.Status          AS StatusName,
         tp.ClientID         AS ClientID,
-        tcs.Clientname      AS ClientName
+        tcs.Clientname      AS ClientName,
+        tp.SubmissionFrequency AS SubmissionFrequency,
+        CASE tp.SubmissionFrequency
+            WHEN 1 THEN 'Weekly'
+            WHEN 2 THEN 'Every 15 Days'
+            WHEN 3 THEN 'Monthly'
+        END                 AS SubmissionFrequencyName
     FROM dbo.TimesheetProject tp
     LEFT JOIN dbo.TimesheetProjectStatus tps
         ON tps.StatusID = tp.Status

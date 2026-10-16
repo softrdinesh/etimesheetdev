@@ -38,6 +38,7 @@ public interface ITimesheetProjectRepository
         int? currencyCode,
         int? status,
         int clientId,
+        int? submissionFrequency,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -179,5 +180,115 @@ public interface ITimesheetProjectRepository
     /// </summary>
     Task<IReadOnlyList<TimesheetProjectBudgetByOrgDetail>> GetBudgetListByOrganizationIdAsync(
         int organizationId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns the <c>dbo.Signup</c> user with this email, <b>untracked</b>,
+    /// matched as <c>spc_Signup_timesheet_user</c> matches it - ignoring case
+    /// and surrounding spaces - or <see langword="null"/> when there is none.
+    /// Deleted users are returned too: the procedure matches them as well.
+    /// </summary>
+    Task<Signup?> GetUserByEmailAsync(
+        string email,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Whether a <c>dbo.Organization</c> row with this id exists.</summary>
+    Task<bool> OrganizationExistsAsync(
+        int organizationId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Whether a <c>dbo.Country</c> row with this id exists.</summary>
+    Task<bool> CountryExistsAsync(
+        int countryId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Whether a live (not deleted) <c>dbo.TimesheetUserRole</c> with this id
+    /// belongs to this organisation.
+    /// </summary>
+    Task<bool> UserRoleExistsAsync(
+        int roleId,
+        int organizationId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Signs a user up and puts them on a project via
+    /// <c>spc_Signup_timesheet_user</c>. The procedure returns nothing; read
+    /// the user back with <see cref="GetUserByEmailAsync"/>.
+    /// </summary>
+    /// <param name="fullName">Already trimmed and validated.</param>
+    /// <param name="email">Already trimmed and validated.</param>
+    /// <param name="address">Already trimmed; null when blank.</param>
+    Task CreateTimesheetUserAsync(
+        string fullName,
+        string email,
+        int? countryId,
+        string? address,
+        int organizationId,
+        int? projectRoleId,
+        int? jobType,
+        decimal costRate,
+        decimal billRate,
+        int createdBy,
+        int? workLocationRange,
+        int projectId,
+        string? projectLocationLatitude,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns one live project assignment from
+    /// <c>dbo.Timesheet_Users_Project_setup</c>, <b>tracked</b> for an edit or
+    /// a soft delete, or <see langword="null"/> when it does not exist or is
+    /// deleted already.
+    /// </summary>
+    Task<TimesheetUserProjectSetup?> GetUserProjectSetupForUpdateAsync(
+        int timesheetUserProjectSetupId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns one <c>dbo.Signup</c> user, <b>tracked</b> for an edit, or
+    /// <see langword="null"/> when there is none. Deleted users are returned
+    /// too; the caller decides.
+    /// </summary>
+    Task<Signup?> GetUserForUpdateAsync(
+        int userId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Whether the user has a live assignment to this project other than
+    /// <paramref name="excludedTimesheetUserProjectSetupId"/>.
+    /// </summary>
+    Task<bool> UserProjectSetupExistsAsync(
+        int userId,
+        int projectId,
+        int excludedTimesheetUserProjectSetupId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns every live assignment of a user to a project, <b>tracked</b>
+    /// for a soft delete - normally one, more only for duplicates. Empty when
+    /// the user has no live assignment to the project.
+    /// </summary>
+    Task<IReadOnlyList<TimesheetUserProjectSetup>> GetUserProjectSetupListForUpdateAsync(
+        int userId,
+        int projectId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Saves the changes made to the assignments loaded by
+    /// <see cref="GetUserProjectSetupListForUpdateAsync"/>, in one save.
+    /// </summary>
+    Task UpdateTimesheetUsersAsync(
+        IReadOnlyList<TimesheetUserProjectSetup> setups,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Saves the changes made to an assignment loaded by
+    /// <see cref="GetUserProjectSetupForUpdateAsync"/> - and to its user, when
+    /// loaded by <see cref="GetUserForUpdateAsync"/> - in one save, so either
+    /// both are written or neither is.
+    /// </summary>
+    Task UpdateTimesheetUserAsync(
+        TimesheetUserProjectSetup setup,
         CancellationToken cancellationToken = default);
 }
