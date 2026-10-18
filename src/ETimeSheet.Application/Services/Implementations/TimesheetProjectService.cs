@@ -37,6 +37,9 @@ public class TimesheetProjectService : ITimesheetProjectService
     /// <summary><c>dbo.TimesheetProjectStatus.Colorcode</c> is <c>nvarchar(25)</c>.</summary>
     private const int ColorCodeMaximumLength = 25;
 
+    /// <summary><c>dbo.TimesheetHolidaysetup.Description</c> is <c>nvarchar(100)</c>.</summary>
+    private const int HolidayDescriptionMaximumLength = 100;
+
     /// <summary><c>spc_Signup_timesheet_user</c>'s <c>@Fullname</c> is <c>nvarchar(50)</c>; a longer name would be cut short silently.</summary>
     private const int FullNameMaximumLength = 50;
 
@@ -1210,5 +1213,612 @@ public class TimesheetProjectService : ITimesheetProjectService
             cancellationToken);
 
         return users.Select(user => user.ToResponse()).ToList();
+    }
+
+    public async Task<IReadOnlyList<TimesheetHolidaySetupResponse>> GetHolidaySetupListAsync(
+        int? organizationId,
+        int? projectId,
+        CancellationToken cancellationToken = default)
+    {
+        var failures = new Dictionary<string, string[]>();
+
+        if (organizationId < 0)
+        {
+            failures["orgID"] = new[] { "orgID must be greater than 0, or left out." };
+        }
+
+        if (projectId < 0)
+        {
+            failures["projectID"] = new[] { "projectID must be greater than 0, or left out." };
+        }
+
+        // Null and 0 both mean "not filtered". With neither filter the whole
+        // table would come back, across every organisation - refused.
+        var organizationFilter = organizationId is > 0 ? organizationId : null;
+        var projectFilter = projectId is > 0 ? projectId : null;
+
+        if (failures.Count == 0 && organizationFilter is null && projectFilter is null)
+        {
+            failures["orgID"] = new[] { "orgID or projectID is required." };
+        }
+
+        if (failures.Count > 0)
+        {
+            throw new ValidationException(failures);
+        }
+
+        var holidays = await _timesheetProjectRepository.GetHolidaySetupListAsync(
+            organizationFilter,
+            projectFilter,
+            cancellationToken);
+
+        return holidays.Select(holiday => holiday.ToResponse()).ToList();
+    }
+
+    public async Task<TimesheetHolidaySetupResponse> SaveHolidaySetupAsync(
+        TimesheetHolidaySetupSaveRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        // Every rule is checked here, before anything is written, and every
+        // failure is collected - the caller is told about all of them in one
+        // 400, keyed on the field names it sent.
+        var description = string.IsNullOrWhiteSpace(request.Description) ? null : request.Description.Trim();
+        var failures = new Dictionary<string, string[]>();
+
+        if (request.TimesheetHolidaySetupId < 0)
+        {
+            failures[nameof(TimesheetHolidaySetupSaveRequest.TimesheetHolidaySetupId)] = new[]
+            {
+                "TimesheetHolidaySetupId must be 0 (or left out) to add a holiday, or the id of the holiday to edit."
+            };
+        }
+
+        if (request.HolidayDate is null)
+        {
+            failures[nameof(TimesheetHolidaySetupSaveRequest.HolidayDate)] = new[] { "HolidayDate is required." };
+        }
+
+        if (description?.Length > HolidayDescriptionMaximumLength)
+        {
+            failures[nameof(TimesheetHolidaySetupSaveRequest.Description)] = new[]
+            {
+                $"Description must be {HolidayDescriptionMaximumLength} characters or fewer."
+            };
+        }
+
+        if (request.OrganizationId <= 0)
+        {
+            failures[nameof(TimesheetHolidaySetupSaveRequest.OrganizationId)] = new[]
+            {
+                "OrganizationId is required and must be greater than 0."
+            };
+        }
+
+        if (request.CountryId <= 0)
+        {
+            failures[nameof(TimesheetHolidaySetupSaveRequest.CountryId)] = new[]
+            {
+                "CountryId must be greater than 0, or left out."
+            };
+        }
+
+        if (request.ClientId <= 0)
+        {
+            failures[nameof(TimesheetHolidaySetupSaveRequest.ClientId)] = new[]
+            {
+                "ClientId must be greater than 0, or left out."
+            };
+        }
+
+        if (request.ProjectId <= 0)
+        {
+            failures[nameof(TimesheetHolidaySetupSaveRequest.ProjectId)] = new[]
+            {
+                "ProjectId must be greater than 0, or left out."
+            };
+        }
+
+        if (request.CreatedBy <= 0)
+        {
+            failures[nameof(TimesheetHolidaySetupSaveRequest.CreatedBy)] = new[]
+            {
+                "CreatedBy is required: the row records who created it."
+            };
+        }
+
+        if (failures.Count > 0)
+        {
+            throw new ValidationException(failures);
+        }
+
+        // Then the database. No foreign key protects any of these columns, and
+        // the procedure checks none of them, so a wrong id would be saved as is.
+        if (request.CountryId is { } countryId
+            && !await _timesheetProjectRepository.CountryExistsAsync(countryId, cancellationToken))
+        {
+            failures[nameof(TimesheetHolidaySetupSaveRequest.CountryId)] = new[]
+            {
+                $"Country '{countryId}' does not exist."
+            };
+        }
+
+        if (request.ClientId is { } clientId
+            && !await _timesheetProjectRepository.ClientExistsAsync(clientId, request.OrganizationId, cancellationToken))
+        {
+            failures[nameof(TimesheetHolidaySetupSaveRequest.ClientId)] = new[]
+            {
+                $"Client '{clientId}' does not exist in organization '{request.OrganizationId}' or has been removed."
+            };
+        }
+
+        if (request.ProjectId is { } projectId)
+        {
+            var project = await _timesheetProjectRepository.GetByIdAsync(projectId, cancellationToken);
+
+            if (project is null || project.OrganizationId != request.OrganizationId)
+            {
+                failures[nameof(TimesheetHolidaySetupSaveRequest.ProjectId)] = new[]
+                {
+                    $"Project '{projectId}' does not exist in organization '{request.OrganizationId}'."
+                };
+            }
+        }
+
+        if (failures.Count > 0)
+        {
+            throw new ValidationException(failures);
+        }
+
+        // Null and 0 both mean "add" - a negative id was refused above.
+        var timesheetHolidaySetupId = request.TimesheetHolidaySetupId is > 0 ? request.TimesheetHolidaySetupId : null;
+
+        // Only an edit can come back empty: the holiday it names does not
+        // exist, is deleted, or belongs to another organisation.
+        var saved = await _timesheetProjectRepository.SaveHolidaySetupAsync(
+                timesheetHolidaySetupId,
+                request.HolidayDate!.Value.Date,
+                description,
+                request.OrganizationId,
+                request.CountryId,
+                request.ClientId,
+                request.ProjectId,
+                request.CreatedBy,
+                _dateTimeProvider.UtcNow,
+                cancellationToken)
+            ?? throw NotFoundException.For("Holiday", timesheetHolidaySetupId ?? 0);
+
+        _logger.LogInformation(
+            "Holiday {TimesheetHolidaySetupId} {Action} for organization {OrganizationId} by user {UserId}.",
+            saved.TimesheetHolidaySetupId,
+            timesheetHolidaySetupId is null ? "added" : "updated",
+            request.OrganizationId,
+            request.CreatedBy);
+
+        return saved.ToResponse();
+    }
+
+    public async Task DeleteHolidaySetupAsync(
+        TimesheetHolidaySetupDeleteRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var failures = new Dictionary<string, string[]>();
+
+        if (request.TimesheetHolidaySetupId <= 0)
+        {
+            failures[nameof(TimesheetHolidaySetupDeleteRequest.TimesheetHolidaySetupId)] = new[]
+            {
+                "TimesheetHolidaySetupId is required and must be greater than 0."
+            };
+        }
+
+        if (request.OrganizationId <= 0)
+        {
+            failures[nameof(TimesheetHolidaySetupDeleteRequest.OrganizationId)] = new[]
+            {
+                "OrganizationId is required and must be greater than 0."
+            };
+        }
+
+        if (failures.Count > 0)
+        {
+            throw new ValidationException(failures);
+        }
+
+        // The repository hides deleted holidays, so one deleted already is a
+        // 404 rather than a silent success.
+        var holiday = await _timesheetProjectRepository.GetHolidaySetupForUpdateAsync(
+                request.TimesheetHolidaySetupId,
+                request.OrganizationId,
+                cancellationToken)
+            ?? throw NotFoundException.For("Holiday", request.TimesheetHolidaySetupId);
+
+        // A soft delete, never a DELETE statement: the row stays, and the
+        // entity's query filter and both holiday procedures stop returning it.
+        // The table has no delete date or "deleted by" column to stamp.
+        holiday.IsDelete = true;
+
+        await _timesheetProjectRepository.UpdateHolidaySetupAsync(holiday, cancellationToken);
+
+        _logger.LogInformation(
+            "Holiday {TimesheetHolidaySetupId} of organization {OrganizationId} soft-deleted.",
+            holiday.TimesheetHolidaySetupId,
+            holiday.OrganizationId);
+    }
+
+    public async Task<IReadOnlyList<TimesheetWeekendSetupResponse>> GetWeekendSetupListAsync(
+        int? organizationId,
+        int? projectId,
+        CancellationToken cancellationToken = default)
+    {
+        var failures = new Dictionary<string, string[]>();
+
+        if (organizationId < 0)
+        {
+            failures["orgID"] = new[] { "orgID must be greater than 0, or left out." };
+        }
+
+        if (projectId < 0)
+        {
+            failures["projectID"] = new[] { "projectID must be greater than 0, or left out." };
+        }
+
+        // Null and 0 both mean "not filtered". With neither filter the whole
+        // table would come back, across every organisation - refused.
+        var organizationFilter = organizationId is > 0 ? organizationId : null;
+        var projectFilter = projectId is > 0 ? projectId : null;
+
+        if (failures.Count == 0 && organizationFilter is null && projectFilter is null)
+        {
+            failures["orgID"] = new[] { "orgID or projectID is required." };
+        }
+
+        if (failures.Count > 0)
+        {
+            throw new ValidationException(failures);
+        }
+
+        var setups = await _timesheetProjectRepository.GetWeekendSetupListAsync(
+            organizationFilter,
+            projectFilter,
+            cancellationToken);
+
+        return setups.Select(setup => setup.ToResponse()).ToList();
+    }
+
+    public async Task<TimesheetWeekendSetupResponse> SaveWeekendSetupAsync(
+        TimesheetWeekendSetupSaveRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        // Every rule is checked here, before anything is written, and every
+        // failure is collected - the caller is told about all of them in one
+        // 400, keyed on the field names it sent.
+        var failures = new Dictionary<string, string[]>();
+
+        if (request.TimeSheetWeekendSetupId < 0)
+        {
+            failures[nameof(TimesheetWeekendSetupSaveRequest.TimeSheetWeekendSetupId)] = new[]
+            {
+                "TimeSheetWeekendSetupId must be 0 (or left out) to add a setup, or the id of the setup to edit."
+            };
+        }
+
+        if (request.OrganizationId <= 0)
+        {
+            failures[nameof(TimesheetWeekendSetupSaveRequest.OrganizationId)] = new[]
+            {
+                "OrganizationId is required and must be greater than 0."
+            };
+        }
+
+        if (request.ClientId <= 0)
+        {
+            failures[nameof(TimesheetWeekendSetupSaveRequest.ClientId)] = new[]
+            {
+                "ClientId must be greater than 0, or left out."
+            };
+        }
+
+        if (request.ProjectId <= 0)
+        {
+            failures[nameof(TimesheetWeekendSetupSaveRequest.ProjectId)] = new[]
+            {
+                "ProjectId is required and must be greater than 0."
+            };
+        }
+
+        if (request.UserId <= 0)
+        {
+            failures[nameof(TimesheetWeekendSetupSaveRequest.UserId)] = new[]
+            {
+                "UserId is required: the row records who created or last updated it."
+            };
+        }
+
+        if (failures.Count > 0)
+        {
+            throw new ValidationException(failures);
+        }
+
+        // Then the database. No foreign key protects any of these columns, and
+        // the procedure checks none of them, so a wrong id would be saved as is.
+        if (request.ClientId is { } clientId
+            && !await _timesheetProjectRepository.ClientExistsAsync(clientId, request.OrganizationId, cancellationToken))
+        {
+            failures[nameof(TimesheetWeekendSetupSaveRequest.ClientId)] = new[]
+            {
+                $"Client '{clientId}' does not exist in organization '{request.OrganizationId}' or has been removed."
+            };
+        }
+
+        var project = await _timesheetProjectRepository.GetByIdAsync(request.ProjectId, cancellationToken);
+
+        if (project is null || project.OrganizationId != request.OrganizationId)
+        {
+            failures[nameof(TimesheetWeekendSetupSaveRequest.ProjectId)] = new[]
+            {
+                $"Project '{request.ProjectId}' does not exist in organization '{request.OrganizationId}'."
+            };
+        }
+
+        if (failures.Count > 0)
+        {
+            throw new ValidationException(failures);
+        }
+
+        // Null and 0 both mean "add" - a negative id was refused above.
+        var timeSheetWeekendSetupId = request.TimeSheetWeekendSetupId is > 0 ? request.TimeSheetWeekendSetupId : null;
+
+        // One setup per project. The setup being edited is excluded, so an
+        // edit that keeps its project is not a conflict with itself. The
+        // procedure checks again under a lock, for two saves racing.
+        if (await _timesheetProjectRepository.WeekendSetupExistsForProjectAsync(
+                request.ProjectId,
+                timeSheetWeekendSetupId ?? 0,
+                cancellationToken))
+        {
+            throw new ConflictException(
+                $"Project '{request.ProjectId}' already has a weekend setup. Edit that one instead.");
+        }
+
+        // Only an edit can come back empty: the setup it names does not
+        // exist, is deleted, or belongs to another organisation.
+        var saved = await _timesheetProjectRepository.SaveWeekendSetupAsync(
+                timeSheetWeekendSetupId,
+                request.OrganizationId,
+                request.ClientId,
+                request.ProjectId,
+                request.IsMondayWeekend,
+                request.IsTuesdayWeekend,
+                request.IsWednesdayWeekend,
+                request.IsThursdayWeekend,
+                request.IsFridayWeekend,
+                request.IsSaturdayWeekend,
+                request.IsSundayWeekend,
+                request.UserId,
+                _dateTimeProvider.UtcNow,
+                cancellationToken)
+            ?? throw NotFoundException.For("Weekend setup", timeSheetWeekendSetupId ?? 0);
+
+        _logger.LogInformation(
+            "Weekend setup {TimeSheetWeekendSetupId} {Action} for project {ProjectId} of organization {OrganizationId} by user {UserId}.",
+            saved.TimeSheetWeekendSetupId,
+            timeSheetWeekendSetupId is null ? "added" : "updated",
+            request.ProjectId,
+            request.OrganizationId,
+            request.UserId);
+
+        return saved.ToResponse();
+    }
+
+    public async Task DeleteWeekendSetupAsync(
+        TimesheetWeekendSetupDeleteRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var failures = new Dictionary<string, string[]>();
+
+        if (request.TimeSheetWeekendSetupId <= 0)
+        {
+            failures[nameof(TimesheetWeekendSetupDeleteRequest.TimeSheetWeekendSetupId)] = new[]
+            {
+                "TimeSheetWeekendSetupId is required and must be greater than 0."
+            };
+        }
+
+        if (request.DeletedBy <= 0)
+        {
+            failures[nameof(TimesheetWeekendSetupDeleteRequest.DeletedBy)] = new[]
+            {
+                "DeletedBy is required: a soft delete records who performed it."
+            };
+        }
+
+        if (failures.Count > 0)
+        {
+            throw new ValidationException(failures);
+        }
+
+        // The repository hides deleted setups, so one deleted already is a
+        // 404 - never re-stamped over the first DeletedDate.
+        var setup = await _timesheetProjectRepository.GetWeekendSetupForUpdateAsync(
+                request.TimeSheetWeekendSetupId,
+                cancellationToken)
+            ?? throw NotFoundException.For("Weekend setup", request.TimeSheetWeekendSetupId);
+
+        // A soft delete, never a DELETE statement: the row stays, and the
+        // entity's query filter and both weekend procedures stop returning it.
+        setup.IsDelete = true;
+        setup.DeletedDate = _dateTimeProvider.UtcNow;
+        setup.DeletedBy = request.DeletedBy;
+
+        await _timesheetProjectRepository.UpdateWeekendSetupAsync(setup, cancellationToken);
+
+        _logger.LogInformation(
+            "Weekend setup {TimeSheetWeekendSetupId} of project {ProjectId} soft-deleted by user {DeletedBy}.",
+            setup.TimeSheetWeekendSetupId,
+            setup.ProjectId,
+            request.DeletedBy);
+    }
+
+    public async Task<IReadOnlyList<TimesheetRoleAssignmentResponse>> GetRoleAssignmentListAsync(
+        int? organizationId,
+        int? userId,
+        CancellationToken cancellationToken = default)
+    {
+        var failures = new Dictionary<string, string[]>();
+
+        if (organizationId < 0)
+        {
+            failures["orgID"] = new[] { "orgID must be greater than 0, or left out." };
+        }
+
+        if (userId < 0)
+        {
+            failures["userID"] = new[] { "userID must be greater than 0, or left out." };
+        }
+
+        // Null and 0 both mean "not filtered". With neither filter the whole
+        // table would come back, across every organisation - refused.
+        var organizationFilter = organizationId is > 0 ? organizationId : null;
+        var userFilter = userId is > 0 ? userId : null;
+
+        if (failures.Count == 0 && organizationFilter is null && userFilter is null)
+        {
+            failures["orgID"] = new[] { "orgID or userID is required." };
+        }
+
+        if (failures.Count > 0)
+        {
+            throw new ValidationException(failures);
+        }
+
+        var assignments = await _timesheetProjectRepository.GetRoleAssignmentListAsync(
+            organizationFilter,
+            userFilter,
+            cancellationToken);
+
+        return assignments.Select(assignment => assignment.ToResponse()).ToList();
+    }
+
+    public async Task<TimesheetRoleAssignmentResponse> SaveRoleAssignmentAsync(
+        TimesheetRoleAssignmentSaveRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        // Every rule is checked here, before anything is written, and every
+        // failure is collected - the caller is told about all of them in one
+        // 400, keyed on the field names it sent.
+        var failures = new Dictionary<string, string[]>();
+
+        if (request.AssignmentId < 0)
+        {
+            failures[nameof(TimesheetRoleAssignmentSaveRequest.AssignmentId)] = new[]
+            {
+                "AssignmentId must be 0 (or left out) to add an assignment, or the id of the assignment to edit."
+            };
+        }
+
+        if (request.OrganizationId <= 0)
+        {
+            failures[nameof(TimesheetRoleAssignmentSaveRequest.OrganizationId)] = new[]
+            {
+                "OrganizationId is required and must be greater than 0."
+            };
+        }
+
+        if (request.UserId <= 0)
+        {
+            failures[nameof(TimesheetRoleAssignmentSaveRequest.UserId)] = new[]
+            {
+                "UserId is required and must be greater than 0."
+            };
+        }
+
+        if (request.LoginUserId <= 0)
+        {
+            failures[nameof(TimesheetRoleAssignmentSaveRequest.LoginUserId)] = new[]
+            {
+                "LoginUserId is required: the row records who created or last updated it."
+            };
+        }
+
+        if (failures.Count > 0)
+        {
+            throw new ValidationException(failures);
+        }
+
+        // Then the database. No foreign key protects UserID, and the procedure
+        // does not check it, so a wrong id would be saved as is.
+        if (!await _timesheetProjectRepository.UserExistsAsync(request.UserId, request.OrganizationId, cancellationToken))
+        {
+            throw new ValidationException(
+                nameof(TimesheetRoleAssignmentSaveRequest.UserId),
+                $"User '{request.UserId}' is not a live user of organization '{request.OrganizationId}'.");
+        }
+
+        // Null and 0 both mean "add" - a negative id was refused above.
+        var assignmentId = request.AssignmentId is > 0 ? request.AssignmentId : null;
+
+        // One assignment per user. The assignment being edited is excluded,
+        // so an edit that keeps its user is not a conflict with itself. The
+        // procedure checks again under a lock, for two saves racing.
+        if (await _timesheetProjectRepository.RoleAssignmentExistsForUserAsync(
+                request.UserId,
+                assignmentId ?? 0,
+                cancellationToken))
+        {
+            throw new ConflictException(
+                $"User '{request.UserId}' already has a user access setup. Edit that one instead.");
+        }
+
+        // Only an edit can come back empty: the assignment it names does not
+        // exist.
+        var saved = await _timesheetProjectRepository.SaveRoleAssignmentAsync(
+                assignmentId,
+                request.UserId,
+                request.IsClientSetup,
+                request.IsProject,
+                request.IsProjectBudget,
+                request.IsProjectCategory,
+                request.IsStatusSetup,
+                request.IsRoleSetup,
+                request.IsUserSetup,
+                request.IsTimeLog,
+                request.LoginUserId,
+                _dateTimeProvider.UtcNow,
+                cancellationToken)
+            ?? throw NotFoundException.For("User access setup", assignmentId ?? 0);
+
+        _logger.LogInformation(
+            "User access setup {AssignmentId} {Action} for user {UserId} by user {LoginUserId}.",
+            saved.AssignmentId,
+            assignmentId is null ? "added" : "updated",
+            request.UserId,
+            request.LoginUserId);
+
+        return saved.ToResponse();
+    }
+
+    public async Task DeleteRoleAssignmentAsync(
+        TimesheetRoleAssignmentDeleteRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        if (request.AssignmentId <= 0)
+        {
+            throw new ValidationException(
+                nameof(TimesheetRoleAssignmentDeleteRequest.AssignmentId),
+                "AssignmentId is required and must be greater than 0.");
+        }
+
+        var assignment = await _timesheetProjectRepository.GetRoleAssignmentForUpdateAsync(
+                request.AssignmentId,
+                cancellationToken)
+            ?? throw NotFoundException.For("User access setup", request.AssignmentId);
+
+        // A hard delete: the table has no soft-delete column.
+        await _timesheetProjectRepository.DeleteRoleAssignmentAsync(assignment, cancellationToken);
+
+        _logger.LogInformation(
+            "User access setup {AssignmentId} of user {UserId} deleted.",
+            assignment.AssignmentId,
+            assignment.UserId);
     }
 }

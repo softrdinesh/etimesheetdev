@@ -224,4 +224,152 @@ public interface ITimesheetProjectService
     Task<IReadOnlyList<TimesheetUserListResponse>> GetTimesheetUserListByOrganizationIdAsync(
         int organizationId,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns the live holidays of an organisation, a project or both,
+    /// ordered by date, via <c>spc_GetTimesheetHolidaySetup</c>. A filter that
+    /// is null or <c>0</c> is not applied; at least one must be given. No
+    /// matching holidays is an empty list, not a 404.
+    /// </summary>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.ValidationException">
+    /// Neither filter is given, or one is negative.
+    /// </exception>
+    Task<IReadOnlyList<TimesheetHolidaySetupResponse>> GetHolidaySetupListAsync(
+        int? organizationId,
+        int? projectId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Adds a holiday to an organisation, or edits one - <b>one method for
+    /// both</b>, via <c>spc_AddEditTimesheetHolidaySetup</c>. A
+    /// <see cref="TimesheetHolidaySetupSaveRequest.TimesheetHolidaySetupId"/>
+    /// absent or <c>0</c> adds; any greater value edits that holiday.
+    /// </summary>
+    /// <returns>The saved holiday, including its <c>TimesheetHolidaySetupId</c>.</returns>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.ValidationException">
+    /// Any field fails its rule, or names a country, client or project that
+    /// does not exist - every failure is reported together.
+    /// </exception>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.NotFoundException">
+    /// An id was sent, but no live holiday of this organisation has it.
+    /// </exception>
+    Task<TimesheetHolidaySetupResponse> SaveHolidaySetupAsync(
+        TimesheetHolidaySetupSaveRequest request,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Soft-deletes a holiday of an organisation: <c>IsDelete</c> is set to 1
+    /// and the row is kept.
+    /// </summary>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.ValidationException">
+    /// A <c>TimesheetHolidaySetupId</c> or <c>OrganizationId</c> that is not
+    /// positive.
+    /// </exception>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.NotFoundException">
+    /// No live holiday with that id belongs to that organisation - including
+    /// one removed already, so removing twice is a 404.
+    /// </exception>
+    Task DeleteHolidaySetupAsync(
+        TimesheetHolidaySetupDeleteRequest request,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns the live weekend setups of an organisation, a project or both,
+    /// via <c>spc_GetTimesheetWeekendSetup</c>. A filter that is null or
+    /// <c>0</c> is not applied; at least one must be given. No matching setups
+    /// is an empty list, not a 404.
+    /// </summary>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.ValidationException">
+    /// Neither filter is given, or one is negative.
+    /// </exception>
+    Task<IReadOnlyList<TimesheetWeekendSetupResponse>> GetWeekendSetupListAsync(
+        int? organizationId,
+        int? projectId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Adds the weekend setup of a project, or edits one - <b>one method for
+    /// both</b>, via <c>spc_AddEditTimesheetWeekendSetup</c>. A
+    /// <see cref="TimesheetWeekendSetupSaveRequest.TimeSheetWeekendSetupId"/>
+    /// absent or <c>0</c> adds; any greater value edits that setup.
+    /// </summary>
+    /// <returns>The saved setup, including its <c>TimeSheetWeekendSetupId</c>.</returns>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.ValidationException">
+    /// Any field fails its rule, or names a client or project that does not
+    /// exist in the organisation - every failure is reported together.
+    /// </exception>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.NotFoundException">
+    /// An id was sent, but no live setup of this organisation has it.
+    /// </exception>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.ConflictException">
+    /// The project already has another live weekend setup.
+    /// </exception>
+    Task<TimesheetWeekendSetupResponse> SaveWeekendSetupAsync(
+        TimesheetWeekendSetupSaveRequest request,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Soft-deletes a weekend setup: <c>IsDelete</c>, <c>DeletedDate</c> and
+    /// <c>DeletedBy</c> are stamped and the row is kept.
+    /// </summary>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.ValidationException">
+    /// A <c>TimeSheetWeekendSetupId</c> or <c>DeletedBy</c> that is not positive.
+    /// </exception>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.NotFoundException">
+    /// No live setup has that id - including one removed already, so removing
+    /// twice is a 404.
+    /// </exception>
+    Task DeleteWeekendSetupAsync(
+        TimesheetWeekendSetupDeleteRequest request,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns the module assignments of live users of an organisation, a user
+    /// or both, via <c>spc_GetUserAccessSetup</c>. A filter that is
+    /// null or <c>0</c> is not applied; at least one must be given. No
+    /// matching assignments is an empty list, not a 404.
+    /// </summary>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.ValidationException">
+    /// Neither filter is given, or one is negative.
+    /// </exception>
+    Task<IReadOnlyList<TimesheetRoleAssignmentResponse>> GetRoleAssignmentListAsync(
+        int? organizationId,
+        int? userId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Adds the module assignment of a user, or edits one - <b>one method for
+    /// both</b>, via <c>spc_AddEditUserAccessSetup</c>. An
+    /// <see cref="TimesheetRoleAssignmentSaveRequest.AssignmentId"/> absent or
+    /// <c>0</c> adds; any greater value edits that assignment.
+    /// </summary>
+    /// <returns>The saved assignment, including its <c>AssignmentId</c>.</returns>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.ValidationException">
+    /// Any field fails its rule, or the user is not a live user of the
+    /// organisation - every failure is reported together.
+    /// </exception>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.NotFoundException">
+    /// An id was sent, but no assignment has it.
+    /// </exception>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.ConflictException">
+    /// The user already has another assignment.
+    /// </exception>
+    Task<TimesheetRoleAssignmentResponse> SaveRoleAssignmentAsync(
+        TimesheetRoleAssignmentSaveRequest request,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Physically deletes a module assignment. The table has no soft-delete
+    /// column, so nothing of the row is kept.
+    /// </summary>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.ValidationException">
+    /// An <c>AssignmentId</c> that is not positive.
+    /// </exception>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.NotFoundException">
+    /// No assignment has that id - including one removed already, so removing
+    /// twice is a 404.
+    /// </exception>
+    Task DeleteRoleAssignmentAsync(
+        TimesheetRoleAssignmentDeleteRequest request,
+        CancellationToken cancellationToken = default);
 }

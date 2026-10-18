@@ -308,4 +308,179 @@ public interface ITimesheetProjectRepository
     Task<IReadOnlyList<TimesheetUserListDetail>> GetTimesheetUserListByOrganizationIdAsync(
         int organizationId,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The live holidays of an organisation, a project or both, via
+    /// <c>spc_GetTimesheetHolidaySetup</c>, ordered by date. A null filter
+    /// matches anything. Empty when none match.
+    /// </summary>
+    Task<IReadOnlyList<TimesheetHolidaySetupDetail>> GetHolidaySetupListAsync(
+        int? organizationId,
+        int? projectId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Adds a holiday (<paramref name="timesheetHolidaySetupId"/> null) or
+    /// edits one, via <c>spc_AddEditTimesheetHolidaySetup</c>.
+    /// </summary>
+    /// <returns>
+    /// The saved holiday, or <see langword="null"/> when an edit names a
+    /// holiday that does not exist, is deleted, or belongs to another
+    /// organisation.
+    /// </returns>
+    Task<TimesheetHolidaySetupSaveDetail?> SaveHolidaySetupAsync(
+        int? timesheetHolidaySetupId,
+        DateTime holidayDate,
+        string? description,
+        int organizationId,
+        int? countryId,
+        int? clientId,
+        int? projectId,
+        int createdBy,
+        DateTime now,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns a live holiday of an organisation, <b>tracked</b> for a soft
+    /// delete; <see langword="null"/> when it does not exist, is deleted, or
+    /// belongs to another organisation.
+    /// </summary>
+    Task<TimesheetHolidaySetup?> GetHolidaySetupForUpdateAsync(
+        int timesheetHolidaySetupId,
+        int organizationId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Saves the changes made to a holiday loaded by
+    /// <see cref="GetHolidaySetupForUpdateAsync"/>.
+    /// </summary>
+    Task UpdateHolidaySetupAsync(
+        TimesheetHolidaySetup holiday,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Whether a live client with this id belongs to the organisation.</summary>
+    Task<bool> ClientExistsAsync(
+        int clientId,
+        int organizationId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The live weekend setups of an organisation, a project or both, via
+    /// <c>spc_GetTimesheetWeekendSetup</c>. A null filter matches anything.
+    /// Empty when none match.
+    /// </summary>
+    Task<IReadOnlyList<TimesheetWeekendSetupDetail>> GetWeekendSetupListAsync(
+        int? organizationId,
+        int? projectId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Adds a weekend setup (<paramref name="timeSheetWeekendSetupId"/> null)
+    /// or edits one, via <c>spc_AddEditTimesheetWeekendSetup</c>.
+    /// </summary>
+    /// <returns>
+    /// The saved setup, or <see langword="null"/> when an edit names a setup
+    /// that does not exist, is deleted, or belongs to another organisation.
+    /// </returns>
+    Task<TimesheetWeekendSetupSaveDetail?> SaveWeekendSetupAsync(
+        int? timeSheetWeekendSetupId,
+        int organizationId,
+        int? clientId,
+        int projectId,
+        bool isMondayWeekend,
+        bool isTuesdayWeekend,
+        bool isWednesdayWeekend,
+        bool isThursdayWeekend,
+        bool isFridayWeekend,
+        bool isSaturdayWeekend,
+        bool isSundayWeekend,
+        int userId,
+        DateTime now,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Whether the project has a live weekend setup other than
+    /// <paramref name="excludedTimeSheetWeekendSetupId"/>.
+    /// </summary>
+    Task<bool> WeekendSetupExistsForProjectAsync(
+        int projectId,
+        int excludedTimeSheetWeekendSetupId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns a live weekend setup, <b>tracked</b> for a soft delete;
+    /// <see langword="null"/> when it does not exist or is deleted.
+    /// </summary>
+    Task<TimesheetWeekendSetup?> GetWeekendSetupForUpdateAsync(
+        int timeSheetWeekendSetupId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Saves the changes made to a setup loaded by
+    /// <see cref="GetWeekendSetupForUpdateAsync"/>.
+    /// </summary>
+    Task UpdateWeekendSetupAsync(
+        TimesheetWeekendSetup setup,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The module assignments of live users of an organisation, a user or
+    /// both, via <c>spc_GetUserAccessSetup</c>. A null filter matches
+    /// anything. Empty when none match.
+    /// </summary>
+    Task<IReadOnlyList<TimesheetRoleAssignmentDetail>> GetRoleAssignmentListAsync(
+        int? organizationId,
+        int? userId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Adds a module assignment (<paramref name="assignmentId"/> null) or
+    /// edits one, via <c>spc_AddEditUserAccessSetup</c>.
+    /// </summary>
+    /// <returns>
+    /// The saved assignment, or <see langword="null"/> when an edit names an
+    /// assignment that does not exist.
+    /// </returns>
+    Task<TimesheetRoleAssignmentSaveDetail?> SaveRoleAssignmentAsync(
+        int? assignmentId,
+        int userId,
+        bool isClientSetup,
+        bool isProject,
+        bool isProjectBudget,
+        bool isProjectCategory,
+        bool isStatusSetup,
+        bool isRoleSetup,
+        bool isUserSetup,
+        bool isTimeLog,
+        int loginUserId,
+        DateTime now,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Whether the user has an assignment other than
+    /// <paramref name="excludedAssignmentId"/>.
+    /// </summary>
+    Task<bool> RoleAssignmentExistsForUserAsync(
+        int userId,
+        int excludedAssignmentId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns an assignment, <b>tracked</b> for a delete;
+    /// <see langword="null"/> when it does not exist.
+    /// </summary>
+    Task<TimesheetRoleAssignment?> GetRoleAssignmentForUpdateAsync(
+        int assignmentId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Physically deletes an assignment loaded by <see cref="GetRoleAssignmentForUpdateAsync"/>.</summary>
+    Task DeleteRoleAssignmentAsync(
+        TimesheetRoleAssignment assignment,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Whether a live user (<c>IsDelete</c> = 0) with this id belongs to the organisation.</summary>
+    Task<bool> UserExistsAsync(
+        int userId,
+        int organizationId,
+        CancellationToken cancellationToken = default);
 }

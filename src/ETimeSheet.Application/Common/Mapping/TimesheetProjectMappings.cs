@@ -128,4 +128,130 @@ internal static class TimesheetProjectMappings
         ProjectLocationLatitude = user.ProjectLocationLatitude,
         ProjectLocationLongitude = user.ProjectLocationLongitude,
     };
+
+    /// <summary>Projects a holiday row from <c>spc_GetTimesheetHolidaySetup</c> to the holiday response.</summary>
+    internal static TimesheetHolidaySetupResponse ToResponse(this TimesheetHolidaySetupDetail holiday) => new()
+    {
+        TimesheetHolidaySetupId = holiday.TimesheetHolidaySetupId,
+        HolidayDate = holiday.HolidayDate,
+        Description = holiday.Description,
+        OrganizationId = holiday.OrganizationId,
+        CountryId = holiday.CountryId,
+        CountryName = holiday.CountryName,
+        ClientId = holiday.ClientId,
+        ClientName = holiday.ClientName,
+        ProjectId = holiday.ProjectId,
+        ProjectCode = holiday.ProjectCode,
+        ProjectName = holiday.ProjectName,
+        CreateDate = holiday.CreateDate,
+        CreatedBy = holiday.CreatedBy,
+    };
+
+    /// <summary>Projects the row <c>spc_AddEditTimesheetHolidaySetup</c> returns to the holiday response.</summary>
+    internal static TimesheetHolidaySetupResponse ToResponse(this TimesheetHolidaySetupSaveDetail holiday) => new()
+    {
+        TimesheetHolidaySetupId = holiday.TimesheetHolidaySetupId,
+        HolidayDate = holiday.HolidayDate,
+        Description = holiday.Description,
+        OrganizationId = holiday.OrganizationId,
+        CountryId = holiday.CountryId,
+        CountryName = holiday.CountryName,
+        ClientId = holiday.ClientId,
+        ClientName = holiday.ClientName,
+        ProjectId = holiday.ProjectId,
+        ProjectCode = holiday.ProjectCode,
+        ProjectName = holiday.ProjectName,
+        CreateDate = holiday.CreateDate,
+        CreatedBy = holiday.CreatedBy,
+    };
+
+    /// <summary>Projects a setup row from <c>spc_GetTimesheetWeekendSetup</c> to the weekend setup response.</summary>
+    internal static TimesheetWeekendSetupResponse ToResponse(this TimesheetWeekendSetupDetail setup) => new()
+    {
+        TimeSheetWeekendSetupId = setup.TimeSheetWeekendSetupId,
+        OrganizationId = setup.OrganizationId,
+        ClientId = setup.ClientId,
+        ClientName = setup.ClientName,
+        ProjectId = setup.ProjectId,
+        ProjectCode = setup.ProjectCode,
+        ProjectName = setup.ProjectName,
+        IsMondayWeekend = setup.IsMondayWeekend,
+        IsTuesdayWeekend = setup.IsTuesdayWeekend,
+        IsWednesdayWeekend = setup.IsWednesdayWeekend,
+        IsThursdayWeekend = setup.IsThursdayWeekend,
+        IsFridayWeekend = setup.IsFridayWeekend,
+        IsSaturdayWeekend = setup.IsSaturdayWeekend,
+        IsSundayWeekend = setup.IsSundayWeekend,
+        CreateDate = setup.CreateDate,
+        CreatedBy = setup.CreatedBy,
+        UpdatedDate = setup.UpdatedDate,
+        UpdatedBy = setup.UpdatedBy,
+    };
+
+    /// <summary>Projects the row <c>spc_AddEditTimesheetWeekendSetup</c> returns to the weekend setup response.</summary>
+    internal static TimesheetWeekendSetupResponse ToResponse(this TimesheetWeekendSetupSaveDetail setup) => new()
+    {
+        TimeSheetWeekendSetupId = setup.TimeSheetWeekendSetupId,
+        OrganizationId = setup.OrganizationId,
+        ClientId = setup.ClientId,
+        ClientName = setup.ClientName,
+        ProjectId = setup.ProjectId,
+        ProjectCode = setup.ProjectCode,
+        ProjectName = setup.ProjectName,
+        IsMondayWeekend = setup.IsMondayWeekend,
+        IsTuesdayWeekend = setup.IsTuesdayWeekend,
+        IsWednesdayWeekend = setup.IsWednesdayWeekend,
+        IsThursdayWeekend = setup.IsThursdayWeekend,
+        IsFridayWeekend = setup.IsFridayWeekend,
+        IsSaturdayWeekend = setup.IsSaturdayWeekend,
+        IsSundayWeekend = setup.IsSundayWeekend,
+        CreateDate = setup.CreateDate,
+        CreatedBy = setup.CreatedBy,
+        UpdatedDate = setup.UpdatedDate,
+        UpdatedBy = setup.UpdatedBy,
+    };
+
+    /// <summary>Projects an assignment row from <c>spc_GetUserAccessSetup</c> to the role assignment response.</summary>
+    internal static TimesheetRoleAssignmentResponse ToResponse(this TimesheetRoleAssignmentDetail assignment) => new()
+    {
+        AssignmentId = assignment.AssignmentId,
+        UserId = assignment.UserId,
+        UserName = assignment.UserName,
+        Email = assignment.Email,
+        OrganizationId = assignment.OrganizationId,
+        IsClientSetup = assignment.IsClientSetup,
+        IsProject = assignment.IsProject,
+        IsProjectBudget = assignment.IsProjectBudget,
+        IsProjectCategory = assignment.IsProjectCategory,
+        IsStatusSetup = assignment.IsStatusSetup,
+        IsRoleSetup = assignment.IsRoleSetup,
+        IsUserSetup = assignment.IsUserSetup,
+        IsTimeLog = assignment.IsTimeLog,
+        CreateDate = assignment.CreateDate,
+        CreatedBy = assignment.CreatedBy,
+        UpdatedDate = assignment.UpdatedDate,
+        UpdatedBy = assignment.UpdatedBy,
+    };
+
+    /// <summary>Projects the row <c>spc_AddEditUserAccessSetup</c> returns to the role assignment response.</summary>
+    internal static TimesheetRoleAssignmentResponse ToResponse(this TimesheetRoleAssignmentSaveDetail assignment) => new()
+    {
+        AssignmentId = assignment.AssignmentId,
+        UserId = assignment.UserId,
+        UserName = assignment.UserName,
+        Email = assignment.Email,
+        OrganizationId = assignment.OrganizationId,
+        IsClientSetup = assignment.IsClientSetup,
+        IsProject = assignment.IsProject,
+        IsProjectBudget = assignment.IsProjectBudget,
+        IsProjectCategory = assignment.IsProjectCategory,
+        IsStatusSetup = assignment.IsStatusSetup,
+        IsRoleSetup = assignment.IsRoleSetup,
+        IsUserSetup = assignment.IsUserSetup,
+        IsTimeLog = assignment.IsTimeLog,
+        CreateDate = assignment.CreateDate,
+        CreatedBy = assignment.CreatedBy,
+        UpdatedDate = assignment.UpdatedDate,
+        UpdatedBy = assignment.UpdatedBy,
+    };
 }
