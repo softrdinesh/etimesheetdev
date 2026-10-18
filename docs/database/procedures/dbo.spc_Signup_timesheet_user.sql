@@ -1,6 +1,10 @@
 /*
     Procedure: dbo.spc_Signup_timesheet_user
     Recorded:  2026-10-15, as supplied by the database owner.
+    Revised:   2026-10-18 - DRAFT, NOT YET APPLIED: @Maxloghourday int = null
+               added, and written to Max_log_hour_day in BOTH insert branches,
+               for the column the owner added to the table the same day.
+               create-timesheet-user answers 500 until the owner applies this.
 
     Signs a user up to the timesheet and puts them on a project:
       - Email not yet in dbo.Signup: adds the user to dbo.Signup (RoleID 2,
@@ -18,8 +22,10 @@
     organisation - and rolls back the transaction the CATCH leaves open.
 
     Recorded as CREATE OR ALTER: the owner supplied it as ALTER PROCEDURE,
-    which only works where the procedure already exists. The body below is
-    exactly as supplied.
+    which only works where the procedure already exists. The body below is as
+    supplied, with the 2026-10-18 revision above applied to it - the new
+    parameter is last, so every existing caller is unaffected, and it defaults
+    to NULL, so a caller that does not send it writes no cap.
 
     Quirks worth knowing before calling it:
       - NO RESULT. @Code (5999 success / 6000 failure) and @Message are set but
@@ -32,6 +38,8 @@
         address, so it does not protect the account.
       - @Projectloclongtitude is accepted but never used. ProjectlocLatitude
         is written for a new user only, not in the existing-user branch.
+        @Maxloghourday, unlike the latitude, IS written in both branches: an
+        existing user put on another project gets that project's cap.
       - Nothing stops the same user being put on the same project twice: the
         existing-user branch always inserts.
       - The email is stored UPPER(TRIM(@Email)) in dbo.Signup.
@@ -52,7 +60,7 @@
 
 CREATE OR ALTER Procedure [dbo].[spc_Signup_timesheet_user](@Fullname nvarchar(50),@Email nvarchar(100),@CountryID int=null,@Address nvarchar(max),@OrgID int=null,
 @ProjectroleID int=null,@Jobtype int=null,@Range int=null,@Costrate decimal(18,2),@Billrate decimal(18,2),@LoginuserID int,@worklocrange int=null,@projectID int=null,
-@Projectloclatitude nvarchar(25)=null,@Projectloclongtitude nvarchar(25)=null
+@Projectloclatitude nvarchar(25)=null,@Projectloclongtitude nvarchar(25)=null,@Maxloghourday int=null
 )
 AS
 BEGIN
@@ -73,16 +81,16 @@ BEGIN
   Values(@Fullname,upper(trim(@Email)),@Encrypt_pwd,NULL,GETUTCDATE(),@CountryID,'','',@OrganizationName,@Organizationsize,@Address,@OrgID,0,0,2)
   Select @ID=SCOPE_IDENTITY();
   Insert into dbo.Login(UserID, IsLoginSuccess, LoginErrcnt, LastLogindatetime, CurrentLatitude, CurrentLongtitude) values(@ID,0,0,GETUTCDATE(),'','')
-  Insert into dbo.Timesheet_Users_Project_setup(UserID,ProjectRoleID,Cost_rate_per_hour,Billable_rate_per_hour,CreateDate,CreatedBy,IsDelete,Jobtype,Worklocationrange,ProjectID,ProjectlocLatitude)
-   values(@ID,@ProjectroleID,@Costrate,@Billrate,GETDATE(),@LoginuserID,0,@Jobtype,@worklocrange,@projectID,@Projectloclatitude)
+  Insert into dbo.Timesheet_Users_Project_setup(UserID,ProjectRoleID,Cost_rate_per_hour,Billable_rate_per_hour,CreateDate,CreatedBy,IsDelete,Jobtype,Worklocationrange,ProjectID,ProjectlocLatitude,Max_log_hour_day)
+   values(@ID,@ProjectroleID,@Costrate,@Billrate,GETDATE(),@LoginuserID,0,@Jobtype,@worklocrange,@projectID,@Projectloclatitude,@Maxloghourday)
   SET @Code=5999
   SET @Message='Account created'
 END
 ELSE
 BEGIN
     Select @ID=UserID from dbo.Signup where TRIM(upper(Email))=TRIM(upper(@Email))
-    Insert into dbo.Timesheet_Users_Project_setup(UserID,ProjectRoleID,Cost_rate_per_hour,Billable_rate_per_hour,CreateDate,CreatedBy,IsDelete,Jobtype,Worklocationrange,ProjectID)
-   values(@ID,@ProjectroleID,@Costrate,@Billrate,GETDATE(),@LoginuserID,0,@Jobtype,@worklocrange,@projectID)
+    Insert into dbo.Timesheet_Users_Project_setup(UserID,ProjectRoleID,Cost_rate_per_hour,Billable_rate_per_hour,CreateDate,CreatedBy,IsDelete,Jobtype,Worklocationrange,ProjectID,Max_log_hour_day)
+   values(@ID,@ProjectroleID,@Costrate,@Billrate,GETDATE(),@LoginuserID,0,@Jobtype,@worklocrange,@projectID,@Maxloghourday)
   SET @Code=5999
   SET @Message='Account created'
 END

@@ -59,6 +59,8 @@ public class TimesheetUserProjectSetupConfiguration : IEntityTypeConfiguration<T
             .HasColumnName("ProjectlocLongtitude")
             .HasMaxLength(25);
 
+        builder.Property(setup => setup.MaxLogHoursPerDay).HasColumnName("Max_log_hour_day");
+
         // Soft delete: the procedure writes 0, the API's remove writes 1.
         builder.HasQueryFilter(setup => setup.IsDelete == null || setup.IsDelete == 0);
     }

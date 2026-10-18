@@ -686,6 +686,17 @@ public class TimesheetUserCreateRequest
     public string? ProjectLocationLatitude { get; set; }
 
     /// <summary>
+    /// Optional. The most hours a day this assignment may log. Not negative,
+    /// and 24 or fewer. Left out means this assignment sets no cap.
+    /// <para>
+    /// <b>Stored only.</b> No endpoint enforces it: the daily cap the time log
+    /// applies is the user's <c>dbo.TimesheetMasterSetup.MaxTimeInHrs</c>.
+    /// </para>
+    /// </summary>
+    /// <example>8</example>
+    public int? MaxLogHoursPerDay { get; set; }
+
+    /// <summary>
     /// The user creating the assignment, written to <c>CreatedBy</c>. Required,
     /// greater than 0. <b>Temporary</b>: it comes from the token once
     /// authentication is on.
@@ -805,6 +816,17 @@ public class TimesheetUserUpdateRequest
     public string? ProjectLocationLongitude { get; set; }
 
     /// <summary>
+    /// Optional. The most hours a day this assignment may log. Not negative,
+    /// and 24 or fewer. Left out means this assignment sets no cap.
+    /// <para>
+    /// <b>Stored only.</b> No endpoint enforces it: the daily cap the time log
+    /// applies is the user's <c>dbo.TimesheetMasterSetup.MaxTimeInHrs</c>.
+    /// </para>
+    /// </summary>
+    /// <example>8</example>
+    public int? MaxLogHoursPerDay { get; set; }
+
+    /// <summary>
     /// The user making the edit, written to <c>dbo.Signup.UpdateBy</c> when the
     /// name or email changes. Required, greater than 0. <b>Temporary</b>: it
     /// comes from the token once authentication is on.
@@ -850,6 +872,13 @@ public class TimesheetUserResponse
 
     /// <summary>Text, as stored.</summary>
     public string? ProjectLocationLongitude { get; set; }
+
+    /// <summary>
+    /// The <c>Max_log_hour_day</c> column - the most hours a day this
+    /// assignment may log. Null when it sets no cap. Stored only; nothing
+    /// enforces it.
+    /// </summary>
+    public int? MaxLogHoursPerDay { get; set; }
 }
 
 /// <summary>
@@ -927,6 +956,13 @@ public class TimesheetUserListResponse
 
     /// <summary>Text, as stored.</summary>
     public string? ProjectLocationLongitude { get; set; }
+
+    /// <summary>
+    /// The <c>Max_log_hour_day</c> column - the most hours a day this
+    /// assignment may log. Null when it sets no cap. Stored only; nothing
+    /// enforces it.
+    /// </summary>
+    public int? MaxLogHoursPerDay { get; set; }
 }
 
 /// <summary>
@@ -968,6 +1004,8 @@ public class TimesheetUserListDetail
     public string? ProjectLocationLatitude { get; set; }
 
     public string? ProjectLocationLongitude { get; set; }
+
+    public int? MaxLogHoursPerDay { get; set; }
 }
 
 /// <summary>

@@ -2,15 +2,18 @@
     Table: dbo.Timesheet_Users_Project_setup
     Recorded: 2026-10-15 (sp_help column list supplied by the database owner;
               the table already exists)
-    Revised:  2026-10-16 - DRAFT, requested by the owner, NOT YET APPLIED:
-              TimesheetUserProjectSetupID int IDENTITY(1,1) NOT NULL added as
-              the primary key (PK_Timesheet_Users_Project_setup), as the last
-              column, where ALTER TABLE ... ADD puts it. Change to applied
-              once the owner has run it.
+    Revised:  2026-10-16 - TimesheetUserProjectSetupID int IDENTITY(1,1) NOT
+              NULL added as the primary key (PK_Timesheet_Users_Project_setup).
+              APPLIED: the sp_help list supplied on 2026-10-18 shows it present
+              and NOT NULL, as the first column - so the table was rebuilt
+              rather than altered, since ALTER TABLE ... ADD appends.
+    Revised:  2026-10-18 - APPLIED by the owner, per that same sp_help list:
+              Max_log_hour_day int NULL added as the last column - the most
+              hours a day this assignment may log.
 
     A user's assignment to a project: their project role, cost and billable
-    rates per hour, job type, work-location range and the project location.
-    One row per assignment.
+    rates per hour, job type, work-location range, the project location and
+    the most hours a day they may log on it. One row per assignment.
 
     Mapped by:
       src/ETimeSheet.Application/Models/Entities/TimesheetUserProjectSetup.cs
@@ -39,6 +42,11 @@
         ProjectRoleID presumably dbo.TimesheetUserRole.RoleID. No foreign key
         was reported for either.
       - Cost_rate_per_hour and Billable_rate_per_hour are decimal(18,2).
+      - Max_log_hour_day is a whole number of HOURS, nullable: NULL means this
+        assignment sets no cap of its own. Nothing in the API enforces it yet -
+        the daily cap the time log actually applies is
+        dbo.TimesheetMasterSetup.MaxTimeInHrs, per user. The two are not
+        reconciled.
       - IsDelete is an int, nullable, as on dbo.Signup - not a bit.
         spc_Signup_timesheet_user writes 0 and the API's soft delete writes 1;
         the API treats 0 or NULL as live.
@@ -81,6 +89,7 @@ CREATE TABLE dbo.Timesheet_Users_Project_setup
     ProjectID               int             NULL,
     ProjectlocLatitude      nvarchar(25)    NULL,
     ProjectlocLongtitude    nvarchar(25)    NULL,
+    Max_log_hour_day        int             NULL,
     CONSTRAINT PK_Timesheet_Users_Project_setup PRIMARY KEY (TimesheetUserProjectSetupID)
 );
 GO

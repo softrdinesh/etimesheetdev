@@ -276,6 +276,7 @@ public class TimesheetProjectRepository : ITimesheetProjectRepository
         int? workLocationRange,
         int projectId,
         string? projectLocationLatitude,
+        int? maxLogHoursPerDay,
         CancellationToken cancellationToken = default)
     {
         // Opened here so the EXEC and the clean-up below share one connection.
@@ -284,7 +285,9 @@ public class TimesheetProjectRepository : ITimesheetProjectRepository
         try
         {
             // @Range and @Projectloclongtitude are left to their NULL defaults:
-            // the procedure never reads either.
+            // the procedure never reads either. @Maxloghourday was added to the
+            // procedure on 2026-10-18 and is still DRAFT: until the owner
+            // applies it, this EXEC fails on the unknown parameter.
             await _db.Database.ExecuteSqlInterpolatedAsync(
                 $@"EXEC dbo.spc_Signup_timesheet_user
                     @Fullname = {fullName},
@@ -299,7 +302,8 @@ public class TimesheetProjectRepository : ITimesheetProjectRepository
                     @LoginuserID = {createdBy},
                     @worklocrange = {workLocationRange},
                     @projectID = {projectId},
-                    @Projectloclatitude = {projectLocationLatitude}",
+                    @Projectloclatitude = {projectLocationLatitude},
+                    @Maxloghourday = {maxLogHoursPerDay}",
                 cancellationToken);
         }
         catch

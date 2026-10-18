@@ -241,6 +241,7 @@ public interface ITimesheetProjectRepository
         int? workLocationRange,
         int projectId,
         string? projectLocationLatitude,
+        int? maxLogHoursPerDay,
         CancellationToken cancellationToken = default);
 
     /// <summary>
