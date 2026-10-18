@@ -3,7 +3,7 @@
 Every endpoint the API exposes today, with its purpose, input payload, success
 response and failure responses — each with a worked example.
 
-Generated from the code on branch `develop` (2026-10-17). If you change a
+Generated from the code on branch `develop` (2026-10-18). If you change a
 controller, DTO or validator, change this file with it.
 
 ---
@@ -62,6 +62,15 @@ controller, DTO or validator, change this file with it.
   - [Edit Timesheet User](#37-edit-timesheet-user)
   - [Remove Timesheet User](#38-remove-timesheet-user)
   - [Organisation Timesheet User List](#39-organisation-timesheet-user-list)
+  - [Holiday List](#40-holiday-list)
+  - [Add / Edit Holiday](#41-add--edit-holiday)
+  - [Remove Holiday](#42-remove-holiday)
+  - [Weekend Setup List](#43-weekend-setup-list)
+  - [Add / Edit Weekend Setup](#44-add--edit-weekend-setup)
+  - [Remove Weekend Setup](#45-remove-weekend-setup)
+  - [User Access Setup List](#46-user-access-setup-list)
+  - [Add / Edit User Access Setup](#47-add--edit-user-access-setup)
+  - [Remove User Access Setup](#48-remove-user-access-setup)
 - [Health endpoints](#health-endpoints)
 - [Enumerations](#enumerations)
 - [Endpoint summary table](#endpoint-summary-table)
@@ -3417,8 +3426,15 @@ database yet.
 `TimesheetProjectController` — `api/v1/TimesheetProject`. An organisation's
 projects (`dbo.TimesheetProject`), its project statuses
 (`dbo.TimesheetProjectStatus`), each project's budget
-(`dbo.TimesheetProjectBudget`), and its timesheet users' project assignments
-(`dbo.Timesheet_Users_Project_setup`).
+(`dbo.TimesheetProjectBudget`), its timesheet users' project assignments
+(`dbo.Timesheet_Users_Project_setup`), its holidays
+(`dbo.TimesheetHolidaysetup`), each project's weekend days
+(`dbo.TimeSheet_Weekend_setup`), and which modules each user may use
+(`dbo.Timesheet_role_assignment`).
+
+In the controller the actions are grouped into regions — Project, Project
+Budget, Project Status, Timesheet User, Holiday Setup, Weekend Setup and User
+Access Setup. The grouping is source layout only; it changes no route.
 
 **A project and its budget are one-to-one.** A budget row belongs to exactly
 one project (its single `ProjectID`), and a project has at most one budget:
@@ -3439,6 +3455,15 @@ failing field at once.
 audit column, so a removed row is physically gone and nothing records who
 removed it. **A status remove is a soft delete**: `dbo.TimesheetProjectStatus`
 keeps the row, stamped with `DeletedDate` and `Deletedby`.
+
+| Remove | Kind | What is recorded |
+|---|---|---|
+| Project, project budget | hard delete | nothing |
+| Project status | soft delete | `DeletedDate`, `Deletedby` |
+| Timesheet user | soft delete | `IsDelete = 1`, `DeletedDate`, `DeletedBy` |
+| Holiday | soft delete | `IsDelete = 1` only — the table has no delete stamps |
+| Weekend setup | soft delete | `IsDelete = 1`, `DeletedDate`, `DeletedBy` |
+| User access setup | **hard delete** | nothing — the table has no soft-delete column |
 
 ---
 
@@ -4561,6 +4586,641 @@ database yet.
 
 ---
 
+### 40. Holiday List
+
+`GET /api/v1/TimesheetProject/get-timesheet-holiday-setup?orgID={orgID}&projectID={projectID}`
+
+**Purpose** — The live holidays in `dbo.TimesheetHolidaysetup`, filtered by
+organisation, by project, or both, each with its country, client and project
+names. Read through `dbo.spc_GetTimesheetHolidaySetup`.
+
+#### Query parameters
+
+| Name | Type | Rules |
+|---|---|---|
+| `orgID` | int \| absent | `>= 0`. Absent or `0` = not filtered by organisation |
+| `projectID` | int \| absent | `>= 0`. Absent or `0` = not filtered by project |
+
+| Sent | Returns |
+|---|---|
+| `orgID` only | Every holiday of the organisation, whatever its project (including none) |
+| `projectID` only | Every holiday of the project, whatever its organisation |
+| both | The project's holidays within the organisation |
+| neither | **400** — the whole table is never returned |
+
+#### Example request
+
+```
+GET /api/v1/TimesheetProject/get-timesheet-holiday-setup?orgID=12
+```
+
+#### Success response — `200 OK`
+
+`data` is an array of `TimesheetHolidaySetupResponse`, ordered by
+`holidayDate`, then `timesheetHolidaySetupId`. Deleted holidays
+(`IsDelete = 1`) are not included.
+
+| Field | Type | Notes |
+|---|---|---|
+| `timesheetHolidaySetupId` | int | The id the edit and remove take |
+| `holidayDate` | datetime \| null | A `date` column — the time part is always midnight |
+| `description` | string \| null | The holiday's name |
+| `organizationId` | int \| null | |
+| `countryId` | int \| null | |
+| `countryName` | string \| null | `dbo.Country.Name`; `null` when no or an unknown country |
+| `clientId` | int \| null | |
+| `clientName` | string \| null | The `Clientname` column; `null` when no or an unknown client |
+| `projectId` | int \| null | |
+| `projectCode` | string \| null | `dbo.TimesheetProject.Code`; `null` when no or an unknown project |
+| `projectName` | string \| null | The `Projectname` column |
+| `createDate` | datetime \| null | |
+| `createdBy` | int \| null | |
+
+#### Example response
+
+```json
+{
+  "success": true,
+  "message": "",
+  "data": [
+    {
+      "timesheetHolidaySetupId": 5,
+      "holidayDate": "2026-12-25T00:00:00",
+      "description": "Christmas Day",
+      "organizationId": 12,
+      "countryId": 1,
+      "countryName": "India",
+      "clientId": 3,
+      "clientName": "Acme Corp",
+      "projectId": 4,
+      "projectCode": "PR0004",
+      "projectName": "Website Rebuild",
+      "createDate": "2026-10-17T09:12:44.317",
+      "createdBy": 7
+    }
+  ],
+  "errors": []
+}
+```
+
+#### Empty result
+
+No matching holidays is `data: []`, a 200.
+
+#### Error responses
+
+**400** — neither filter sent (`orgID: orgID or projectID is required.`), or
+one is negative (`orgID: orgID must be greater than 0, or left out.`).
+
+**500** — unhandled defect, or the procedure has not been created in the
+database yet.
+
+---
+
+### 41. Add / Edit Holiday
+
+`POST /api/v1/TimesheetProject/add-edit-timesheet-holiday-setup`
+
+**Purpose** — Add a holiday to an organisation, or edit one — **one endpoint
+for both**. `timesheetHolidaySetupId` `0` (or absent) adds; an existing id
+edits that holiday, which must belong to `organizationId` and be live. An edit
+overwrites `holidayDate`, `description`, `countryId`, `clientId` and
+`projectId`, so send them all. Written through
+`dbo.spc_AddEditTimesheetHolidaySetup`.
+
+#### Request body — `TimesheetHolidaySetupSaveRequest` (JSON)
+
+| Field | Type | Required | Rules |
+|---|---|---|---|
+| `timesheetHolidaySetupId` | int \| null | no | `0` / absent to add; `> 0` to edit |
+| `holidayDate` | date | yes | Any time part is ignored |
+| `description` | string \| null | no | At most 100 characters; trimmed. Blank is saved as `null` |
+| `organizationId` | int | yes | `> 0` |
+| `countryId` | int \| null | no | `> 0`; must be a `dbo.Country` id |
+| `clientId` | int \| null | no | `> 0`; must be a live client of `organizationId` |
+| `projectId` | int \| null | no | `> 0`; must be a project of `organizationId` |
+| `createdBy` | int | yes | `> 0`. Written to `CreatedBy` on add only — the table has no "updated by" column. Temporary — from the token once authentication is on |
+
+#### Example request
+
+```json
+{
+  "timesheetHolidaySetupId": 0,
+  "holidayDate": "2026-12-25",
+  "description": "Christmas Day",
+  "organizationId": 12,
+  "countryId": 1,
+  "clientId": 3,
+  "projectId": 4,
+  "createdBy": 7
+}
+```
+
+#### Success response — `200 OK`
+
+`data` is the saved holiday, in the same shape as [Holiday List](#40-holiday-list):
+
+```json
+{
+  "success": true,
+  "message": "Holiday saved.",
+  "data": {
+    "timesheetHolidaySetupId": 5,
+    "holidayDate": "2026-12-25T00:00:00",
+    "description": "Christmas Day",
+    "organizationId": 12,
+    "countryId": 1,
+    "countryName": "India",
+    "clientId": 3,
+    "clientName": "Acme Corp",
+    "projectId": 4,
+    "projectCode": "PR0004",
+    "projectName": "Website Rebuild",
+    "createDate": "2026-10-17T09:12:44.317",
+    "createdBy": 7
+  },
+  "errors": []
+}
+```
+
+#### Error responses
+
+**400** — every failing field is listed together. Field rules first
+(`HolidayDate: HolidayDate is required.`,
+`Description: Description must be 100 characters or fewer.`), then the
+database checks (`Country '99' does not exist.`,
+`Client '3' does not exist in organization '12' or has been removed.`,
+`Project '4' does not exist in organization '12'.`).
+
+**404** — a `timesheetHolidaySetupId` was sent, but no live holiday of that
+organisation has it: `Holiday '5' was not found.`
+
+**500** — unhandled defect, or the procedure has not been created in the
+database yet.
+
+---
+
+### 42. Remove Holiday
+
+`POST /api/v1/TimesheetProject/remove-timesheet-holiday-setup`
+
+**Purpose** — Soft-delete a holiday of an organisation. The row stays with
+`IsDelete = 1`, and Holiday List and Add / Edit Holiday no longer see it. The
+table has no delete date or "deleted by" column, so nothing else is recorded.
+By the API through EF Core; no stored procedure.
+
+#### Request body — `TimesheetHolidaySetupDeleteRequest` (JSON)
+
+| Field | Type | Required | Rules |
+|---|---|---|---|
+| `timesheetHolidaySetupId` | int | yes | `> 0` |
+| `organizationId` | int | yes | `> 0`; the holiday must belong to it |
+
+#### Example request
+
+```json
+{ "timesheetHolidaySetupId": 5, "organizationId": 12 }
+```
+
+#### Success response — `200 OK`
+
+```json
+{ "success": true, "message": "Holiday removed.", "data": null, "errors": [] }
+```
+
+#### Error responses
+
+**400** — `timesheetHolidaySetupId` or `organizationId` `<= 0`; both are
+listed when both fail.
+
+**404** — no live holiday with that id belongs to that organisation. Removing
+one twice is **not** a silent success: `Holiday '5' was not found.`
+
+**500** — unhandled defect.
+
+---
+
+### 43. Weekend Setup List
+
+`GET /api/v1/TimesheetProject/get-timesheet-weekend-setup?orgID={orgID}&projectID={projectID}`
+
+**Purpose** — The live weekend setups in `dbo.TimeSheet_Weekend_setup` —
+which days of the week are weekend days for each project — with the client and
+project names. Read through `dbo.spc_GetTimesheetWeekendSetup`.
+
+#### Query parameters
+
+| Name | Type | Rules |
+|---|---|---|
+| `orgID` | int \| absent | `>= 0`. Absent or `0` = not filtered by organisation |
+| `projectID` | int \| absent | `>= 0`. Absent or `0` = not filtered by project |
+
+| Sent | Returns |
+|---|---|
+| `orgID` only | Every setup of the organisation |
+| `projectID` only | The project's setup — at most one |
+| both | The project's setup within the organisation |
+| neither | **400** — the whole table is never returned |
+
+#### Example request
+
+```
+GET /api/v1/TimesheetProject/get-timesheet-weekend-setup?projectID=4
+```
+
+#### Success response — `200 OK`
+
+`data` is an array of `TimesheetWeekendSetupResponse`, ordered by project
+name, then `timeSheetWeekendSetupId`. Deleted setups are not included.
+
+| Field | Type | Notes |
+|---|---|---|
+| `timeSheetWeekendSetupId` | int | The id the edit and remove take |
+| `organizationId` | int | The `OrgID` column |
+| `clientId` | int \| null | |
+| `clientName` | string \| null | `null` when no or an unknown client |
+| `projectId` | int \| null | |
+| `projectCode` | string \| null | |
+| `projectName` | string \| null | |
+| `isMondayWeekend` … `isSundayWeekend` | bool \| null | Seven fields, Monday to Sunday — `true` when that day is a weekend day |
+| `createDate` | datetime \| null | |
+| `createdBy` | int \| null | |
+| `updatedDate` | datetime \| null | `null` until the first edit |
+| `updatedBy` | int \| null | |
+
+#### Example response
+
+```json
+{
+  "success": true,
+  "message": "",
+  "data": [
+    {
+      "timeSheetWeekendSetupId": 2,
+      "organizationId": 12,
+      "clientId": 3,
+      "clientName": "Acme Corp",
+      "projectId": 4,
+      "projectCode": "PR0004",
+      "projectName": "Website Rebuild",
+      "isMondayWeekend": false,
+      "isTuesdayWeekend": false,
+      "isWednesdayWeekend": false,
+      "isThursdayWeekend": false,
+      "isFridayWeekend": false,
+      "isSaturdayWeekend": true,
+      "isSundayWeekend": true,
+      "createDate": "2026-10-18T08:02:11.510",
+      "createdBy": 7,
+      "updatedDate": null,
+      "updatedBy": null
+    }
+  ],
+  "errors": []
+}
+```
+
+#### Empty result
+
+No matching setups is `data: []`, a 200.
+
+#### Error responses
+
+**400** — neither filter sent (`orgID: orgID or projectID is required.`), or
+one is negative.
+
+**500** — unhandled defect, or the procedure has not been created in the
+database yet.
+
+---
+
+### 44. Add / Edit Weekend Setup
+
+`POST /api/v1/TimesheetProject/add-edit-timesheet-weekend-setup`
+
+**Purpose** — Add the weekend setup of a project, or edit one — **one endpoint
+for both**. `timeSheetWeekendSetupId` `0` (or absent) adds; an existing id
+edits that setup, which must belong to `organizationId` and be live. An edit
+overwrites the client, the project and all seven day flags, so send them all.
+Written through `dbo.spc_AddEditTimesheetWeekendSetup`.
+
+**A project and its weekend setup are one-to-one:**
+
+| Rule | How the API keeps it |
+|---|---|
+| One setup → one project | `projectId` is required, and the table holds a single `ProjectID` per row |
+| One project → one setup | A second live setup for the same project — by an add, or by an edit moving a setup onto it — is a **409**. The procedure checks again under a lock, so two saves cannot both add |
+
+Neither rule is enforced by the table — see [Known gaps](#known-gaps) 51.
+
+#### Request body — `TimesheetWeekendSetupSaveRequest` (JSON)
+
+| Field | Type | Required | Rules |
+|---|---|---|---|
+| `timeSheetWeekendSetupId` | int \| null | no | `0` / absent to add; `> 0` to edit |
+| `organizationId` | int | yes | `> 0` |
+| `clientId` | int \| null | no | `> 0`; must be a live client of `organizationId` |
+| `projectId` | int | yes | `> 0`; must be a project of `organizationId` with no other live setup |
+| `isMondayWeekend` … `isSundayWeekend` | bool | no | Seven fields. Absent is `false` |
+| `userId` | int | yes | `> 0`. Written to `CreatedBy` on add, `UpdatedBy` on edit. Temporary — from the token once authentication is on |
+
+#### Example request
+
+```json
+{
+  "timeSheetWeekendSetupId": 0,
+  "organizationId": 12,
+  "clientId": 3,
+  "projectId": 4,
+  "isMondayWeekend": false,
+  "isTuesdayWeekend": false,
+  "isWednesdayWeekend": false,
+  "isThursdayWeekend": false,
+  "isFridayWeekend": false,
+  "isSaturdayWeekend": true,
+  "isSundayWeekend": true,
+  "userId": 7
+}
+```
+
+#### Success response — `200 OK`
+
+`data` is the saved setup, in the same shape as
+[Weekend Setup List](#43-weekend-setup-list), with
+`"message": "Weekend setup saved."`.
+
+#### Error responses
+
+**400** — every failing field is listed together, e.g.
+`ProjectId: ProjectId is required and must be greater than 0.`,
+`Project '4' does not exist in organization '12'.`
+
+**404** — a `timeSheetWeekendSetupId` was sent, but no live setup of that
+organisation has it: `Weekend setup '2' was not found.`
+
+**409** — the project already has another live setup:
+
+```json
+{ "success": false, "message": "Project '4' already has a weekend setup. Edit that one instead.", "data": null, "errors": [] }
+```
+
+**500** — unhandled defect, or the procedure has not been created in the
+database yet. Also the loser of two saves for the same project racing past the
+409 check — see [Known gaps](#known-gaps) 51.
+
+---
+
+### 45. Remove Weekend Setup
+
+`POST /api/v1/TimesheetProject/remove-timesheet-weekend-setup`
+
+**Purpose** — Soft-delete a weekend setup by its id. The row stays, stamped
+with `IsDelete = 1`, `DeletedDate` and `DeletedBy`; the project may then be
+given a new setup. By the API through EF Core; no stored procedure.
+
+#### Request body — `TimesheetWeekendSetupDeleteRequest` (JSON)
+
+| Field | Type | Required | Rules |
+|---|---|---|---|
+| `timeSheetWeekendSetupId` | int | yes | `> 0` |
+| `deletedBy` | int | yes | `> 0`. Written to `DeletedBy`. Temporary — from the token once authentication is on |
+
+#### Example request
+
+```json
+{ "timeSheetWeekendSetupId": 2, "deletedBy": 7 }
+```
+
+#### Success response — `200 OK`
+
+```json
+{ "success": true, "message": "Weekend setup removed.", "data": null, "errors": [] }
+```
+
+#### Error responses
+
+**400** — `timeSheetWeekendSetupId` or `deletedBy` `<= 0`; both are listed
+when both fail.
+
+**404** — no live setup has that id. Removing one twice is **not** a silent
+success: `Weekend setup '2' was not found.`
+
+**500** — unhandled defect.
+
+---
+
+### 46. User Access Setup List
+
+`GET /api/v1/TimesheetProject/get-user-access-setup?orgID={orgID}&userID={userID}`
+
+**Purpose** — The user access setups in `dbo.Timesheet_role_assignment` —
+which modules each user may use — with the user's name, email and
+organisation. Read through `dbo.spc_GetUserAccessSetup`.
+
+The table has no organisation column; the organisation is the **user's**
+(`dbo.Signup.OrganizationID`). Setups of removed users (`dbo.Signup.IsDelete`
+other than `0`) are not listed.
+
+#### Query parameters
+
+| Name | Type | Rules |
+|---|---|---|
+| `orgID` | int \| absent | `>= 0`. Absent or `0` = not filtered by organisation |
+| `userID` | int \| absent | `>= 0`. Absent or `0` = not filtered by user |
+
+| Sent | Returns |
+|---|---|
+| `orgID` only | Every setup of the organisation's live users |
+| `userID` only | The user's setup — at most one |
+| both | The user's setup, if the user is in the organisation |
+| neither | **400** — the whole table is never returned |
+
+#### Example request
+
+```
+GET /api/v1/TimesheetProject/get-user-access-setup?orgID=12
+```
+
+#### Success response — `200 OK`
+
+`data` is an array of `TimesheetRoleAssignmentResponse`, ordered by user name,
+then `assignmentId`.
+
+| Field | Type | Notes |
+|---|---|---|
+| `assignmentId` | int | The id the edit and remove take |
+| `userId` | int \| null | |
+| `userName` | string \| null | `dbo.Signup.Name` |
+| `email` | string \| null | As stored |
+| `organizationId` | int \| null | The user's organisation |
+| `isClientSetup` | bool \| null | The `Mod_IsclientSetup` column |
+| `isProject` | bool \| null | `Mod_Isproject` |
+| `isProjectBudget` | bool \| null | `Mod_IsProjectbudget` |
+| `isProjectCategory` | bool \| null | `Mod_IsProjectCategory` |
+| `isStatusSetup` | bool \| null | `Mod_IsStatusSetup` |
+| `isRoleSetup` | bool \| null | `Mod_IsRoleSetup` |
+| `isUserSetup` | bool \| null | `Mod_IsUsersetup` |
+| `isTimeLog` | bool \| null | `Mod_IsTimeLog` |
+| `createDate` | datetime \| null | |
+| `createdBy` | int \| null | |
+| `updatedDate` | datetime \| null | `null` until the first edit |
+| `updatedBy` | int \| null | The `Updatedby` column |
+
+#### Example response
+
+```json
+{
+  "success": true,
+  "message": "",
+  "data": [
+    {
+      "assignmentId": 2,
+      "userId": 58,
+      "userName": "Asha Patel",
+      "email": "ASHA.PATEL@EXAMPLE.COM",
+      "organizationId": 12,
+      "isClientSetup": false,
+      "isProject": true,
+      "isProjectBudget": true,
+      "isProjectCategory": false,
+      "isStatusSetup": false,
+      "isRoleSetup": false,
+      "isUserSetup": false,
+      "isTimeLog": true,
+      "createDate": "2026-10-18T10:41:07.233",
+      "createdBy": 7,
+      "updatedDate": null,
+      "updatedBy": null
+    }
+  ],
+  "errors": []
+}
+```
+
+#### Empty result
+
+No matching setups is `data: []`, a 200.
+
+#### Error responses
+
+**400** — neither filter sent (`orgID: orgID or userID is required.`), or one
+is negative.
+
+**500** — unhandled defect, or the procedure has not been created in the
+database yet.
+
+---
+
+### 47. Add / Edit User Access Setup
+
+`POST /api/v1/TimesheetProject/add-edit-user-access-setup`
+
+**Purpose** — Add the access setup of a user, or edit one — **one endpoint for
+both**. `assignmentId` `0` (or absent) adds; an existing `assignmentId` edits
+it. An edit overwrites the user and all eight module flags, so send them all.
+Written through `dbo.spc_AddEditUserAccessSetup`.
+
+**One user has only one setup.** Adding a second setup for a user, or editing
+a setup onto a user who already has one, is a **409**; the procedure checks
+again under a lock. The table does not enforce it — see
+[Known gaps](#known-gaps) 54.
+
+#### Request body — `TimesheetRoleAssignmentSaveRequest` (JSON)
+
+| Field | Type | Required | Rules |
+|---|---|---|---|
+| `assignmentId` | int \| null | no | `0` / absent to add; `> 0` to edit |
+| `organizationId` | int | yes | `> 0`. **Not stored** — the table has no organisation column — but the user must be a live user of it |
+| `userId` | int | yes | `> 0`; a live user (`dbo.Signup.IsDelete = 0`) of `organizationId` with no other setup |
+| `isClientSetup`, `isProject`, `isProjectBudget`, `isProjectCategory`, `isStatusSetup`, `isRoleSetup`, `isUserSetup`, `isTimeLog` | bool | no | Absent is `false` |
+| `loginUserId` | int | yes | `> 0`. The user performing the save — written to `CreatedBy` on add, `Updatedby` on edit. Temporary — from the token once authentication is on |
+
+#### Example request
+
+```json
+{
+  "assignmentId": 0,
+  "organizationId": 12,
+  "userId": 58,
+  "isClientSetup": false,
+  "isProject": true,
+  "isProjectBudget": true,
+  "isProjectCategory": false,
+  "isStatusSetup": false,
+  "isRoleSetup": false,
+  "isUserSetup": false,
+  "isTimeLog": true,
+  "loginUserId": 7
+}
+```
+
+#### Success response — `200 OK`
+
+`data` is the saved setup, in the same shape as
+[User Access Setup List](#46-user-access-setup-list), with
+`"message": "User access setup saved."`.
+
+#### Error responses
+
+**400** — field rules, every failure listed together
+(`UserId: UserId is required and must be greater than 0.`,
+`LoginUserId: LoginUserId is required: the row records who created or last updated it.`);
+then the user check:
+`UserId: User '58' is not a live user of organization '12'.`
+
+**404** — an `assignmentId` was sent, but no setup has it:
+`User access setup '2' was not found.`
+
+**409** — the user already has another setup:
+
+```json
+{ "success": false, "message": "User '58' already has a user access setup. Edit that one instead.", "data": null, "errors": [] }
+```
+
+**500** — unhandled defect, or the procedure has not been created in the
+database yet. Also the loser of two saves for the same user racing past the
+409 check.
+
+---
+
+### 48. Remove User Access Setup
+
+`POST /api/v1/TimesheetProject/remove-user-access-setup`
+
+**Purpose** — Delete a user access setup by its `assignmentId`. **A hard
+delete**: `dbo.Timesheet_role_assignment` has no soft-delete column, so the
+row is physically removed and the user may then be given a new setup. By the
+API through EF Core; no stored procedure.
+
+#### Request body — `TimesheetRoleAssignmentDeleteRequest` (JSON)
+
+| Field | Type | Required | Rules |
+|---|---|---|---|
+| `assignmentId` | int | yes | `> 0` |
+
+#### Example request
+
+```json
+{ "assignmentId": 2 }
+```
+
+#### Success response — `200 OK`
+
+```json
+{ "success": true, "message": "User access setup removed.", "data": null, "errors": [] }
+```
+
+#### Error responses
+
+**400** — `assignmentId <= 0`.
+
+**404** — no setup has that id. Removing one twice is **not** a silent
+success: `User access setup '2' was not found.`
+
+**500** — unhandled defect.
+
+---
+
 ## Health endpoints
 
 Anonymous, outside the `ApiResponse` envelope, and outside `/api/v1`.
@@ -4677,6 +5337,15 @@ authentication is off.
 | 37 | Edit Timesheet User | POST | `/api/v1/TimesheetProject/edit-timesheet-user` | Edit an assignment; name/email saved to `dbo.Signup` when changed | `TimesheetUserUpdateRequest` | `TimesheetUserResponse` | 400, 404, 409, 500 |
 | 38 | Remove Timesheet User | POST | `/api/v1/TimesheetProject/remove-timesheet-user` | Take a user off a project by `userId` + `projectId` (soft delete); the user is not touched | `TimesheetUserDeleteRequest` | `null` | 400, 404, 500 |
 | 39 | Organisation Timesheet User List | GET | `/api/v1/TimesheetProject/get-timesheet-user-by-orgID/{orgID}` | Every live project assignment of every live user of an organisation, with project and role name | route param | `TimesheetUserListResponse[]` | 400, 500 |
+| 40 | Holiday List | GET | `/api/v1/TimesheetProject/get-timesheet-holiday-setup?orgID=&projectID=` | Live holidays of an organisation, a project or both, by date, with country, client and project names | query params (at least one) | `TimesheetHolidaySetupResponse[]` | 400, 500 |
+| 41 | Add / Edit Holiday | POST | `/api/v1/TimesheetProject/add-edit-timesheet-holiday-setup` | Add a holiday (`timesheetHolidaySetupId` 0 / absent) or edit one, with its description | `TimesheetHolidaySetupSaveRequest` | `TimesheetHolidaySetupResponse` | 400, 404, 500 |
+| 42 | Remove Holiday | POST | `/api/v1/TimesheetProject/remove-timesheet-holiday-setup` | Soft-delete a holiday of an organisation | `TimesheetHolidaySetupDeleteRequest` | `null` | 400, 404, 500 |
+| 43 | Weekend Setup List | GET | `/api/v1/TimesheetProject/get-timesheet-weekend-setup?orgID=&projectID=` | Live weekend setups of an organisation, a project or both | query params (at least one) | `TimesheetWeekendSetupResponse[]` | 400, 500 |
+| 44 | Add / Edit Weekend Setup | POST | `/api/v1/TimesheetProject/add-edit-timesheet-weekend-setup` | Add a project's weekend setup (`timeSheetWeekendSetupId` 0 / absent) or edit one; one setup per project | `TimesheetWeekendSetupSaveRequest` | `TimesheetWeekendSetupResponse` | 400, 404, 409, 500 |
+| 45 | Remove Weekend Setup | POST | `/api/v1/TimesheetProject/remove-timesheet-weekend-setup` | Soft-delete a weekend setup by its id | `TimesheetWeekendSetupDeleteRequest` | `null` | 400, 404, 500 |
+| 46 | User Access Setup List | GET | `/api/v1/TimesheetProject/get-user-access-setup?orgID=&userID=` | Module access of live users of an organisation, a user or both | query params (at least one) | `TimesheetRoleAssignmentResponse[]` | 400, 500 |
+| 47 | Add / Edit User Access Setup | POST | `/api/v1/TimesheetProject/add-edit-user-access-setup` | Add a user's module access (`assignmentId` 0 / absent) or edit it; one setup per user | `TimesheetRoleAssignmentSaveRequest` | `TimesheetRoleAssignmentResponse` | 400, 404, 409, 500 |
+| 48 | Remove User Access Setup | POST | `/api/v1/TimesheetProject/remove-user-access-setup` | Hard-delete a user access setup by its id | `TimesheetRoleAssignmentDeleteRequest` | `null` | 400, 404, 500 |
 | — | Health | GET | `/health`, `/health/live`, `/health/ready` | Liveness / readiness | — | *(unenveloped)* | 503 |
 
 ---
@@ -4807,8 +5476,11 @@ Documented so nobody has to rediscover them:
     `spc_AddEditTimesheetProject` (both now also return `CurrencySymbol`),
     `spc_GetTimesheetProjectStatus`, `spc_AddEditTimesheetProjectStatus`,
     `spc_GetTimesheetProjectBudget`, `spc_AddEditTimesheetProjectBudget`,
-    `spc_GetTimesheetProjectBudgetByOrgID` and
-    `spc_GetTimesheetUserListByOrgID` are
+    `spc_GetTimesheetProjectBudgetByOrgID`,
+    `spc_GetTimesheetUserListByOrgID`, `spc_GetTimesheetHolidaySetup`,
+    `spc_AddEditTimesheetHolidaySetup`, `spc_GetTimesheetWeekendSetup`,
+    `spc_AddEditTimesheetWeekendSetup`, `spc_GetUserAccessSetup` and
+    `spc_AddEditUserAccessSetup` are
     recorded in `docs/database/procedures/` and must be created by hand; each
     matching endpoint answers 500 until its procedure exists in its latest
     version.
@@ -4861,3 +5533,41 @@ Documented so nobody has to rediscover them:
 46. **Organisation Timesheet User List lists assignments, not users.** A user
     on several projects appears once per project, and a live user with no live
     assignment does not appear at all.
+47. **The module flags are not enforced.** User Access Setup stores which
+    modules a user may use, but no endpoint reads them: with authentication
+    off, every caller can still reach every module. They are data for a client
+    to act on until authorization is switched back on.
+48. **A holiday date can be added twice.** Add / Edit Holiday does not refuse a
+    second live holiday on the same date for the same organisation, project or
+    client, and no unique constraint was reported.
+49. **Holiday edits and removes record nobody.** `dbo.TimesheetHolidaysetup`
+    has no "updated by" or delete stamp columns, so an edit leaves only the
+    original `CreateDate` / `CreatedBy`, and a remove sets `IsDelete` alone.
+50. **The holiday and weekend lists by `projectID` alone ignore the
+    organisation.** Sent without `orgID`, they return the project's rows
+    whichever organisation it belongs to — while authentication is off, any
+    caller can read them.
+51. **One weekend setup per project is kept by the API and the procedure, not
+    the table.** No unique constraint on `dbo.TimeSheet_Weekend_setup.ProjectID`
+    was reported. Two saves racing past the API's 409 check are stopped by the
+    procedure's locked check, but the loser answers **500**, not 409. Anything
+    writing the table directly can still add a second setup. A filtered unique
+    index on `ProjectID` `WHERE IsDelete = 0`, added by the owner, would close
+    this.
+52. **A weekend setup's client is not checked against its project's client.**
+    Both must belong to the organisation, but the setup may name a client
+    other than the project's own.
+53. **Remove Weekend Setup and Remove User Access Setup have no organisation
+    check.** Each takes an id alone, so — while authentication is off — any
+    caller can remove any organisation's row.
+54. **One user access setup per user is kept by the API and the procedure, not
+    the table.** No unique constraint on `dbo.Timesheet_role_assignment.UserID`
+    was reported, and no primary key on `AssignmentID` either. Racing saves
+    behave as in 51 (the loser answers 500). A filtered unique index on
+    `UserID` `WHERE UserID IS NOT NULL`, added by the owner, would close this.
+55. **User access setup removes are hard deletes.** The table has no
+    soft-delete column, so a removed setup cannot be recovered and nothing
+    records who removed it.
+56. **User access setup reads depend on `dbo.Signup`**, which is not recorded
+    (see 6). `spc_GetUserAccessSetup` and `spc_AddEditUserAccessSetup` join it
+    for the user's name, email and organisation.

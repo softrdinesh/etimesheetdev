@@ -29,6 +29,8 @@ public class TimesheetProjectController : ControllerBase
         _timesheetProjectService = timesheetProjectService;
     }
 
+    #region Project
+
     /// <summary>
     /// Returns the projects of one organisation, from
     /// <c>dbo.TimesheetProject</c>, ordered by name, each with its status name.
@@ -107,6 +109,10 @@ public class TimesheetProjectController : ControllerBase
         return Ok(ApiResponse.Ok("Project removed."));
     }
 
+    #endregion
+
+    #region Project Budget
+
     /// <summary>
     /// Returns the budget lines of one project, from
     /// <c>dbo.TimesheetProjectBudget</c>, ordered by period start, each with
@@ -125,6 +131,28 @@ public class TimesheetProjectController : ControllerBase
         CancellationToken cancellationToken)
     {
         var result = await _timesheetProjectService.GetBudgetListByProjectIdAsync(projectID, cancellationToken);
+        return Ok(ApiResponse.Ok(result));
+    }
+
+    /// <summary>
+    /// Returns the budget lines of every project of one organisation, from
+    /// <c>dbo.TimesheetProjectBudget</c>, ordered by project name, then period
+    /// start. Each line carries its project's id, code and name, and its
+    /// category name. A project with no budget is not listed.
+    /// </summary>
+    /// <param name="orgID">The organisation whose project budgets to list, as a route segment.</param>
+    /// <response code="200">The budget lines. An organisation with none is an empty list, not a 404.</response>
+    /// <response code="400">An organisation id that is not greater than zero.</response>
+    [HttpGet("get-timesheet-project-budget-by-orgID/{orgID:int}")]
+    [ProducesResponseType(typeof(ApiResponse<IReadOnlyList<TimesheetProjectBudgetByOrgResponse>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> GetTimesheetProjectBudgetByOrgId(
+        // :int without :min(1): a 0 has to reach the service so it can answer
+        // 400 saying what is wrong.
+        [FromRoute] int orgID,
+        CancellationToken cancellationToken)
+    {
+        var result = await _timesheetProjectService.GetBudgetListByOrganizationIdAsync(orgID, cancellationToken);
         return Ok(ApiResponse.Ok(result));
     }
 
@@ -175,6 +203,10 @@ public class TimesheetProjectController : ControllerBase
         await _timesheetProjectService.DeleteBudgetAsync(request, cancellationToken);
         return Ok(ApiResponse.Ok("Project budget removed."));
     }
+
+    #endregion
+
+    #region Project Status
 
     /// <summary>
     /// Returns the project statuses of one organisation, from
@@ -247,27 +279,9 @@ public class TimesheetProjectController : ControllerBase
         return Ok(ApiResponse.Ok("Project status removed."));
     }
 
-    /// <summary>
-    /// Returns the budget lines of every project of one organisation, from
-    /// <c>dbo.TimesheetProjectBudget</c>, ordered by project name, then period
-    /// start. Each line carries its project's id, code and name, and its
-    /// category name. A project with no budget is not listed.
-    /// </summary>
-    /// <param name="orgID">The organisation whose project budgets to list, as a route segment.</param>
-    /// <response code="200">The budget lines. An organisation with none is an empty list, not a 404.</response>
-    /// <response code="400">An organisation id that is not greater than zero.</response>
-    [HttpGet("get-timesheet-project-budget-by-orgID/{orgID:int}")]
-    [ProducesResponseType(typeof(ApiResponse<IReadOnlyList<TimesheetProjectBudgetByOrgResponse>>), StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    public async Task<IActionResult> GetTimesheetProjectBudgetByOrgId(
-        // :int without :min(1): a 0 has to reach the service so it can answer
-        // 400 saying what is wrong.
-        [FromRoute] int orgID,
-        CancellationToken cancellationToken)
-    {
-        var result = await _timesheetProjectService.GetBudgetListByOrganizationIdAsync(orgID, cancellationToken);
-        return Ok(ApiResponse.Ok(result));
-    }
+    #endregion
+
+    #region Timesheet User
 
     /// <summary>
     /// Signs a user up and puts them on a project of their organisation,
@@ -375,4 +389,264 @@ public class TimesheetProjectController : ControllerBase
         var result = await _timesheetProjectService.GetTimesheetUserListByOrganizationIdAsync(orgID, cancellationToken);
         return Ok(ApiResponse.Ok(result));
     }
+
+    #endregion
+
+    #region Holiday Setup
+
+    /// <summary>
+    /// Returns the holidays in <c>dbo.TimesheetHolidaysetup</c>, ordered by
+    /// date, each with its country, client and project names.
+    /// <para>
+    /// Filter by organisation, by project, or both. A filter left out or sent
+    /// as <c>0</c> is not applied: <c>orgID</c> alone returns every holiday of
+    /// the organisation, <c>projectID</c> alone every holiday of the project.
+    /// At least one is required. Deleted holidays are not included.
+    /// </para>
+    /// </summary>
+    /// <param name="orgID">The organisation whose holidays to list. Optional when <c>projectID</c> is sent.</param>
+    /// <param name="projectID">The project whose holidays to list. Optional when <c>orgID</c> is sent.</param>
+    /// <response code="200">The holidays. None matching is an empty list, not a 404.</response>
+    /// <response code="400">Neither <c>orgID</c> nor <c>projectID</c> was sent, or one is negative.</response>
+    [HttpGet("get-timesheet-holiday-setup")]
+    [ProducesResponseType(typeof(ApiResponse<IReadOnlyList<TimesheetHolidaySetupResponse>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> GetTimesheetHolidaySetup(
+        // Query string rather than route segments: either may be left out.
+        [FromQuery] int? orgID,
+        [FromQuery] int? projectID,
+        CancellationToken cancellationToken)
+    {
+        var result = await _timesheetProjectService.GetHolidaySetupListAsync(orgID, projectID, cancellationToken);
+        return Ok(ApiResponse.Ok(result));
+    }
+
+    /// <summary>
+    /// Adds a holiday to an organisation, or edits one - <b>one endpoint for
+    /// both</b>.
+    /// <para>
+    /// Send <c>timesheetHolidaySetupId</c> as <c>0</c> (or leave it out) to
+    /// add a holiday to <c>organizationId</c>. Send an existing holiday's
+    /// <c>timesheetHolidaySetupId</c> to edit it; the holiday must belong to
+    /// <c>organizationId</c>. An edit overwrites <c>holidayDate</c>,
+    /// <c>description</c>, <c>countryId</c>, <c>clientId</c> and
+    /// <c>projectId</c>, so send them all.
+    /// </para>
+    /// </summary>
+    /// <response code="200">The saved holiday, including its <c>timesheetHolidaySetupId</c>.</response>
+    /// <response code="400">The payload failed validation, or names a country, client or project that does not exist - every failure is listed.</response>
+    /// <response code="404">A <c>timesheetHolidaySetupId</c> was sent, but no live holiday of that organisation has it.</response>
+    [HttpPost("add-edit-timesheet-holiday-setup")]
+    [ProducesResponseType(typeof(ApiResponse<TimesheetHolidaySetupResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> AddEditTimesheetHolidaySetup(
+        [FromBody] TimesheetHolidaySetupSaveRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await _timesheetProjectService.SaveHolidaySetupAsync(request, cancellationToken);
+        return Ok(ApiResponse.Ok(result, "Holiday saved."));
+    }
+
+    /// <summary>
+    /// Soft-deletes a holiday of an organisation. The row is kept, with
+    /// <c>IsDelete</c> set to 1; nothing is physically deleted.
+    /// <para>
+    /// A POST rather than an HTTP DELETE, matching the other removes here:
+    /// every argument in this API travels in the payload.
+    /// </para>
+    /// </summary>
+    /// <response code="200">The holiday was removed.</response>
+    /// <response code="400">A <c>timesheetHolidaySetupId</c> or <c>organizationId</c> that is not greater than zero.</response>
+    /// <response code="404">No live holiday with that id belongs to that organisation; removing one twice is not a silent success.</response>
+    [HttpPost("remove-timesheet-holiday-setup")]
+    [ProducesResponseType(typeof(ApiResponse<object?>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> RemoveTimesheetHolidaySetup(
+        [FromBody] TimesheetHolidaySetupDeleteRequest request,
+        CancellationToken cancellationToken)
+    {
+        await _timesheetProjectService.DeleteHolidaySetupAsync(request, cancellationToken);
+        return Ok(ApiResponse.Ok("Holiday removed."));
+    }
+
+    #endregion
+
+    #region Weekend Setup
+
+    /// <summary>
+    /// Returns the weekend setups in <c>dbo.TimeSheet_Weekend_setup</c> - which
+    /// days of the week are weekend days for each project - with the client
+    /// and project names.
+    /// <para>
+    /// Filter by organisation, by project, or both. A filter left out or sent
+    /// as <c>0</c> is not applied: <c>orgID</c> alone returns every setup of
+    /// the organisation, <c>projectID</c> alone the project's setup (a project
+    /// has at most one). At least one is required. Deleted setups are not
+    /// included.
+    /// </para>
+    /// </summary>
+    /// <param name="orgID">The organisation whose setups to list. Optional when <c>projectID</c> is sent.</param>
+    /// <param name="projectID">The project whose setup to return. Optional when <c>orgID</c> is sent.</param>
+    /// <response code="200">The setups. None matching is an empty list, not a 404.</response>
+    /// <response code="400">Neither <c>orgID</c> nor <c>projectID</c> was sent, or one is negative.</response>
+    [HttpGet("get-timesheet-weekend-setup")]
+    [ProducesResponseType(typeof(ApiResponse<IReadOnlyList<TimesheetWeekendSetupResponse>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> GetTimesheetWeekendSetup(
+        // Query string rather than route segments: either may be left out.
+        [FromQuery] int? orgID,
+        [FromQuery] int? projectID,
+        CancellationToken cancellationToken)
+    {
+        var result = await _timesheetProjectService.GetWeekendSetupListAsync(orgID, projectID, cancellationToken);
+        return Ok(ApiResponse.Ok(result));
+    }
+
+    /// <summary>
+    /// Adds the weekend setup of a project, or edits one - <b>one endpoint for
+    /// both</b>.
+    /// <para>
+    /// Send <c>timeSheetWeekendSetupId</c> as <c>0</c> (or leave it out) to
+    /// add a setup. Send an existing setup's <c>timeSheetWeekendSetupId</c> to
+    /// edit it; the setup must belong to <c>organizationId</c>. An edit
+    /// overwrites the client, the project and all seven day flags, so send
+    /// them all.
+    /// </para>
+    /// <para>
+    /// A project has only one weekend setup: adding a second one for the same
+    /// project, or moving a setup onto a project that already has one, is a 409.
+    /// </para>
+    /// </summary>
+    /// <response code="200">The saved setup, including its <c>timeSheetWeekendSetupId</c>.</response>
+    /// <response code="400">The payload failed validation, or names a client or project that does not exist in the organisation - every failure is listed.</response>
+    /// <response code="404">A <c>timeSheetWeekendSetupId</c> was sent, but no live setup of that organisation has it.</response>
+    /// <response code="409">The project already has another weekend setup.</response>
+    [HttpPost("add-edit-timesheet-weekend-setup")]
+    [ProducesResponseType(typeof(ApiResponse<TimesheetWeekendSetupResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> AddEditTimesheetWeekendSetup(
+        [FromBody] TimesheetWeekendSetupSaveRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await _timesheetProjectService.SaveWeekendSetupAsync(request, cancellationToken);
+        return Ok(ApiResponse.Ok(result, "Weekend setup saved."));
+    }
+
+    /// <summary>
+    /// Soft-deletes a weekend setup, by <c>timeSheetWeekendSetupId</c>. The row
+    /// is kept, stamped with <c>IsDelete</c> = 1, <c>DeletedDate</c> and
+    /// <c>DeletedBy</c>; the project may then be given a new setup.
+    /// <para>
+    /// A POST rather than an HTTP DELETE, matching the other removes here:
+    /// every argument in this API travels in the payload.
+    /// </para>
+    /// </summary>
+    /// <response code="200">The setup was removed.</response>
+    /// <response code="400">A <c>timeSheetWeekendSetupId</c> or <c>deletedBy</c> that is not greater than zero.</response>
+    /// <response code="404">No live setup has that id; removing one twice is not a silent success.</response>
+    [HttpPost("remove-timesheet-weekend-setup")]
+    [ProducesResponseType(typeof(ApiResponse<object?>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> RemoveTimesheetWeekendSetup(
+        [FromBody] TimesheetWeekendSetupDeleteRequest request,
+        CancellationToken cancellationToken)
+    {
+        await _timesheetProjectService.DeleteWeekendSetupAsync(request, cancellationToken);
+        return Ok(ApiResponse.Ok("Weekend setup removed."));
+    }
+
+    #endregion
+
+    #region User Access Setup
+
+    /// <summary>
+    /// Returns the module assignments in <c>dbo.Timesheet_role_assignment</c> -
+    /// which modules each user may use - with the user's name, email and
+    /// organisation.
+    /// <para>
+    /// Filter by organisation, by user, or both. A filter left out or sent as
+    /// <c>0</c> is not applied: <c>orgID</c> alone returns every assignment of
+    /// the organisation's users, <c>userID</c> alone the user's assignment (a
+    /// user has at most one). At least one is required. Assignments of removed
+    /// users are not included.
+    /// </para>
+    /// </summary>
+    /// <param name="orgID">The organisation whose users' assignments to list. Optional when <c>userID</c> is sent.</param>
+    /// <param name="userID">The user whose assignment to return. Optional when <c>orgID</c> is sent.</param>
+    /// <response code="200">The assignments. None matching is an empty list, not a 404.</response>
+    /// <response code="400">Neither <c>orgID</c> nor <c>userID</c> was sent, or one is negative.</response>
+    [HttpGet("get-user-access-setup")]
+    [ProducesResponseType(typeof(ApiResponse<IReadOnlyList<TimesheetRoleAssignmentResponse>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> GetUserAccessSetup(
+        // Query string rather than route segments: either may be left out.
+        [FromQuery] int? orgID,
+        [FromQuery] int? userID,
+        CancellationToken cancellationToken)
+    {
+        var result = await _timesheetProjectService.GetRoleAssignmentListAsync(orgID, userID, cancellationToken);
+        return Ok(ApiResponse.Ok(result));
+    }
+
+    /// <summary>
+    /// Adds the module assignment of a user, or edits one - <b>one endpoint for
+    /// both</b>.
+    /// <para>
+    /// Send <c>assignmentId</c> as <c>0</c> (or leave it out) to add an
+    /// assignment. Send an existing assignment's <c>assignmentId</c> to edit
+    /// it. An edit overwrites the user and all eight module flags, so send
+    /// them all.
+    /// </para>
+    /// <para>
+    /// A user has only one assignment: adding a second one for the same user,
+    /// or moving an assignment onto a user who already has one, is a 409.
+    /// </para>
+    /// </summary>
+    /// <response code="200">The saved assignment, including its <c>assignmentId</c>.</response>
+    /// <response code="400">The payload failed validation, or the user is not a live user of the organisation.</response>
+    /// <response code="404">An <c>assignmentId</c> was sent, but no assignment has it.</response>
+    /// <response code="409">The user already has another assignment.</response>
+    [HttpPost("add-edit-user-access-setup")]
+    [ProducesResponseType(typeof(ApiResponse<TimesheetRoleAssignmentResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> AddEditUserAccessSetup(
+        [FromBody] TimesheetRoleAssignmentSaveRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await _timesheetProjectService.SaveRoleAssignmentAsync(request, cancellationToken);
+        return Ok(ApiResponse.Ok(result, "User access setup saved."));
+    }
+
+    /// <summary>
+    /// Deletes a module assignment, by <c>assignmentId</c>. <b>A hard
+    /// delete</b>: the table has no soft-delete column, so the row is
+    /// physically removed, and the user may then be given a new assignment.
+    /// <para>
+    /// A POST rather than an HTTP DELETE, matching the other removes here:
+    /// every argument in this API travels in the payload.
+    /// </para>
+    /// </summary>
+    /// <response code="200">The assignment was removed.</response>
+    /// <response code="400">An <c>assignmentId</c> that is not greater than zero.</response>
+    /// <response code="404">No assignment has that id; removing one twice is not a silent success.</response>
+    [HttpPost("remove-user-access-setup")]
+    [ProducesResponseType(typeof(ApiResponse<object?>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> RemoveUserAccessSetup(
+        [FromBody] TimesheetRoleAssignmentDeleteRequest request,
+        CancellationToken cancellationToken)
+    {
+        await _timesheetProjectService.DeleteRoleAssignmentAsync(request, cancellationToken);
+        return Ok(ApiResponse.Ok("User access setup removed."));
+    }
+
+    #endregion
 }

@@ -40,21 +40,71 @@ and `procedures/` only.
 
 ```
 docs/database/
-├── CHANGELOG.md                 dated record of every schema change
 ├── schema/                      one file per table, as it exists today
 │   ├── dbo.Country.sql
+│   ├── dbo.CountryCurrency.sql
 │   ├── dbo.DayMaster.sql
-│   ├── dbo.Signup.sql           PARTIAL - see the note in the file
+│   ├── dbo.EmailQueue.sql
+│   ├── dbo.EmailType.sql
+│   ├── dbo.SchedulerConfiguration.sql
 │   ├── dbo.TimeLog.sql
-│   └── dbo.TimesheetMasterSetup.sql
+│   ├── dbo.Timesheet_role_assignment.sql
+│   ├── dbo.Timesheet_Users_Project_setup.sql
+│   ├── dbo.TimeSheet_Weekend_setup.sql
+│   ├── dbo.Timesheetclientsetup.sql
+│   ├── dbo.TimesheetHolidaysetup.sql
+│   ├── dbo.TimesheetMasterSetup.sql
+│   ├── dbo.TimesheetProject.sql
+│   ├── dbo.TimesheetProjectBudget.sql
+│   ├── dbo.TimesheetProjectCategory.sql
+│   ├── dbo.TimesheetProjectStatus.sql
+│   ├── dbo.TimesheetSubmission.sql
+│   ├── dbo.TimeSheetSubmissionAuditLog.sql
+│   └── dbo.TimesheetUserRole.sql
 ├── procedures/                  one file per stored procedure / function
+│   ├── dbo.spc_AddEditClientSetup.sql
+│   ├── dbo.spc_AddEditTimesheetHolidaySetup.sql
+│   ├── dbo.spc_AddEditTimesheetProject.sql
+│   ├── dbo.spc_AddEditTimesheetProjectBudget.sql
+│   ├── dbo.spc_AddEditTimesheetProjectCategory.sql
+│   ├── dbo.spc_AddEditTimesheetProjectStatus.sql
+│   ├── dbo.spc_AddEditTimesheetWeekendSetup.sql
+│   ├── dbo.spc_AddEditUserAccessSetup.sql
+│   ├── dbo.spc_AddEditUserRoleByAdmin.sql
+│   ├── dbo.spc_GetAdminDashboardSummaryByOrgID.sql
+│   ├── dbo.spc_GetClientListForMasterAdmin.sql
 │   ├── dbo.spc_GetEmployeeListByPOrgID.sql
+│   ├── dbo.spc_GetOrganizationList.sql
+│   ├── dbo.spc_GetSubmittedSheetList.sql
 │   ├── dbo.spc_GetTimeLoggedDetailsForTask.sql
+│   ├── dbo.spc_GetTimesheetHolidaySetup.sql
 │   ├── dbo.spc_GetTimesheetMasterSetupByUserID.sql
-│   └── dbo.spc_GetUsersTaskList.sql
+│   ├── dbo.spc_GetTimesheetProject.sql
+│   ├── dbo.spc_GetTimesheetProjectBudget.sql
+│   ├── dbo.spc_GetTimesheetProjectBudgetByOrgID.sql
+│   ├── dbo.spc_GetTimesheetProjectCategory.sql
+│   ├── dbo.spc_GetTimesheetProjectStatus.sql
+│   ├── dbo.spc_GetTimesheetUserListByOrgID.sql
+│   ├── dbo.spc_GetTimesheetWeekendSetup.sql
+│   ├── dbo.spc_GetUserAccessSetup.sql
+│   ├── dbo.spc_GetUserDashboardSummaryByUserID.sql
+│   ├── dbo.spc_GetUserRoleListByOrgID.sql
+│   ├── dbo.spc_GetUsersTaskList.sql
+│   └── dbo.spc_Signup_timesheet_user.sql
 └── data/                        one-off data scripts, run by hand, never by the tests
-    └── dbo.Country_UpdateTimeZone.sql
+    ├── dbo.Country_UpdateTimeZone.sql
+    ├── dbo.CountryCurrency_Insert.sql
+    └── dbo.TimesheetProjectStatus_Insert.sql
 ```
+
+There is no `CHANGELOG.md` yet: each file's `Recorded:` / `Revised:` header
+lines are the history today. `dbo.Signup` is **not** recorded at all - the
+procedures that join it say so in their headers, and the test container builds
+it from the EF mapping (`SignupConfiguration`).
+
+A procedure whose header says **`Status: DRAFT`** has been written here but not
+yet created in a database by the owner; the endpoint that calls it answers 500
+until it is.
 
 Each file opens with a header giving `Recorded:` (and `Revised:`) dates, what
 maps it, what reads or writes it, and the quirks worth knowing before touching
@@ -62,7 +112,7 @@ it. That header is part of the record - keep it current with the DDL below it.
 
 A file may be a **partial** recording when the live definition has never been
 supplied; it must say so at the top, in those words, and list what it leaves
-out. `dbo.Signup` is the only one today.
+out. None is partial today.
 
 ## Keeping it accurate
 

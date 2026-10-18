@@ -138,6 +138,24 @@ public class Context : DbContext
     /// </summary>
     public DbSet<TimesheetUserProjectSetup> Timesheet_Users_Project_setup { get; set; } = null!;
 
+    /// <summary>
+    /// The <c>dbo.TimesheetHolidaysetup</c> table - the holidays of each
+    /// organisation. Rows with <c>IsDelete</c> = 1 are hidden by a query filter.
+    /// </summary>
+    public DbSet<TimesheetHolidaySetup> TimesheetHolidaysetup { get; set; } = null!;
+
+    /// <summary>
+    /// The <c>dbo.TimeSheet_Weekend_setup</c> table - the weekend days of each
+    /// project. Rows with <c>IsDelete</c> = 1 are hidden by a query filter.
+    /// </summary>
+    public DbSet<TimesheetWeekendSetup> TimeSheet_Weekend_setup { get; set; } = null!;
+
+    /// <summary>
+    /// The <c>dbo.Timesheet_role_assignment</c> table - the modules each user
+    /// may use. No soft delete: a removed assignment is physically deleted.
+    /// </summary>
+    public DbSet<TimesheetRoleAssignment> Timesheet_role_assignment { get; set; } = null!;
+
     // =====================================================================
     // STORED PROCEDURES  -  property name == procedure name
     //
@@ -283,6 +301,43 @@ public class Context : DbContext
     /// user name, then project name.
     /// </summary>
     public DbSet<TimesheetUserListDetail> spc_GetTimesheetUserListByOrgID { get; set; } = null!;
+
+    /// <summary>
+    /// Result set of <c>dbo.spc_GetTimesheetHolidaySetup</c> - the live
+    /// holidays of an organisation, a project or both, ordered by date.
+    /// </summary>
+    public DbSet<TimesheetHolidaySetupDetail> spc_GetTimesheetHolidaySetup { get; set; } = null!;
+
+    /// <summary>
+    /// Result set of <c>dbo.spc_AddEditTimesheetHolidaySetup</c> - the holiday
+    /// just added or edited, or no row when an edit names a missing holiday.
+    /// </summary>
+    public DbSet<TimesheetHolidaySetupSaveDetail> spc_AddEditTimesheetHolidaySetup { get; set; } = null!;
+
+    /// <summary>
+    /// Result set of <c>dbo.spc_GetTimesheetWeekendSetup</c> - the live
+    /// weekend setups of an organisation, a project or both.
+    /// </summary>
+    public DbSet<TimesheetWeekendSetupDetail> spc_GetTimesheetWeekendSetup { get; set; } = null!;
+
+    /// <summary>
+    /// Result set of <c>dbo.spc_AddEditTimesheetWeekendSetup</c> - the setup
+    /// just added or edited, or no row when an edit names a missing setup.
+    /// </summary>
+    public DbSet<TimesheetWeekendSetupSaveDetail> spc_AddEditTimesheetWeekendSetup { get; set; } = null!;
+
+    /// <summary>
+    /// Result set of <c>dbo.spc_GetUserAccessSetup</c> - the module
+    /// assignments of live users of an organisation, a user or both.
+    /// </summary>
+    public DbSet<TimesheetRoleAssignmentDetail> spc_GetUserAccessSetup { get; set; } = null!;
+
+    /// <summary>
+    /// Result set of <c>dbo.spc_AddEditUserAccessSetup</c> - the
+    /// assignment just added or edited, or no row when an edit names a missing
+    /// assignment.
+    /// </summary>
+    public DbSet<TimesheetRoleAssignmentSaveDetail> spc_AddEditUserAccessSetup { get; set; } = null!;
 
     // dbo.spc_GetUsersTaskList has NO DbSet, deliberately. It returns two
     // result sets and EF Core materialises only the first, so
@@ -731,6 +786,154 @@ public class Context : DbContext
             user.Property(row => row.WorkLocationRange).HasColumnName("WorkLocationRange");
             user.Property(row => row.ProjectLocationLatitude).HasColumnName("ProjectLocationLatitude");
             user.Property(row => row.ProjectLocationLongitude).HasColumnName("ProjectLocationLongitude");
+        });
+
+        modelBuilder.Entity<TimesheetHolidaySetupDetail>(holiday =>
+        {
+            holiday.HasNoKey();
+            holiday.ToView(null);
+
+            // Aliased by the procedure: TimesheetHolidaysetupID AS TimesheetHolidaySetupID,
+            // Country.Name AS CountryName, Clientname AS ClientName, Code AS
+            // ProjectCode, Projectname AS ProjectName.
+            holiday.Property(row => row.TimesheetHolidaySetupId).HasColumnName("TimesheetHolidaySetupID");
+            holiday.Property(row => row.HolidayDate).HasColumnName("HolidayDate").HasColumnType("date");
+            holiday.Property(row => row.Description).HasColumnName("Description");
+            holiday.Property(row => row.OrganizationId).HasColumnName("OrganizationID");
+            holiday.Property(row => row.CountryId).HasColumnName("CountryID");
+            holiday.Property(row => row.CountryName).HasColumnName("CountryName");
+            holiday.Property(row => row.ClientId).HasColumnName("ClientID");
+            holiday.Property(row => row.ClientName).HasColumnName("ClientName");
+            holiday.Property(row => row.ProjectId).HasColumnName("ProjectID");
+            holiday.Property(row => row.ProjectCode).HasColumnName("ProjectCode");
+            holiday.Property(row => row.ProjectName).HasColumnName("ProjectName");
+            holiday.Property(row => row.CreateDate).HasColumnName("CreateDate").HasColumnType("datetime");
+            holiday.Property(row => row.CreatedBy).HasColumnName("CreatedBy");
+        });
+
+        modelBuilder.Entity<TimesheetHolidaySetupSaveDetail>(holiday =>
+        {
+            holiday.HasNoKey();
+            holiday.ToView(null);
+
+            // The same aliases as spc_GetTimesheetHolidaySetup.
+            holiday.Property(row => row.TimesheetHolidaySetupId).HasColumnName("TimesheetHolidaySetupID");
+            holiday.Property(row => row.HolidayDate).HasColumnName("HolidayDate").HasColumnType("date");
+            holiday.Property(row => row.Description).HasColumnName("Description");
+            holiday.Property(row => row.OrganizationId).HasColumnName("OrganizationID");
+            holiday.Property(row => row.CountryId).HasColumnName("CountryID");
+            holiday.Property(row => row.CountryName).HasColumnName("CountryName");
+            holiday.Property(row => row.ClientId).HasColumnName("ClientID");
+            holiday.Property(row => row.ClientName).HasColumnName("ClientName");
+            holiday.Property(row => row.ProjectId).HasColumnName("ProjectID");
+            holiday.Property(row => row.ProjectCode).HasColumnName("ProjectCode");
+            holiday.Property(row => row.ProjectName).HasColumnName("ProjectName");
+            holiday.Property(row => row.CreateDate).HasColumnName("CreateDate").HasColumnType("datetime");
+            holiday.Property(row => row.CreatedBy).HasColumnName("CreatedBy");
+        });
+
+        modelBuilder.Entity<TimesheetWeekendSetupDetail>(setup =>
+        {
+            setup.HasNoKey();
+            setup.ToView(null);
+
+            // Aliased by the procedure: OrgID AS OrganizationID, Clientname AS
+            // ClientName, Code AS ProjectCode, Projectname AS ProjectName.
+            setup.Property(row => row.TimeSheetWeekendSetupId).HasColumnName("TimeSheetWeekendSetupID");
+            setup.Property(row => row.OrganizationId).HasColumnName("OrganizationID");
+            setup.Property(row => row.ClientId).HasColumnName("ClientID");
+            setup.Property(row => row.ClientName).HasColumnName("ClientName");
+            setup.Property(row => row.ProjectId).HasColumnName("ProjectID");
+            setup.Property(row => row.ProjectCode).HasColumnName("ProjectCode");
+            setup.Property(row => row.ProjectName).HasColumnName("ProjectName");
+            setup.Property(row => row.IsMondayWeekend).HasColumnName("IsMondayWeekend");
+            setup.Property(row => row.IsTuesdayWeekend).HasColumnName("IsTuesdayWeekend");
+            setup.Property(row => row.IsWednesdayWeekend).HasColumnName("IsWednesdayWeekend");
+            setup.Property(row => row.IsThursdayWeekend).HasColumnName("IsThursdayWeekend");
+            setup.Property(row => row.IsFridayWeekend).HasColumnName("IsFridayWeekend");
+            setup.Property(row => row.IsSaturdayWeekend).HasColumnName("IsSaturdayWeekend");
+            setup.Property(row => row.IsSundayWeekend).HasColumnName("IsSundayWeekend");
+            setup.Property(row => row.CreateDate).HasColumnName("CreateDate").HasColumnType("datetime");
+            setup.Property(row => row.CreatedBy).HasColumnName("CreatedBy");
+            setup.Property(row => row.UpdatedDate).HasColumnName("UpdatedDate").HasColumnType("datetime");
+            setup.Property(row => row.UpdatedBy).HasColumnName("UpdatedBy");
+        });
+
+        modelBuilder.Entity<TimesheetWeekendSetupSaveDetail>(setup =>
+        {
+            setup.HasNoKey();
+            setup.ToView(null);
+
+            // The same aliases as spc_GetTimesheetWeekendSetup.
+            setup.Property(row => row.TimeSheetWeekendSetupId).HasColumnName("TimeSheetWeekendSetupID");
+            setup.Property(row => row.OrganizationId).HasColumnName("OrganizationID");
+            setup.Property(row => row.ClientId).HasColumnName("ClientID");
+            setup.Property(row => row.ClientName).HasColumnName("ClientName");
+            setup.Property(row => row.ProjectId).HasColumnName("ProjectID");
+            setup.Property(row => row.ProjectCode).HasColumnName("ProjectCode");
+            setup.Property(row => row.ProjectName).HasColumnName("ProjectName");
+            setup.Property(row => row.IsMondayWeekend).HasColumnName("IsMondayWeekend");
+            setup.Property(row => row.IsTuesdayWeekend).HasColumnName("IsTuesdayWeekend");
+            setup.Property(row => row.IsWednesdayWeekend).HasColumnName("IsWednesdayWeekend");
+            setup.Property(row => row.IsThursdayWeekend).HasColumnName("IsThursdayWeekend");
+            setup.Property(row => row.IsFridayWeekend).HasColumnName("IsFridayWeekend");
+            setup.Property(row => row.IsSaturdayWeekend).HasColumnName("IsSaturdayWeekend");
+            setup.Property(row => row.IsSundayWeekend).HasColumnName("IsSundayWeekend");
+            setup.Property(row => row.CreateDate).HasColumnName("CreateDate").HasColumnType("datetime");
+            setup.Property(row => row.CreatedBy).HasColumnName("CreatedBy");
+            setup.Property(row => row.UpdatedDate).HasColumnName("UpdatedDate").HasColumnType("datetime");
+            setup.Property(row => row.UpdatedBy).HasColumnName("UpdatedBy");
+        });
+
+        modelBuilder.Entity<TimesheetRoleAssignmentDetail>(assignment =>
+        {
+            assignment.HasNoKey();
+            assignment.ToView(null);
+
+            // Aliased by the procedure: Signup.Name AS UserName, the Mod_
+            // columns AS IsClientSetup .. IsTimeLog, Updatedby AS UpdatedBy.
+            assignment.Property(row => row.AssignmentId).HasColumnName("AssignmentID");
+            assignment.Property(row => row.UserId).HasColumnName("UserID");
+            assignment.Property(row => row.UserName).HasColumnName("UserName");
+            assignment.Property(row => row.Email).HasColumnName("Email");
+            assignment.Property(row => row.OrganizationId).HasColumnName("OrganizationID");
+            assignment.Property(row => row.IsClientSetup).HasColumnName("IsClientSetup");
+            assignment.Property(row => row.IsProject).HasColumnName("IsProject");
+            assignment.Property(row => row.IsProjectBudget).HasColumnName("IsProjectBudget");
+            assignment.Property(row => row.IsProjectCategory).HasColumnName("IsProjectCategory");
+            assignment.Property(row => row.IsStatusSetup).HasColumnName("IsStatusSetup");
+            assignment.Property(row => row.IsRoleSetup).HasColumnName("IsRoleSetup");
+            assignment.Property(row => row.IsUserSetup).HasColumnName("IsUserSetup");
+            assignment.Property(row => row.IsTimeLog).HasColumnName("IsTimeLog");
+            assignment.Property(row => row.CreateDate).HasColumnName("CreateDate").HasColumnType("datetime");
+            assignment.Property(row => row.CreatedBy).HasColumnName("CreatedBy");
+            assignment.Property(row => row.UpdatedDate).HasColumnName("UpdatedDate").HasColumnType("datetime");
+            assignment.Property(row => row.UpdatedBy).HasColumnName("UpdatedBy");
+        });
+
+        modelBuilder.Entity<TimesheetRoleAssignmentSaveDetail>(assignment =>
+        {
+            assignment.HasNoKey();
+            assignment.ToView(null);
+
+            // The same aliases as spc_GetUserAccessSetup.
+            assignment.Property(row => row.AssignmentId).HasColumnName("AssignmentID");
+            assignment.Property(row => row.UserId).HasColumnName("UserID");
+            assignment.Property(row => row.UserName).HasColumnName("UserName");
+            assignment.Property(row => row.Email).HasColumnName("Email");
+            assignment.Property(row => row.OrganizationId).HasColumnName("OrganizationID");
+            assignment.Property(row => row.IsClientSetup).HasColumnName("IsClientSetup");
+            assignment.Property(row => row.IsProject).HasColumnName("IsProject");
+            assignment.Property(row => row.IsProjectBudget).HasColumnName("IsProjectBudget");
+            assignment.Property(row => row.IsProjectCategory).HasColumnName("IsProjectCategory");
+            assignment.Property(row => row.IsStatusSetup).HasColumnName("IsStatusSetup");
+            assignment.Property(row => row.IsRoleSetup).HasColumnName("IsRoleSetup");
+            assignment.Property(row => row.IsUserSetup).HasColumnName("IsUserSetup");
+            assignment.Property(row => row.IsTimeLog).HasColumnName("IsTimeLog");
+            assignment.Property(row => row.CreateDate).HasColumnName("CreateDate").HasColumnType("datetime");
+            assignment.Property(row => row.CreatedBy).HasColumnName("CreatedBy");
+            assignment.Property(row => row.UpdatedDate).HasColumnName("UpdatedDate").HasColumnType("datetime");
+            assignment.Property(row => row.UpdatedBy).HasColumnName("UpdatedBy");
         });
     }
 }

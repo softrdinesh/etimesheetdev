@@ -380,4 +380,227 @@ public class TimesheetProjectRepository : ITimesheetProjectRepository
         // The procedure does the joins, the live-row filters and the ordering;
         // no LINQ is composed on top, because SQL Server cannot wrap an EXEC.
         await _db.spc_GetTimesheetUserListByOrgID.FromSqlInterpolated($"EXEC dbo.spc_GetTimesheetUserListByOrgID @POrgID = {organizationId}").ToListAsync(cancellationToken);
+
+    public async Task<IReadOnlyList<TimesheetHolidaySetupDetail>> GetHolidaySetupListAsync(
+        int? organizationId,
+        int? projectId,
+        CancellationToken cancellationToken = default) =>
+        // The procedure does the joins, the filters and the ordering; no LINQ
+        // is composed on top, because SQL Server cannot wrap an EXEC.
+        await _db.spc_GetTimesheetHolidaySetup
+            .FromSqlInterpolated($"EXEC dbo.spc_GetTimesheetHolidaySetup @POrgID = {organizationId}, @PProjectID = {projectId}")
+            .ToListAsync(cancellationToken);
+
+    public async Task<TimesheetHolidaySetupSaveDetail?> SaveHolidaySetupAsync(
+        int? timesheetHolidaySetupId,
+        DateTime holidayDate,
+        string? description,
+        int organizationId,
+        int? countryId,
+        int? clientId,
+        int? projectId,
+        int createdBy,
+        DateTime now,
+        CancellationToken cancellationToken = default)
+    {
+        // Materialised as a list, then the first row taken in memory:
+        // FirstOrDefault on the query would try to compose SELECT TOP(1) around
+        // the EXEC, which SQL Server cannot do.
+        var rows = await _db.spc_AddEditTimesheetHolidaySetup
+            .FromSqlInterpolated($@"EXEC dbo.spc_AddEditTimesheetHolidaySetup
+                @PTimesheetHolidaySetupID = {timesheetHolidaySetupId},
+                @PHolidayDate = {holidayDate},
+                @PDescription = {description},
+                @POrgID = {organizationId},
+                @PCountryID = {countryId},
+                @PClientID = {clientId},
+                @PProjectID = {projectId},
+                @PUserID = {createdBy},
+                @PDate = {now}")
+            .ToListAsync(cancellationToken);
+
+        return rows.FirstOrDefault();
+    }
+
+    public async Task<TimesheetHolidaySetup?> GetHolidaySetupForUpdateAsync(
+        int timesheetHolidaySetupId,
+        int organizationId,
+        CancellationToken cancellationToken = default) =>
+        // Tracked on purpose - this is the write path. The query filter still
+        // applies, so a holiday deleted already is not found.
+        await _db.TimesheetHolidaysetup
+            .FirstOrDefaultAsync(
+                holiday => holiday.TimesheetHolidaySetupId == timesheetHolidaySetupId
+                           && holiday.OrganizationId == organizationId,
+                cancellationToken);
+
+    public async Task UpdateHolidaySetupAsync(
+        TimesheetHolidaySetup holiday,
+        CancellationToken cancellationToken = default) =>
+        await _db.SaveChangesAsync(cancellationToken);
+
+    public async Task<bool> ClientExistsAsync(
+        int clientId,
+        int organizationId,
+        CancellationToken cancellationToken = default) =>
+        // The client's query filter hides deleted clients, so a deleted one
+        // does not count.
+        await _db.TimesheetClientSetup
+            .AnyAsync(client => client.ClientId == clientId && client.OrganizationId == organizationId, cancellationToken);
+
+    public async Task<IReadOnlyList<TimesheetWeekendSetupDetail>> GetWeekendSetupListAsync(
+        int? organizationId,
+        int? projectId,
+        CancellationToken cancellationToken = default) =>
+        // The procedure does the joins, the filters and the ordering; no LINQ
+        // is composed on top, because SQL Server cannot wrap an EXEC.
+        await _db.spc_GetTimesheetWeekendSetup
+            .FromSqlInterpolated($"EXEC dbo.spc_GetTimesheetWeekendSetup @POrgID = {organizationId}, @PProjectID = {projectId}")
+            .ToListAsync(cancellationToken);
+
+    public async Task<TimesheetWeekendSetupSaveDetail?> SaveWeekendSetupAsync(
+        int? timeSheetWeekendSetupId,
+        int organizationId,
+        int? clientId,
+        int projectId,
+        bool isMondayWeekend,
+        bool isTuesdayWeekend,
+        bool isWednesdayWeekend,
+        bool isThursdayWeekend,
+        bool isFridayWeekend,
+        bool isSaturdayWeekend,
+        bool isSundayWeekend,
+        int userId,
+        DateTime now,
+        CancellationToken cancellationToken = default)
+    {
+        // Materialised as a list, then the first row taken in memory:
+        // FirstOrDefault on the query would try to compose SELECT TOP(1) around
+        // the EXEC, which SQL Server cannot do.
+        var rows = await _db.spc_AddEditTimesheetWeekendSetup
+            .FromSqlInterpolated($@"EXEC dbo.spc_AddEditTimesheetWeekendSetup
+                @PTimeSheetWeekendSetupID = {timeSheetWeekendSetupId},
+                @POrgID = {organizationId},
+                @PClientID = {clientId},
+                @PProjectID = {projectId},
+                @PIsMondayWeekend = {isMondayWeekend},
+                @PIsTuesdayWeekend = {isTuesdayWeekend},
+                @PIsWednesdayWeekend = {isWednesdayWeekend},
+                @PIsThursdayWeekend = {isThursdayWeekend},
+                @PIsFridayWeekend = {isFridayWeekend},
+                @PIsSaturdayWeekend = {isSaturdayWeekend},
+                @PIsSundayWeekend = {isSundayWeekend},
+                @PUserID = {userId},
+                @PDate = {now}")
+            .ToListAsync(cancellationToken);
+
+        return rows.FirstOrDefault();
+    }
+
+    public async Task<bool> WeekendSetupExistsForProjectAsync(
+        int projectId,
+        int excludedTimeSheetWeekendSetupId,
+        CancellationToken cancellationToken = default) =>
+        // The query filter hides deleted setups, so a deleted one does not
+        // count.
+        await _db.TimeSheet_Weekend_setup
+            .AnyAsync(
+                setup => setup.ProjectId == projectId
+                         && setup.TimeSheetWeekendSetupId != excludedTimeSheetWeekendSetupId,
+                cancellationToken);
+
+    public async Task<TimesheetWeekendSetup?> GetWeekendSetupForUpdateAsync(
+        int timeSheetWeekendSetupId,
+        CancellationToken cancellationToken = default) =>
+        // Tracked on purpose - this is the write path. The query filter still
+        // applies, so a setup deleted already is not found.
+        await _db.TimeSheet_Weekend_setup
+            .FirstOrDefaultAsync(setup => setup.TimeSheetWeekendSetupId == timeSheetWeekendSetupId, cancellationToken);
+
+    public async Task UpdateWeekendSetupAsync(
+        TimesheetWeekendSetup setup,
+        CancellationToken cancellationToken = default) =>
+        await _db.SaveChangesAsync(cancellationToken);
+
+    public async Task<IReadOnlyList<TimesheetRoleAssignmentDetail>> GetRoleAssignmentListAsync(
+        int? organizationId,
+        int? userId,
+        CancellationToken cancellationToken = default) =>
+        // The procedure does the join, the filters and the ordering; no LINQ
+        // is composed on top, because SQL Server cannot wrap an EXEC.
+        await _db.spc_GetUserAccessSetup
+            .FromSqlInterpolated($"EXEC dbo.spc_GetUserAccessSetup @POrgID = {organizationId}, @PUserID = {userId}")
+            .ToListAsync(cancellationToken);
+
+    public async Task<TimesheetRoleAssignmentSaveDetail?> SaveRoleAssignmentAsync(
+        int? assignmentId,
+        int userId,
+        bool isClientSetup,
+        bool isProject,
+        bool isProjectBudget,
+        bool isProjectCategory,
+        bool isStatusSetup,
+        bool isRoleSetup,
+        bool isUserSetup,
+        bool isTimeLog,
+        int loginUserId,
+        DateTime now,
+        CancellationToken cancellationToken = default)
+    {
+        // Materialised as a list, then the first row taken in memory:
+        // FirstOrDefault on the query would try to compose SELECT TOP(1) around
+        // the EXEC, which SQL Server cannot do.
+        var rows = await _db.spc_AddEditUserAccessSetup
+            .FromSqlInterpolated($@"EXEC dbo.spc_AddEditUserAccessSetup
+                @PAssignmentID = {assignmentId},
+                @PUserID = {userId},
+                @PIsClientSetup = {isClientSetup},
+                @PIsProject = {isProject},
+                @PIsProjectBudget = {isProjectBudget},
+                @PIsProjectCategory = {isProjectCategory},
+                @PIsStatusSetup = {isStatusSetup},
+                @PIsRoleSetup = {isRoleSetup},
+                @PIsUserSetup = {isUserSetup},
+                @PIsTimeLog = {isTimeLog},
+                @PLoginUserID = {loginUserId},
+                @PDate = {now}")
+            .ToListAsync(cancellationToken);
+
+        return rows.FirstOrDefault();
+    }
+
+    public async Task<bool> RoleAssignmentExistsForUserAsync(
+        int userId,
+        int excludedAssignmentId,
+        CancellationToken cancellationToken = default) =>
+        await _db.Timesheet_role_assignment
+            .AnyAsync(
+                assignment => assignment.UserId == userId && assignment.AssignmentId != excludedAssignmentId,
+                cancellationToken);
+
+    public async Task<TimesheetRoleAssignment?> GetRoleAssignmentForUpdateAsync(
+        int assignmentId,
+        CancellationToken cancellationToken = default) =>
+        // Tracked on purpose - this is the write path.
+        await _db.Timesheet_role_assignment
+            .FirstOrDefaultAsync(assignment => assignment.AssignmentId == assignmentId, cancellationToken);
+
+    public async Task DeleteRoleAssignmentAsync(
+        TimesheetRoleAssignment assignment,
+        CancellationToken cancellationToken = default)
+    {
+        _db.Timesheet_role_assignment.Remove(assignment);
+        await _db.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task<bool> UserExistsAsync(
+        int userId,
+        int organizationId,
+        CancellationToken cancellationToken = default) =>
+        // dbo.Signup has no query filter; every procedure on it treats only
+        // IsDelete = 0 as live, so a NULL is not live here either.
+        await _db.Signup
+            .AnyAsync(
+                user => user.UserId == userId && user.OrganizationId == organizationId && user.IsDelete == 0,
+                cancellationToken);
 }

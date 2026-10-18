@@ -969,3 +969,632 @@ public class TimesheetUserListDetail
 
     public string? ProjectLocationLongitude { get; set; }
 }
+
+/// <summary>
+/// One holiday from <c>dbo.TimesheetHolidaysetup</c>, as
+/// <c>get-timesheet-holiday-setup</c> and
+/// <c>add-edit-timesheet-holiday-setup</c> return it - with the names of its
+/// country, client and project, null where it has none.
+/// </summary>
+public class TimesheetHolidaySetupResponse
+{
+    public int TimesheetHolidaySetupId { get; set; }
+
+    /// <summary>The holiday's date; the time part is always midnight.</summary>
+    public DateTime? HolidayDate { get; set; }
+
+    /// <summary>The holiday's name. Null when none was set.</summary>
+    public string? Description { get; set; }
+
+    public int? OrganizationId { get; set; }
+
+    public int? CountryId { get; set; }
+
+    public string? CountryName { get; set; }
+
+    public int? ClientId { get; set; }
+
+    public string? ClientName { get; set; }
+
+    public int? ProjectId { get; set; }
+
+    public string? ProjectCode { get; set; }
+
+    public string? ProjectName { get; set; }
+
+    public DateTime? CreateDate { get; set; }
+
+    public int? CreatedBy { get; set; }
+}
+
+/// <summary>
+/// One row of <c>dbo.spc_GetTimesheetHolidaySetup</c>. Property names follow
+/// the procedure's column aliases; the mapping is in
+/// <c>Context.ConfigureStoredProcedureResults</c>.
+/// </summary>
+public class TimesheetHolidaySetupDetail
+{
+    public int TimesheetHolidaySetupId { get; set; }
+
+    public DateTime? HolidayDate { get; set; }
+
+    public string? Description { get; set; }
+
+    public int? OrganizationId { get; set; }
+
+    public int? CountryId { get; set; }
+
+    public string? CountryName { get; set; }
+
+    public int? ClientId { get; set; }
+
+    public string? ClientName { get; set; }
+
+    public int? ProjectId { get; set; }
+
+    public string? ProjectCode { get; set; }
+
+    public string? ProjectName { get; set; }
+
+    public DateTime? CreateDate { get; set; }
+
+    public int? CreatedBy { get; set; }
+}
+
+/// <summary>
+/// Body of <c>add-edit-timesheet-holiday-setup</c> - <b>one payload for both
+/// add and edit</b>, chosen by <see cref="TimesheetHolidaySetupId"/>.
+/// <para>
+/// Validated by <c>TimesheetProjectService</c>, not by a FluentValidation
+/// validator.
+/// </para>
+/// </summary>
+public class TimesheetHolidaySetupSaveRequest
+{
+    /// <summary>Absent or <c>0</c> to add; the id of a live holiday in this organisation to edit it.</summary>
+    /// <example>0</example>
+    public int? TimesheetHolidaySetupId { get; set; }
+
+    /// <summary>The holiday's date. Required; any time part is ignored.</summary>
+    /// <example>2026-12-25</example>
+    public DateTime? HolidayDate { get; set; }
+
+    /// <summary>
+    /// Optional, the holiday's name, at most 100 characters. Leading and
+    /// trailing spaces are trimmed. An edit that leaves it out clears it.
+    /// </summary>
+    /// <example>Christmas Day</example>
+    public string? Description { get; set; }
+
+    /// <summary>The organisation the holiday belongs to. Required, greater than 0.</summary>
+    /// <example>12</example>
+    public int OrganizationId { get; set; }
+
+    /// <summary>Optional - a <c>dbo.Country</c> id. An edit that leaves it out clears it.</summary>
+    /// <example>1</example>
+    public int? CountryId { get; set; }
+
+    /// <summary>Optional - a live client of the organisation. An edit that leaves it out clears it.</summary>
+    /// <example>3</example>
+    public int? ClientId { get; set; }
+
+    /// <summary>Optional - a project of the organisation. An edit that leaves it out clears it.</summary>
+    /// <example>4</example>
+    public int? ProjectId { get; set; }
+
+    /// <summary>
+    /// The user performing the save, written to <c>CreatedBy</c> on add (the
+    /// table has no "updated by" column). Required, greater than 0.
+    /// <b>Temporary</b>: it comes from the token once authentication is on.
+    /// </summary>
+    /// <example>7</example>
+    public int CreatedBy { get; set; }
+}
+
+/// <summary>
+/// The row <c>dbo.spc_AddEditTimesheetHolidaySetup</c> returns - the holiday
+/// just saved. The same columns as <see cref="TimesheetHolidaySetupDetail"/>,
+/// but its own type: EF Core maps one CLR type to one result set.
+/// </summary>
+public class TimesheetHolidaySetupSaveDetail
+{
+    public int TimesheetHolidaySetupId { get; set; }
+
+    public DateTime? HolidayDate { get; set; }
+
+    public string? Description { get; set; }
+
+    public int? OrganizationId { get; set; }
+
+    public int? CountryId { get; set; }
+
+    public string? CountryName { get; set; }
+
+    public int? ClientId { get; set; }
+
+    public string? ClientName { get; set; }
+
+    public int? ProjectId { get; set; }
+
+    public string? ProjectCode { get; set; }
+
+    public string? ProjectName { get; set; }
+
+    public DateTime? CreateDate { get; set; }
+
+    public int? CreatedBy { get; set; }
+}
+
+/// <summary>
+/// Body of <c>remove-timesheet-holiday-setup</c>.
+/// <para>
+/// A <b>soft</b> delete: the row is never removed, its <c>IsDelete</c> is set
+/// to 1. The table has no delete date or "deleted by" column, so nothing else
+/// is recorded.
+/// </para>
+/// <para>
+/// Validated by <c>TimesheetProjectService</c>, not by a FluentValidation
+/// validator.
+/// </para>
+/// </summary>
+public class TimesheetHolidaySetupDeleteRequest
+{
+    /// <summary>The holiday to remove. Required, greater than 0.</summary>
+    /// <example>5</example>
+    public int TimesheetHolidaySetupId { get; set; }
+
+    /// <summary>The organisation the holiday belongs to. Required, greater than 0.</summary>
+    /// <example>12</example>
+    public int OrganizationId { get; set; }
+}
+
+/// <summary>
+/// The weekend setup of one project from <c>dbo.TimeSheet_Weekend_setup</c>,
+/// as <c>get-timesheet-weekend-setup</c> and
+/// <c>add-edit-timesheet-weekend-setup</c> return it - which days of the week
+/// are weekend days, with the client and project names.
+/// </summary>
+public class TimesheetWeekendSetupResponse
+{
+    public int TimeSheetWeekendSetupId { get; set; }
+
+    public int OrganizationId { get; set; }
+
+    public int? ClientId { get; set; }
+
+    public string? ClientName { get; set; }
+
+    public int? ProjectId { get; set; }
+
+    public string? ProjectCode { get; set; }
+
+    public string? ProjectName { get; set; }
+
+    public bool? IsMondayWeekend { get; set; }
+
+    public bool? IsTuesdayWeekend { get; set; }
+
+    public bool? IsWednesdayWeekend { get; set; }
+
+    public bool? IsThursdayWeekend { get; set; }
+
+    public bool? IsFridayWeekend { get; set; }
+
+    public bool? IsSaturdayWeekend { get; set; }
+
+    public bool? IsSundayWeekend { get; set; }
+
+    public DateTime? CreateDate { get; set; }
+
+    public int? CreatedBy { get; set; }
+
+    public DateTime? UpdatedDate { get; set; }
+
+    public int? UpdatedBy { get; set; }
+}
+
+/// <summary>
+/// One row of <c>dbo.spc_GetTimesheetWeekendSetup</c>. Property names follow
+/// the procedure's column aliases; the mapping is in
+/// <c>Context.ConfigureStoredProcedureResults</c>.
+/// </summary>
+public class TimesheetWeekendSetupDetail
+{
+    public int TimeSheetWeekendSetupId { get; set; }
+
+    public int OrganizationId { get; set; }
+
+    public int? ClientId { get; set; }
+
+    public string? ClientName { get; set; }
+
+    public int? ProjectId { get; set; }
+
+    public string? ProjectCode { get; set; }
+
+    public string? ProjectName { get; set; }
+
+    public bool? IsMondayWeekend { get; set; }
+
+    public bool? IsTuesdayWeekend { get; set; }
+
+    public bool? IsWednesdayWeekend { get; set; }
+
+    public bool? IsThursdayWeekend { get; set; }
+
+    public bool? IsFridayWeekend { get; set; }
+
+    public bool? IsSaturdayWeekend { get; set; }
+
+    public bool? IsSundayWeekend { get; set; }
+
+    public DateTime? CreateDate { get; set; }
+
+    public int? CreatedBy { get; set; }
+
+    public DateTime? UpdatedDate { get; set; }
+
+    public int? UpdatedBy { get; set; }
+}
+
+/// <summary>
+/// Body of <c>add-edit-timesheet-weekend-setup</c> - <b>one payload for both
+/// add and edit</b>, chosen by <see cref="TimeSheetWeekendSetupId"/>.
+/// <para>
+/// A project has at most one weekend setup, and a setup is for exactly one
+/// project.
+/// </para>
+/// <para>
+/// Validated by <c>TimesheetProjectService</c>, not by a FluentValidation
+/// validator.
+/// </para>
+/// </summary>
+public class TimesheetWeekendSetupSaveRequest
+{
+    /// <summary>Absent or <c>0</c> to add; the id of a live setup in this organisation to edit it.</summary>
+    /// <example>0</example>
+    public int? TimeSheetWeekendSetupId { get; set; }
+
+    /// <summary>The organisation the setup belongs to. Required, greater than 0.</summary>
+    /// <example>12</example>
+    public int OrganizationId { get; set; }
+
+    /// <summary>Optional - a live client of the organisation. An edit that leaves it out clears it.</summary>
+    /// <example>3</example>
+    public int? ClientId { get; set; }
+
+    /// <summary>
+    /// The project the setup is for - a project of the organisation that has
+    /// no other weekend setup. Required, greater than 0.
+    /// </summary>
+    /// <example>4</example>
+    public int ProjectId { get; set; }
+
+    /// <summary>Whether Monday is a weekend day for the project. Left out is <c>false</c>.</summary>
+    /// <example>false</example>
+    public bool IsMondayWeekend { get; set; }
+
+    /// <summary>Whether Tuesday is a weekend day for the project. Left out is <c>false</c>.</summary>
+    /// <example>false</example>
+    public bool IsTuesdayWeekend { get; set; }
+
+    /// <summary>Whether Wednesday is a weekend day for the project. Left out is <c>false</c>.</summary>
+    /// <example>false</example>
+    public bool IsWednesdayWeekend { get; set; }
+
+    /// <summary>Whether Thursday is a weekend day for the project. Left out is <c>false</c>.</summary>
+    /// <example>false</example>
+    public bool IsThursdayWeekend { get; set; }
+
+    /// <summary>Whether Friday is a weekend day for the project. Left out is <c>false</c>.</summary>
+    /// <example>false</example>
+    public bool IsFridayWeekend { get; set; }
+
+    /// <summary>Whether Saturday is a weekend day for the project. Left out is <c>false</c>.</summary>
+    /// <example>true</example>
+    public bool IsSaturdayWeekend { get; set; }
+
+    /// <summary>Whether Sunday is a weekend day for the project. Left out is <c>false</c>.</summary>
+    /// <example>true</example>
+    public bool IsSundayWeekend { get; set; }
+
+    /// <summary>
+    /// The user performing the save, written to <c>CreatedBy</c> on add and
+    /// <c>UpdatedBy</c> on edit. Required, greater than 0. <b>Temporary</b>:
+    /// it comes from the token once authentication is on.
+    /// </summary>
+    /// <example>7</example>
+    public int UserId { get; set; }
+}
+
+/// <summary>
+/// The row <c>dbo.spc_AddEditTimesheetWeekendSetup</c> returns - the setup
+/// just saved. The same columns as <see cref="TimesheetWeekendSetupDetail"/>,
+/// but its own type: EF Core maps one CLR type to one result set.
+/// </summary>
+public class TimesheetWeekendSetupSaveDetail
+{
+    public int TimeSheetWeekendSetupId { get; set; }
+
+    public int OrganizationId { get; set; }
+
+    public int? ClientId { get; set; }
+
+    public string? ClientName { get; set; }
+
+    public int? ProjectId { get; set; }
+
+    public string? ProjectCode { get; set; }
+
+    public string? ProjectName { get; set; }
+
+    public bool? IsMondayWeekend { get; set; }
+
+    public bool? IsTuesdayWeekend { get; set; }
+
+    public bool? IsWednesdayWeekend { get; set; }
+
+    public bool? IsThursdayWeekend { get; set; }
+
+    public bool? IsFridayWeekend { get; set; }
+
+    public bool? IsSaturdayWeekend { get; set; }
+
+    public bool? IsSundayWeekend { get; set; }
+
+    public DateTime? CreateDate { get; set; }
+
+    public int? CreatedBy { get; set; }
+
+    public DateTime? UpdatedDate { get; set; }
+
+    public int? UpdatedBy { get; set; }
+}
+
+/// <summary>
+/// Body of <c>remove-timesheet-weekend-setup</c>.
+/// <para>
+/// A <b>soft</b> delete: the row is never removed. It is stamped with
+/// <c>IsDelete</c> = 1, <c>DeletedDate</c> and <c>DeletedBy</c>, and from then
+/// on the list and <c>add-edit-timesheet-weekend-setup</c> no longer see it -
+/// so the project may be given a new setup.
+/// </para>
+/// <para>
+/// Validated by <c>TimesheetProjectService</c>, not by a FluentValidation
+/// validator.
+/// </para>
+/// </summary>
+public class TimesheetWeekendSetupDeleteRequest
+{
+    /// <summary>The setup to remove. Required, greater than 0.</summary>
+    /// <example>2</example>
+    public int TimeSheetWeekendSetupId { get; set; }
+
+    /// <summary>
+    /// The user performing the remove, written to <c>DeletedBy</c>. Required,
+    /// greater than 0. <b>Temporary</b>: it comes from the token once
+    /// authentication is on.
+    /// </summary>
+    /// <example>7</example>
+    public int DeletedBy { get; set; }
+}
+
+/// <summary>
+/// The module assignment of one user from
+/// <c>dbo.Timesheet_role_assignment</c>, as
+/// <c>get-user-access-setup</c> and
+/// <c>add-edit-user-access-setup</c> return it - which modules the
+/// user may use, with the user's name, email and organisation.
+/// </summary>
+public class TimesheetRoleAssignmentResponse
+{
+    public int AssignmentId { get; set; }
+
+    public int? UserId { get; set; }
+
+    public string? UserName { get; set; }
+
+    public string? Email { get; set; }
+
+    public int? OrganizationId { get; set; }
+
+    public bool? IsClientSetup { get; set; }
+
+    public bool? IsProject { get; set; }
+
+    public bool? IsProjectBudget { get; set; }
+
+    public bool? IsProjectCategory { get; set; }
+
+    public bool? IsStatusSetup { get; set; }
+
+    public bool? IsRoleSetup { get; set; }
+
+    public bool? IsUserSetup { get; set; }
+
+    public bool? IsTimeLog { get; set; }
+
+    public DateTime? CreateDate { get; set; }
+
+    public int? CreatedBy { get; set; }
+
+    public DateTime? UpdatedDate { get; set; }
+
+    public int? UpdatedBy { get; set; }
+}
+
+/// <summary>
+/// One row of <c>dbo.spc_GetUserAccessSetup</c>. Property names follow
+/// the procedure's column aliases; the mapping is in
+/// <c>Context.ConfigureStoredProcedureResults</c>.
+/// </summary>
+public class TimesheetRoleAssignmentDetail
+{
+    public int AssignmentId { get; set; }
+
+    public int? UserId { get; set; }
+
+    public string? UserName { get; set; }
+
+    public string? Email { get; set; }
+
+    public int? OrganizationId { get; set; }
+
+    public bool? IsClientSetup { get; set; }
+
+    public bool? IsProject { get; set; }
+
+    public bool? IsProjectBudget { get; set; }
+
+    public bool? IsProjectCategory { get; set; }
+
+    public bool? IsStatusSetup { get; set; }
+
+    public bool? IsRoleSetup { get; set; }
+
+    public bool? IsUserSetup { get; set; }
+
+    public bool? IsTimeLog { get; set; }
+
+    public DateTime? CreateDate { get; set; }
+
+    public int? CreatedBy { get; set; }
+
+    public DateTime? UpdatedDate { get; set; }
+
+    public int? UpdatedBy { get; set; }
+}
+
+/// <summary>
+/// Body of <c>add-edit-user-access-setup</c> - <b>one payload for both
+/// add and edit</b>, chosen by <see cref="AssignmentId"/>.
+/// <para>
+/// A user has at most one assignment.
+/// </para>
+/// <para>
+/// Validated by <c>TimesheetProjectService</c>, not by a FluentValidation
+/// validator.
+/// </para>
+/// </summary>
+public class TimesheetRoleAssignmentSaveRequest
+{
+    /// <summary>Absent or <c>0</c> to add; the id of an existing assignment to edit it.</summary>
+    /// <example>0</example>
+    public int? AssignmentId { get; set; }
+
+    /// <summary>
+    /// The organisation of the user. Required, greater than 0. Not stored -
+    /// the table has no organisation column - but the user must be a live
+    /// user of it.
+    /// </summary>
+    /// <example>12</example>
+    public int OrganizationId { get; set; }
+
+    /// <summary>
+    /// The user the assignment is for - a live user of the organisation who
+    /// has no other assignment. Required, greater than 0.
+    /// </summary>
+    /// <example>58</example>
+    public int UserId { get; set; }
+
+    /// <summary>Whether the user may use the Client Setup module. Left out is <c>false</c>.</summary>
+    /// <example>true</example>
+    public bool IsClientSetup { get; set; }
+
+    /// <summary>Whether the user may use the Project module. Left out is <c>false</c>.</summary>
+    /// <example>true</example>
+    public bool IsProject { get; set; }
+
+    /// <summary>Whether the user may use the Project Budget module. Left out is <c>false</c>.</summary>
+    /// <example>true</example>
+    public bool IsProjectBudget { get; set; }
+
+    /// <summary>Whether the user may use the Project Category module. Left out is <c>false</c>.</summary>
+    /// <example>true</example>
+    public bool IsProjectCategory { get; set; }
+
+    /// <summary>Whether the user may use the Status Setup module. Left out is <c>false</c>.</summary>
+    /// <example>true</example>
+    public bool IsStatusSetup { get; set; }
+
+    /// <summary>Whether the user may use the Role Setup module. Left out is <c>false</c>.</summary>
+    /// <example>true</example>
+    public bool IsRoleSetup { get; set; }
+
+    /// <summary>Whether the user may use the User Setup module. Left out is <c>false</c>.</summary>
+    /// <example>true</example>
+    public bool IsUserSetup { get; set; }
+
+    /// <summary>Whether the user may use the Time Log module. Left out is <c>false</c>.</summary>
+    /// <example>true</example>
+    public bool IsTimeLog { get; set; }
+
+    /// <summary>
+    /// The user performing the save, written to <c>CreatedBy</c> on add and
+    /// <c>Updatedby</c> on edit. Required, greater than 0. <b>Temporary</b>:
+    /// it comes from the token once authentication is on.
+    /// </summary>
+    /// <example>7</example>
+    public int LoginUserId { get; set; }
+}
+
+/// <summary>
+/// The row <c>dbo.spc_AddEditUserAccessSetup</c> returns - the
+/// assignment just saved. The same columns as
+/// <see cref="TimesheetRoleAssignmentDetail"/>, but its own type: EF Core maps
+/// one CLR type to one result set.
+/// </summary>
+public class TimesheetRoleAssignmentSaveDetail
+{
+    public int AssignmentId { get; set; }
+
+    public int? UserId { get; set; }
+
+    public string? UserName { get; set; }
+
+    public string? Email { get; set; }
+
+    public int? OrganizationId { get; set; }
+
+    public bool? IsClientSetup { get; set; }
+
+    public bool? IsProject { get; set; }
+
+    public bool? IsProjectBudget { get; set; }
+
+    public bool? IsProjectCategory { get; set; }
+
+    public bool? IsStatusSetup { get; set; }
+
+    public bool? IsRoleSetup { get; set; }
+
+    public bool? IsUserSetup { get; set; }
+
+    public bool? IsTimeLog { get; set; }
+
+    public DateTime? CreateDate { get; set; }
+
+    public int? CreatedBy { get; set; }
+
+    public DateTime? UpdatedDate { get; set; }
+
+    public int? UpdatedBy { get; set; }
+}
+
+/// <summary>
+/// Body of <c>remove-user-access-setup</c>.
+/// <para>
+/// A <b>hard</b> delete: the table has no soft-delete column, so the row is
+/// physically removed, and the user may then be given a new assignment.
+/// </para>
+/// <para>
+/// Validated by <c>TimesheetProjectService</c>, not by a FluentValidation
+/// validator.
+/// </para>
+/// </summary>
+public class TimesheetRoleAssignmentDeleteRequest
+{
+    /// <summary>The assignment to remove. Required, greater than 0.</summary>
+    /// <example>2</example>
+    public int AssignmentId { get; set; }
+}
