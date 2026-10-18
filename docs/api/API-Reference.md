@@ -4266,10 +4266,17 @@ and the reason is logged.
 | `billRate` | decimal | yes | `>= 0` | Billable rate per hour |
 | `workLocationRange` | int \| null | no | `>= 0` | |
 | `projectLocationLatitude` | string \| null | no | a number from -90 to 90, `<= 25` characters | Saved for a **new** user only |
+| `maxLogHoursPerDay` | int \| null | no | `0`–`24` | The most hours a day this assignment may log. **Stored only — nothing enforces it**; see [Known gaps](#known-gaps) 57. Unlike the latitude, it is saved for an existing user too |
 | `createdBy` | int | yes | `> 0` | Temporary — from the token once authentication is on |
 
 The procedure's `@Range` and `@Projectloclongtitude` parameters are **not**
 exposed: the procedure never uses either.
+
+> `maxLogHoursPerDay` is passed as `@Maxloghourday`, added to
+> `spc_Signup_timesheet_user` on 2026-10-18 and **still DRAFT**. Until the
+> owner applies the revised procedure, every call to this endpoint fails on
+> the unknown parameter and answers **500** — including calls that leave
+> `maxLogHoursPerDay` out.
 
 #### Example request
 
@@ -4287,6 +4294,7 @@ exposed: the procedure never uses either.
   "billRate": 45.00,
   "workLocationRange": 500,
   "projectLocationLatitude": "18.5204",
+  "maxLogHoursPerDay": 8,
   "createdBy": 7
 }
 ```
@@ -4362,8 +4370,9 @@ Both are saved in one transaction — both or neither. **An edit overwrites ever
 field**: an optional field left out is saved as `null`. Send the whole
 assignment.
 
-> Needs `TimesheetUserProjectSetupID` on `dbo.Timesheet_Users_Project_setup` —
-> recorded as a DRAFT, not yet applied. Until it is, this endpoint returns 500.
+> Needs `TimesheetUserProjectSetupID` on `dbo.Timesheet_Users_Project_setup`.
+> **Applied** — the `sp_help` list supplied on 2026-10-18 shows the column
+> present and `NOT NULL`.
 
 #### Request body — `TimesheetUserUpdateRequest` (JSON)
 
@@ -4381,6 +4390,7 @@ assignment.
 | `workLocationRange` | int \| null | no | `>= 0` | |
 | `projectLocationLatitude` | string \| null | no | a number from -90 to 90, `<= 25` characters | |
 | `projectLocationLongitude` | string \| null | no | a number from -180 to 180, `<= 25` characters | |
+| `maxLogHoursPerDay` | int \| null | no | `0`–`24` | **Stored only — nothing enforces it**; see [Known gaps](#known-gaps) 57 |
 | `updatedBy` | int | yes | `> 0` | Temporary — from the token once authentication is on |
 
 #### Example request
@@ -4399,6 +4409,7 @@ assignment.
   "workLocationRange": 500,
   "projectLocationLatitude": "18.5204",
   "projectLocationLongitude": "73.8567",
+  "maxLogHoursPerDay": 8,
   "updatedBy": 7
 }
 ```
@@ -4424,7 +4435,8 @@ assignment.
     "billRate": 50.00,
     "workLocationRange": 500,
     "projectLocationLatitude": "18.5204",
-    "projectLocationLongitude": "73.8567"
+    "projectLocationLongitude": "73.8567",
+    "maxLogHoursPerDay": 8
   },
   "errors": []
 }
@@ -4457,9 +4469,9 @@ delete: the user's live assignment to the project in
 `create-timesheet-user` added duplicates, **every** live one is removed. The
 user in `dbo.Signup` and their other projects are **not** touched.
 
-> Needs `TimesheetUserProjectSetupID` on `dbo.Timesheet_Users_Project_setup` —
-> recorded as a DRAFT, not yet applied. EF Core updates rows by that key, so
-> until it is added this endpoint returns 500.
+> Needs `TimesheetUserProjectSetupID` on `dbo.Timesheet_Users_Project_setup`.
+> **Applied** — the `sp_help` list supplied on 2026-10-18 shows the column
+> present and `NOT NULL`. EF Core updates rows by that key.
 
 #### Request body — `TimesheetUserDeleteRequest` (JSON)
 
@@ -4541,6 +4553,7 @@ GET /api/v1/TimesheetProject/get-timesheet-user-by-orgID/12
 | `workLocationRange` | int \| null | |
 | `projectLocationLatitude` | string \| null | Text, as stored |
 | `projectLocationLongitude` | string \| null | Text, as stored |
+| `maxLogHoursPerDay` | int \| null | The most hours a day this assignment may log; `null` when it sets no cap. **Stored only — nothing enforces it** |
 
 #### Example response
 
@@ -4565,7 +4578,8 @@ GET /api/v1/TimesheetProject/get-timesheet-user-by-orgID/12
       "billRate": 45.00,
       "workLocationRange": 200,
       "projectLocationLatitude": "23.0225",
-      "projectLocationLongitude": null
+      "projectLocationLongitude": null,
+      "maxLogHoursPerDay": 8
     }
   ],
   "errors": []
@@ -5483,7 +5497,10 @@ Documented so nobody has to rediscover them:
     `spc_AddEditUserAccessSetup` are
     recorded in `docs/database/procedures/` and must be created by hand; each
     matching endpoint answers 500 until its procedure exists in its latest
-    version.
+    version. `spc_Signup_timesheet_user` exists in the database but its
+    2026-10-18 revision — the `@Maxloghourday` parameter — does not, so
+    [Create Timesheet User](#36-create-timesheet-user) answers 500 until the
+    owner applies it.
 33. **Project removes are hard deletes.** Neither `dbo.TimesheetProject` nor
     `dbo.TimesheetProjectBudget` has a soft-delete or audit column, so a removed
     project or budget cannot be recovered and nothing records who removed it.
@@ -5571,3 +5588,10 @@ Documented so nobody has to rediscover them:
 56. **User access setup reads depend on `dbo.Signup`**, which is not recorded
     (see 6). `spc_GetUserAccessSetup` and `spc_AddEditUserAccessSetup` join it
     for the user's name, email and organisation.
+57. **`maxLogHoursPerDay` is stored but never enforced.** The assignment's
+    `Max_log_hour_day` is saved and returned, and nothing reads it: the daily
+    cap [Save Time Log](#3-save-time-log-add--edit) actually applies is the
+    **user's** `dbo.TimesheetMasterSetup.MaxTimeInHrs`, which is per user, not
+    per project. A user on two projects has one effective cap across both, and
+    the two numbers can disagree with nothing to reconcile them. Until the time
+    log reads it, treat it as a number for a client to display.

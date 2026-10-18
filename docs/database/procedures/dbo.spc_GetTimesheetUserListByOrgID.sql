@@ -2,6 +2,8 @@
     Procedure: dbo.spc_GetTimesheetUserListByOrgID
     Status:    DRAFT for review - not applied to any database.
     Recorded:  2026-10-17 - DRAFT: new procedure.
+    Revised:   2026-10-18 - DRAFT: MaxLogHoursPerDay added, for the
+               Max_log_hour_day column the owner added to the table.
 
     Returns the timesheet users of one organisation - every live project
     assignment in dbo.Timesheet_Users_Project_setup of every live user of the
@@ -30,8 +32,9 @@
       Billable_rate_per_hour), WorkLocationRange (aliased from
       WorklocationRange), ProjectLocationLatitude (aliased from
       ProjectlocLatitude), ProjectLocationLongitude (aliased from
-      ProjectlocLongtitude - the database's spelling). The aliases are what
-      the EF Core result mapping binds to.
+      ProjectlocLongtitude - the database's spelling), MaxLogHoursPerDay
+      (aliased from Max_log_hour_day). The aliases are what the EF Core
+      result mapping binds to.
 
       ProjectCode / ProjectName and ProjectRoleName come from LEFT JOINs, so
       an assignment whose project or role is NULL, unknown or deleted is
@@ -82,7 +85,8 @@ BEGIN
         tups.Billable_rate_per_hour         AS BillRate,
         tups.WorklocationRange              AS WorkLocationRange,
         tups.ProjectlocLatitude             AS ProjectLocationLatitude,
-        tups.ProjectlocLongtitude           AS ProjectLocationLongitude
+        tups.ProjectlocLongtitude           AS ProjectLocationLongitude,
+        tups.Max_log_hour_day               AS MaxLogHoursPerDay
     FROM dbo.Timesheet_Users_Project_setup tups
     INNER JOIN dbo.Signup s
         ON s.UserID = tups.UserID

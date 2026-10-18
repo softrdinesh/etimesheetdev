@@ -60,4 +60,15 @@ public class TimesheetUserProjectSetup
 
     /// <summary>The <c>ProjectlocLongtitude</c> column - the database's spelling. <c>nvarchar(25)</c> - text.</summary>
     public string? ProjectLocationLongitude { get; set; }
+
+    /// <summary>
+    /// The <c>Max_log_hour_day</c> column - the most hours a day this
+    /// assignment may log. Null means this assignment sets no cap.
+    /// <para>
+    /// Stored and returned only. The daily cap the time log enforces is
+    /// <c>dbo.TimesheetMasterSetup.MaxTimeInHrs</c>, per user; nothing
+    /// reconciles the two.
+    /// </para>
+    /// </summary>
+    public int? MaxLogHoursPerDay { get; set; }
 }

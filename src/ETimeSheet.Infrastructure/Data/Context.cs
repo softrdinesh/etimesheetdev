@@ -769,7 +769,8 @@ public class Context : DbContext
             // ProjectRoleName, Jobtype AS JobType, Cost_rate_per_hour AS CostRate,
             // Billable_rate_per_hour AS BillRate, WorklocationRange AS
             // WorkLocationRange, ProjectlocLatitude / ProjectlocLongtitude AS
-            // ProjectLocationLatitude / ProjectLocationLongitude.
+            // ProjectLocationLatitude / ProjectLocationLongitude,
+            // Max_log_hour_day AS MaxLogHoursPerDay.
             user.Property(row => row.TimesheetUserProjectSetupId).HasColumnName("TimesheetUserProjectSetupID");
             user.Property(row => row.UserId).HasColumnName("UserID");
             user.Property(row => row.Name).HasColumnName("Name");
@@ -786,6 +787,7 @@ public class Context : DbContext
             user.Property(row => row.WorkLocationRange).HasColumnName("WorkLocationRange");
             user.Property(row => row.ProjectLocationLatitude).HasColumnName("ProjectLocationLatitude");
             user.Property(row => row.ProjectLocationLongitude).HasColumnName("ProjectLocationLongitude");
+            user.Property(row => row.MaxLogHoursPerDay).HasColumnName("MaxLogHoursPerDay");
         });
 
         modelBuilder.Entity<TimesheetHolidaySetupDetail>(holiday =>

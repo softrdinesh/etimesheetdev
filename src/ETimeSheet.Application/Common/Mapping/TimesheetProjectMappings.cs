@@ -127,6 +127,7 @@ internal static class TimesheetProjectMappings
         WorkLocationRange = user.WorkLocationRange,
         ProjectLocationLatitude = user.ProjectLocationLatitude,
         ProjectLocationLongitude = user.ProjectLocationLongitude,
+        MaxLogHoursPerDay = user.MaxLogHoursPerDay,
     };
 
     /// <summary>Projects a holiday row from <c>spc_GetTimesheetHolidaySetup</c> to the holiday response.</summary>

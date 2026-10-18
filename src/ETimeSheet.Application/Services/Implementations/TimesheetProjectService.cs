@@ -56,6 +56,12 @@ public class TimesheetProjectService : ITimesheetProjectService
     /// <summary>The largest value a <c>decimal(18,2)</c> column holds.</summary>
     private const decimal RateMaximum = 9999999999999999.99m;
 
+    /// <summary>
+    /// The most <c>Max_log_hour_day</c> may be: a day holds no more hours than
+    /// this, so a larger cap could never bind.
+    /// </summary>
+    private const int MaxLogHoursPerDayMaximum = 24;
+
     /// <summary>The values <c>dbo.TimesheetProject.SubmissionFrequency</c> accepts.</summary>
     private static readonly IReadOnlySet<int> SubmissionFrequencies = new HashSet<int>
     {
@@ -680,6 +686,11 @@ public class TimesheetProjectService : ITimesheetProjectService
             };
         }
 
+        AddMaxLogHoursPerDayFailure(
+            failures,
+            nameof(TimesheetUserCreateRequest.MaxLogHoursPerDay),
+            request.MaxLogHoursPerDay);
+
         AddCoordinateFailure(failures, nameof(TimesheetUserCreateRequest.ProjectLocationLatitude), latitude, 90m);
 
         if (request.CreatedBy <= 0)
@@ -770,6 +781,7 @@ public class TimesheetProjectService : ITimesheetProjectService
             request.WorkLocationRange,
             request.ProjectId,
             latitude,
+            request.MaxLogHoursPerDay,
             cancellationToken);
 
         // The procedure returns nothing, so the user is read back.
@@ -919,6 +931,11 @@ public class TimesheetProjectService : ITimesheetProjectService
             };
         }
 
+        AddMaxLogHoursPerDayFailure(
+            failures,
+            nameof(TimesheetUserUpdateRequest.MaxLogHoursPerDay),
+            request.MaxLogHoursPerDay);
+
         AddCoordinateFailure(failures, nameof(TimesheetUserUpdateRequest.ProjectLocationLatitude), latitude, 90m);
         AddCoordinateFailure(failures, nameof(TimesheetUserUpdateRequest.ProjectLocationLongitude), longitude, 180m);
 
@@ -1026,6 +1043,7 @@ public class TimesheetProjectService : ITimesheetProjectService
         setup.WorkLocationRange = request.WorkLocationRange;
         setup.ProjectLocationLatitude = latitude;
         setup.ProjectLocationLongitude = longitude;
+        setup.MaxLogHoursPerDay = request.MaxLogHoursPerDay;
 
         await _timesheetProjectRepository.UpdateTimesheetUserAsync(setup, cancellationToken);
 
@@ -1051,6 +1069,7 @@ public class TimesheetProjectService : ITimesheetProjectService
             WorkLocationRange = setup.WorkLocationRange,
             ProjectLocationLatitude = setup.ProjectLocationLatitude,
             ProjectLocationLongitude = setup.ProjectLocationLongitude,
+            MaxLogHoursPerDay = setup.MaxLogHoursPerDay,
         };
     }
 
@@ -1187,6 +1206,34 @@ public class TimesheetProjectService : ITimesheetProjectService
         else if (rate > RateMaximum)
         {
             failures[field] = new[] { $"{field} must not be greater than {RateMaximum}." };
+        }
+    }
+
+    /// <summary>
+    /// <c>Max_log_hour_day</c> is a whole number of hours and optional: left
+    /// out, the assignment sets no cap. Negative is refused, and so is a value
+    /// no day could reach.
+    /// </summary>
+    private static void AddMaxLogHoursPerDayFailure(
+        Dictionary<string, string[]> failures,
+        string field,
+        int? maxLogHoursPerDay)
+    {
+        if (maxLogHoursPerDay is not { } hours)
+        {
+            return;
+        }
+
+        if (hours < 0)
+        {
+            failures[field] = new[] { $"{field} must not be negative." };
+        }
+        else if (hours > MaxLogHoursPerDayMaximum)
+        {
+            failures[field] = new[]
+            {
+                $"{field} must not be greater than {MaxLogHoursPerDayMaximum}: a day holds no more hours."
+            };
         }
     }
 
