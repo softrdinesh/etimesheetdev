@@ -83,7 +83,7 @@ public static class TimeOfDay
     {
         if (string.IsNullOrWhiteSpace(value))
         {
-            throw new ValidationException(field, $"{field} is required, as a time of day in {Pattern} format - for example \"{Example}\".");
+            throw new ValidationException(field, RequiredMessage(field));
         }
 
         return TryParse(value, out var parsed)
@@ -111,12 +111,28 @@ public static class TimeOfDay
     }
 
     /// <summary>
+    /// The message for a missing time, matching <see cref="Parse"/>'s.
+    /// <para>
+    /// Public for the same reason as <see cref="MalformedMessage"/>: a service
+    /// that reports every failing field together cannot let one of them throw.
+    /// </para>
+    /// </summary>
+    public static string RequiredMessage(string field) =>
+        $"{field} is required, as a time of day in {Pattern} format - for example \"{Example}\".";
+
+    /// <summary>
     /// One message for every malformed time, so no two endpoints describe the
     /// same rule differently. It spells out both halves of the rule - the shape
     /// and the range - because "must be hh:mm:ss" alone does not tell a caller
     /// why <c>"24:00:00"</c> was refused.
+    /// <para>
+    /// Public so a service that collects failures - rather than throwing on the
+    /// first, as <see cref="Parse"/> does - still reports the same words. The
+    /// alternative is each such service writing its own sentence, which is the
+    /// drift this type exists to prevent.
+    /// </para>
     /// </summary>
-    private static string MalformedMessage(string field) =>
+    public static string MalformedMessage(string field) =>
         $"{field} must be a time of day in {Pattern} format, between \"00:00:00\" and \"23:59:59\" - " +
         $"for example \"{Example}\".";
 }

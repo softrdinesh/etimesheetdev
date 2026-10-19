@@ -38,7 +38,7 @@ public sealed class SqlServerFixture : IAsyncLifetime
     private const string ImageEnvironmentVariable = "ETIMESHEET_TEST_SQL_IMAGE";
 
     /// <summary>Database created inside the container. Never the server's <c>master</c>.</summary>
-    private const string TestDatabaseName = "ETimeSheetIntegrationTests";
+    private const string TestDatabaseName = ThrowawayDatabaseGuard.TestDatabaseName;
 
     private MsSqlContainer? _container;
 

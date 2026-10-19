@@ -40,6 +40,9 @@ public class ETimeSheetApiFactory : WebApplicationFactory<Program>
     public const string TestIssuer = "ETimeSheet.Tests";
     public const string TestAudience = "ETimeSheet.Tests.Client";
 
+    /// <summary>Port 9 (discard) on loopback: nothing listens, so a call is refused at once.</summary>
+    public const string UnreachableServiceUrl = "http://127.0.0.1:9";
+
     private readonly string _connectionString;
 
     public ETimeSheetApiFactory(string connectionString)
@@ -84,6 +87,19 @@ public class ETimeSheetApiFactory : WebApplicationFactory<Program>
 
                 ["Cors:AllowedOrigins:0"] = "https://app.test",
 
+                // appsettings.json points both outbound services - the welcome
+                // email and the document upload - at the real PPMUAT host. A
+                // closed local port keeps every test call on this machine while
+                // the production HttpEmailSender and HttpDocumentUploader still
+                // run: a refused connection is a fast, ordinary send failure,
+                // which create-timesheet-user reports as "email not sent". The
+                // absolute SendEmailUrl has to go too, or it would win over the
+                // base address.
+                ["EmailService:BaseUrl"] = UnreachableServiceUrl,
+                ["EmailService:SendEmailUrl"] = $"{UnreachableServiceUrl}/api/Email/SendEmail",
+                ["EmailService:MaxAttempts"] = "1",
+                ["EmailService:TimeoutSeconds"] = "5",
+
                 // EF Core command logging is noisy enough to bury assertion
                 // failures in the test output.
                 ["Logging:LogLevel:Microsoft.EntityFrameworkCore"] = "Warning"
@@ -113,6 +129,30 @@ public class ETimeSheetApiFactory : WebApplicationFactory<Program>
     }
 
     /// <summary>
+    /// Runs <paramref name="action"/> against a fresh <see cref="Context"/> on
+    /// the throwaway container, to arrange rows or read back what an endpoint
+    /// wrote. Rows only - never schema (CLAUDE.md §8).
+    /// <para>
+    /// The per-module seed helpers are extension methods over this, kept beside
+    /// their test data, so a new module does not have to grow this class.
+    /// </para>
+    /// </summary>
+    public async Task WithDbContextAsync(Func<Context, Task> action)
+    {
+        await using var scope = Services.CreateAsyncScope();
+
+        await action(GuardedContext(scope.ServiceProvider));
+    }
+
+    /// <inheritdoc cref="WithDbContextAsync(Func{Context, Task})"/>
+    public async Task<T> WithDbContextAsync<T>(Func<Context, Task<T>> query)
+    {
+        await using var scope = Services.CreateAsyncScope();
+
+        return await query(GuardedContext(scope.ServiceProvider));
+    }
+
+    /// <summary>
     /// Builds the container's schema by replaying the recorded SQL in
     /// <c>docs/database</c>.
     /// <para>
@@ -121,7 +161,7 @@ public class ETimeSheetApiFactory : WebApplicationFactory<Program>
     /// application - and nothing else in this test suite - creates, alters or
     /// drops schema anywhere. <b>This method is the sole exception</b>, and it
     /// is fenced in three ways: it runs only against the throwaway container
-    /// (<see cref="AssertUsingThrowawayContainer"/>), the container is
+    /// (<see cref="GuardedContext"/>), the container is
     /// destroyed when the run ends, and
     /// <c>ArchitectureRuleTests.NothingButTheTestContainerFixtureExecutesSchema</c>
     /// fails the build if DDL appears anywhere else.
@@ -139,9 +179,7 @@ public class ETimeSheetApiFactory : WebApplicationFactory<Program>
     {
         await using var scope = Services.CreateAsyncScope();
 
-        AssertUsingThrowawayContainer(scope.ServiceProvider);
-
-        var dbContext = scope.ServiceProvider.GetRequiredService<Context>();
+        var dbContext = GuardedContext(scope.ServiceProvider);
 
         // Creates the empty database only - no tables. EnsureCreated would
         // build them from the EF model instead of from the script, which is
@@ -293,7 +331,9 @@ public class ETimeSheetApiFactory : WebApplicationFactory<Program>
                 "item in ETimeSheet.Tests.csproj.");
         }
 
-        var files = OrderedSqlFiles(root, folder).ToArray();
+        var files = OrderedSqlFiles(root, folder)
+            .Where(file => !NotReplayedInTheContainer.Contains(Path.GetFileName(file)))
+            .ToArray();
 
         if (files.Length == 0)
         {
@@ -308,6 +348,31 @@ public class ETimeSheetApiFactory : WebApplicationFactory<Program>
             .ToArray();
     }
 
+    /// <summary>
+    /// Recorded files the container cannot build, each with the reason. Keep
+    /// this short: every entry is something the suite cannot prove.
+    /// <para>
+    /// <c>spc_Signup_timesheet_user</c> inserts <c>dbo.Signup.Pwd</c>, reads
+    /// <c>dbo.Organization.OrganizationSize</c> and writes <c>dbo.Login</c>.
+    /// The container builds Signup and Organization from the EF mapping
+    /// (<see cref="TablesBuiltFromTheModel"/>), which has neither column, and
+    /// <c>dbo.Login</c> has never been supplied. SQL Server defers a missing
+    /// <i>table</i> but not a missing <i>column</i> on an existing one, so
+    /// replaying it fails with "Invalid column name" - and with it every
+    /// integration test, before the first one runs. The header of the
+    /// recorded file says the same.
+    /// </para>
+    /// <para>
+    /// Without it, create-timesheet-user's validation paths are still proven
+    /// (they refuse before the procedure is called); its success path is not,
+    /// until the owner supplies the real <c>dbo.Signup</c>, <c>dbo.Organization</c>
+    /// and <c>dbo.Login</c> definitions to record. Inventing them is not an option
+    /// (CLAUDE.md §8). Remove the entry the moment they are recorded.
+    /// </para>
+    /// </summary>
+    private static readonly IReadOnlySet<string> NotReplayedInTheContainer =
+        new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "dbo.spc_Signup_timesheet_user.sql" };
+
     /// <summary>Sorted so the order a container is built in is reproducible.</summary>
     private static IEnumerable<string> OrderedSqlFiles(string root, string folder)
     {
@@ -319,35 +384,35 @@ public class ETimeSheetApiFactory : WebApplicationFactory<Program>
     }
 
     /// <summary>
-    /// Refuses to run if the host resolved any connection string other than the
-    /// throwaway container's.
+    /// The only way anything in this class reaches a <see cref="Context"/>:
+    /// it refuses to hand one over unless it points at the throwaway container.
     /// <para>
     /// The API project's <c>appsettings.json</c> is on the configuration chain
-    /// and names a developer's local SQL Server. The
-    /// in-memory source added above outranks it, but "outranks it" is an
-    /// ordering detail that a future change could quietly invert - and the
-    /// failure mode would be a test suite deleting rows from someone's real
-    /// database. This turns that silent risk into a loud, immediate stop.
+    /// and names the live PPMUAT server. The in-memory source added above
+    /// outranks it, but "outranks it" is an ordering detail that a future
+    /// change could quietly invert - and the failure mode would be the reset
+    /// deleting every row of a real database. So both the configured value and
+    /// the connection the context will <b>actually</b> open are checked by
+    /// <see cref="ThrowawayDatabaseGuard"/>, every time, before a single command.
+    /// </para>
+    /// <para>
+    /// Every test calls <see cref="ResetDatabaseAsync"/> before it runs, which
+    /// comes through here, so no test can reach an endpoint - and through it
+    /// the API's own context, which reads the same configured value - without
+    /// this check having passed first.
     /// </para>
     /// </summary>
-    private void AssertUsingThrowawayContainer(IServiceProvider serviceProvider)
+    private Context GuardedContext(IServiceProvider serviceProvider)
     {
-        var resolved = serviceProvider
-            .GetRequiredService<IOptions<DatabaseSettings>>()
-            .Value
-            .ConnectionString;
+        ThrowawayDatabaseGuard.Verify(
+            _connectionString,
+            serviceProvider.GetRequiredService<IOptions<DatabaseSettings>>().Value.ConnectionString);
 
-        if (string.Equals(resolved, _connectionString, StringComparison.Ordinal))
-        {
-            return;
-        }
+        var dbContext = serviceProvider.GetRequiredService<Context>();
 
-        throw new InvalidOperationException(
-            "Refusing to run the integration tests: the host resolved a connection string " +
-            "that is not the disposable test container's. Integration tests must never run " +
-            "against a developer, shared or deployed database. Check that " +
-            "ETimeSheetApiFactory still injects Database:ConnectionString and that nothing " +
-            "later in the configuration chain overrides it.");
+        ThrowawayDatabaseGuard.Verify(_connectionString, dbContext.Database.GetConnectionString());
+
+        return dbContext;
     }
 
     /// <summary>
@@ -357,7 +422,7 @@ public class ETimeSheetApiFactory : WebApplicationFactory<Program>
     public async Task ResetDatabaseAsync()
     {
         await using var scope = Services.CreateAsyncScope();
-        var dbContext = scope.ServiceProvider.GetRequiredService<Context>();
+        var dbContext = GuardedContext(scope.ServiceProvider);
 
         await dbContext.Database.ExecuteSqlRawAsync(BuildResetScript(dbContext));
     }
@@ -366,7 +431,7 @@ public class ETimeSheetApiFactory : WebApplicationFactory<Program>
     public async Task<IReadOnlyList<TimeLog>> SeedAsync(params TimeLog[] timeLogs)
     {
         await using var scope = Services.CreateAsyncScope();
-        var dbContext = scope.ServiceProvider.GetRequiredService<Context>();
+        var dbContext = GuardedContext(scope.ServiceProvider);
 
         foreach (var timeLog in timeLogs)
         {
@@ -404,7 +469,7 @@ public class ETimeSheetApiFactory : WebApplicationFactory<Program>
     public async Task SeedEmployeesAsync(params EmployeeListTestData.SignupRow[] employees)
     {
         await using var scope = Services.CreateAsyncScope();
-        var dbContext = scope.ServiceProvider.GetRequiredService<Context>();
+        var dbContext = GuardedContext(scope.ServiceProvider);
 
         foreach (var employee in employees)
         {
@@ -437,7 +502,7 @@ public class ETimeSheetApiFactory : WebApplicationFactory<Program>
     public async Task<DateTime> CurrentWeekStartAsync()
     {
         await using var scope = Services.CreateAsyncScope();
-        var dbContext = scope.ServiceProvider.GetRequiredService<Context>();
+        var dbContext = GuardedContext(scope.ServiceProvider);
 
         var connection = dbContext.Database.GetDbConnection();
 
@@ -463,7 +528,7 @@ public class ETimeSheetApiFactory : WebApplicationFactory<Program>
         params TimesheetMasterSetup[] setups)
     {
         await using var scope = Services.CreateAsyncScope();
-        var dbContext = scope.ServiceProvider.GetRequiredService<Context>();
+        var dbContext = GuardedContext(scope.ServiceProvider);
 
         foreach (var setup in setups)
         {
@@ -489,7 +554,7 @@ public class ETimeSheetApiFactory : WebApplicationFactory<Program>
     public async Task SoftDeleteAsync(int timeLogId)
     {
         await using var scope = Services.CreateAsyncScope();
-        var dbContext = scope.ServiceProvider.GetRequiredService<Context>();
+        var dbContext = GuardedContext(scope.ServiceProvider);
 
         var timeLog = await dbContext.TimeLog
             .IgnoreQueryFilters()
@@ -518,7 +583,7 @@ public class ETimeSheetApiFactory : WebApplicationFactory<Program>
     public async Task SeedClientsAsync(params TimesheetClientSetup[] clients)
     {
         await using var scope = Services.CreateAsyncScope();
-        var dbContext = scope.ServiceProvider.GetRequiredService<Context>();
+        var dbContext = GuardedContext(scope.ServiceProvider);
 
         foreach (var client in clients)
         {
@@ -526,11 +591,11 @@ public class ETimeSheetApiFactory : WebApplicationFactory<Program>
                 SET IDENTITY_INSERT dbo.TimesheetClientSetup ON;
                 INSERT INTO dbo.TimesheetClientSetup
                     (ClientID, ClientCode, Clientname, BillingEmail, PhoneNumber,
-                     payment_terms_days, Currencycode, CountryID, IsDeleted, DeleteDate)
+                     payment_terms_days, Currencycode, CountryID, IsDeleted, DeleteDate, OrganizationID)
                 VALUES
                     ({client.ClientId}, {client.ClientCode}, {client.ClientName}, {client.BillingEmail},
                      {client.PhoneNumber}, {client.PaymentTermsDays}, {client.CurrencyCode},
-                     {client.CountryId}, {client.IsDeleted}, {client.DeleteDate});
+                     {client.CountryId}, {client.IsDeleted}, {client.DeleteDate}, {client.OrganizationId});
                 SET IDENTITY_INSERT dbo.TimesheetClientSetup OFF;");
         }
     }
@@ -542,7 +607,7 @@ public class ETimeSheetApiFactory : WebApplicationFactory<Program>
     public async Task<TimesheetClientSetup?> FindClientAsync(int clientId)
     {
         await using var scope = Services.CreateAsyncScope();
-        var dbContext = scope.ServiceProvider.GetRequiredService<Context>();
+        var dbContext = GuardedContext(scope.ServiceProvider);
 
         return await dbContext.TimesheetClientSetup
             .AsNoTracking()

@@ -484,4 +484,152 @@ public interface ITimesheetProjectRepository
         int userId,
         int organizationId,
         CancellationToken cancellationToken = default);
+
+    // =====================================================================
+    //  PROJECT TIME LOG
+    // =====================================================================
+
+    /// <summary>
+    /// Returns live project time log entries, filtered by any combination of
+    /// user, project and sheet code, and optionally to a <c>LogDate</c> range.
+    /// Ordered by <c>LogDate</c>, then <c>StartTime</c>, then id.
+    /// <para>
+    /// Composed in LINQ rather than read through a stored procedure: this
+    /// module has none, so the endpoint works as soon as the table exists.
+    /// </para>
+    /// </summary>
+    Task<IReadOnlyList<TimesheetProjectTimeLogResponse>> GetProjectTimeLogListAsync(
+        int? userId,
+        int? projectId,
+        string? sheetSubmissionCode,
+        DateTime? fromDate,
+        DateTime? toDate,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns one live entry, <b>tracked</b> for an edit or a soft delete, or
+    /// <see langword="null"/> when it does not exist or is deleted already.
+    /// </summary>
+    Task<TimesheetProjectTimeLog?> GetProjectTimeLogForUpdateAsync(
+        int timesheetProjectTimeLogId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Adds an entry and returns it with the id the database assigned.</summary>
+    Task<TimesheetProjectTimeLog> AddProjectTimeLogAsync(
+        TimesheetProjectTimeLog entry,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Saves a tracked entry - the edit and the soft delete both use this.</summary>
+    Task UpdateProjectTimeLogAsync(
+        TimesheetProjectTimeLog entry,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Whether the user has a live assignment to the project in
+    /// <c>dbo.Timesheet_Users_Project_setup</c>. The time log table names the
+    /// user and the project directly, with no foreign key behind either, so
+    /// this is the only thing standing between an entry and a pair that was
+    /// never assigned.
+    /// </summary>
+    Task<bool> UserProjectAssignmentExistsAsync(
+        int userId,
+        int projectId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Whether a live sheet carrying this code has been submitted and not
+    /// rejected - in which case its entries may no longer be changed. A
+    /// REJECTED sheet does not lock its entries: that is how a user corrects
+    /// them and submits again.
+    /// </summary>
+    Task<bool> SheetIsSubmittedAsync(
+        string sheetSubmissionCode,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The codes, among those given, whose sheet is submitted and not
+    /// rejected. One round trip for a whole list, rather than one query per
+    /// row.
+    /// </summary>
+    Task<IReadOnlyCollection<string>> GetSubmittedSheetCodesAsync(
+        IReadOnlyCollection<string> sheetSubmissionCodes,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The code of the user's <b>open</b> sheet - the one their entries are
+    /// still accumulating on - or <see langword="null"/> when they have none
+    /// and the next entry starts a new sheet.
+    /// <para>
+    /// A sheet is open until it is submitted. A REJECTED sheet is open again,
+    /// so corrections go back onto it rather than onto a new one.
+    /// </para>
+    /// <para>
+    /// Deleted entries are included: a deleted entry still owns its code, and
+    /// a sheet whose entries were all deleted is still the user's current one.
+    /// </para>
+    /// </summary>
+    Task<string?> GetOpenSheetCodeForUserAsync(
+        int userId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Every distinct sheet code the user has ever had, deleted entries
+    /// included, so a new code is never one they have used before. Small by
+    /// construction: one per submission period.
+    /// <para>
+    /// Submissions are counted too, not only time log entries: an EMPTY sheet
+    /// has no entries at all, so without them its code would be handed out a
+    /// second time.
+    /// </para>
+    /// </summary>
+    Task<IReadOnlyCollection<string>> GetSheetCodesForUserAsync(
+        int userId,
+        CancellationToken cancellationToken = default);
+
+    // =====================================================================
+    //  PROJECT SHEET SUBMISSION
+    // =====================================================================
+
+    /// <summary>
+    /// The live submission for a sheet code, whatever its status, or
+    /// <see langword="null"/> when the sheet has never been handed in.
+    /// <b>Tracked</b>: a rejected sheet is revived through this.
+    /// </summary>
+    Task<TimesheetProjectSubmission?> GetSubmissionByCodeForUpdateAsync(
+        string sheetSubmissionCode,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// One live submission by its id, <b>tracked</b> for a review or a soft
+    /// delete, or <see langword="null"/> when it does not exist or is deleted.
+    /// </summary>
+    Task<TimesheetProjectSubmission?> GetSubmissionForUpdateAsync(
+        int timesheetProjectSubmissionId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Adds a submission and returns it with the id the database assigned.</summary>
+    Task<TimesheetProjectSubmission> AddSubmissionAsync(
+        TimesheetProjectSubmission submission,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Saves a tracked submission - the review and the soft delete both use this.</summary>
+    Task UpdateSubmissionAsync(
+        TimesheetProjectSubmission submission,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Appends one row to the audit trail. Never updated, never deleted - a
+    /// trail that can be rewritten is not a trail.
+    /// </summary>
+    Task AddSubmissionAuditAsync(
+        TimesheetProjectSubmissionAuditLog audit,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The live entries on one sheet, with the user and project named, for
+    /// totalling it and for showing it back. Ordered as the time log list is.
+    /// </summary>
+    Task<IReadOnlyList<TimesheetProjectTimeLogResponse>> GetEntriesForSheetAsync(
+        string sheetSubmissionCode,
+        CancellationToken cancellationToken = default);
 }

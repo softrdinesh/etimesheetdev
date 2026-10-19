@@ -5,6 +5,7 @@ using ETimeSheet.Application.Common.Mapping;
 using ETimeSheet.Application.Interfaces.Repositories;
 using ETimeSheet.Application.Interfaces.Services;
 using ETimeSheet.Application.Models;
+using ETimeSheet.Application.Models.Entities;
 using ETimeSheet.Application.Services.Interfaces;
 using ETimeSheet.Shared.Configuration;
 using ETimeSheet.Shared.Exceptions;
@@ -61,6 +62,31 @@ public class TimesheetProjectService : ITimesheetProjectService
     /// this, so a larger cap could never bind.
     /// </summary>
     private const int MaxLogHoursPerDayMaximum = 24;
+
+    /// <summary><c>dbo.TimesheetProjectSubmission.RejectionReason</c> is <c>nvarchar(500)</c>.</summary>
+    private const int RejectionReasonMaximumLength = 500;
+
+    /// <summary>
+    /// What every generated project sheet code starts with. The user's id is
+    /// part of the code on purpose - see
+    /// <see cref="NextSheetSubmissionCode"/>.
+    /// </summary>
+    private const string SheetSubmissionCodePrefix = "PSH";
+
+    /// <summary>
+    /// How many digits the sequence starts with, which is what makes a user's
+    /// first sheet <c>PSH-58-0001</c> rather than <c>PSH-58-1</c>. It is a
+    /// minimum, not a limit: a user past 9999 sheets gets a longer number, and
+    /// <c>PSH-2147483647-10000</c> still fits the column's 20 characters.
+    /// </summary>
+    private const int SheetSubmissionCodeInitialDigits = 4;
+
+    /// <summary>The values <c>dbo.TimesheetProjectTimeLog.Status</c> accepts.</summary>
+    private static readonly IReadOnlySet<int> TimeLogStatuses = new HashSet<int>
+    {
+        Constants.TimeLog.Status.Save,
+        Constants.TimeLog.Status.Draft,
+    };
 
     /// <summary>The values <c>dbo.TimesheetProject.SubmissionFrequency</c> accepts.</summary>
     private static readonly IReadOnlySet<int> SubmissionFrequencies = new HashSet<int>
@@ -1868,4 +1894,877 @@ public class TimesheetProjectService : ITimesheetProjectService
             assignment.AssignmentId,
             assignment.UserId);
     }
+
+    // =====================================================================
+    //  PROJECT TIME LOG
+    // =====================================================================
+
+    public async Task<IReadOnlyList<TimesheetProjectTimeLogResponse>> GetProjectTimeLogListAsync(
+        int? userId,
+        int? projectId,
+        string? sheetSubmissionCode,
+        DateTime? fromDate,
+        DateTime? toDate,
+        CancellationToken cancellationToken = default)
+    {
+        var code = string.IsNullOrWhiteSpace(sheetSubmissionCode) ? null : sheetSubmissionCode.Trim();
+        var failures = new Dictionary<string, string[]>();
+
+        if (userId < 0)
+        {
+            failures["userID"] = new[] { "userID must be greater than 0, or left out." };
+        }
+
+        if (projectId < 0)
+        {
+            failures["projectID"] = new[] { "projectID must be greater than 0, or left out." };
+        }
+
+        // 0 means "not filtered", the same as leaving it out.
+        var userFilter = userId is > 0 ? userId : null;
+        var projectFilter = projectId is > 0 ? projectId : null;
+
+        // The whole table is never returned: without a filter this would hand
+        // every organisation's time log to any caller, and authentication is
+        // off.
+        if (failures.Count == 0 && userFilter is null && projectFilter is null && code is null)
+        {
+            failures["userID"] = new[] { "userID, projectID or sheetSubmissionCode is required." };
+        }
+
+        if (fromDate is { } from && toDate is { } to && to < from)
+        {
+            failures["toDate"] = new[] { "toDate must not be before fromDate." };
+        }
+
+        if (failures.Count > 0)
+        {
+            throw new ValidationException(failures);
+        }
+
+        // Dates only: the column is a date, so any time part sent would
+        // otherwise exclude the whole of toDate.
+        var entries = await _timesheetProjectRepository.GetProjectTimeLogListAsync(
+            userFilter,
+            projectFilter,
+            code,
+            fromDate?.Date,
+            toDate?.Date,
+            cancellationToken);
+
+        if (entries.Count == 0)
+        {
+            return entries;
+        }
+
+        // One query for every code on the page, rather than one per row.
+        var submitted = await _timesheetProjectRepository.GetSubmittedSheetCodesAsync(
+            entries.Select(entry => entry.SheetSubmissionCode).Distinct().ToArray(),
+            cancellationToken);
+
+        foreach (var entry in entries)
+        {
+            entry.StatusName = entry.Status.ToString();
+            entry.IsSubmitted = submitted.Contains(entry.SheetSubmissionCode);
+        }
+
+        return entries;
+    }
+
+    public async Task<TimesheetProjectTimeLogResponse> SaveProjectTimeLogAsync(
+        TimesheetProjectTimeLogSaveRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var description = string.IsNullOrWhiteSpace(request.Description) ? null : request.Description.Trim();
+        var failures = new Dictionary<string, string[]>();
+
+        if (request.TimesheetProjectTimeLogId < 0)
+        {
+            failures[nameof(TimesheetProjectTimeLogSaveRequest.TimesheetProjectTimeLogId)] = new[]
+            {
+                "TimesheetProjectTimeLogId must be 0 (or left out) to log a new entry, or the id of the entry to edit."
+            };
+        }
+
+        if (request.UserId <= 0)
+        {
+            failures[nameof(TimesheetProjectTimeLogSaveRequest.UserId)] = new[]
+            {
+                "UserId is required and must be greater than 0."
+            };
+        }
+
+        if (request.ProjectId <= 0)
+        {
+            failures[nameof(TimesheetProjectTimeLogSaveRequest.ProjectId)] = new[]
+            {
+                "ProjectId is required and must be greater than 0."
+            };
+        }
+
+        if (request.LogDate is null)
+        {
+            failures[nameof(TimesheetProjectTimeLogSaveRequest.LogDate)] = new[] { "LogDate is required." };
+        }
+
+        // Times arrive as hh:mm:ss strings and are read by the one parser every
+        // endpoint uses. TryParse rather than TimeOfDay.Parse because this
+        // module reports every failing field together, and Parse throws on the
+        // first - the message is the shared one either way.
+        var startTime = ReadTimeOfDay(
+            failures,
+            request.StartTime,
+            nameof(TimesheetProjectTimeLogSaveRequest.StartTime));
+
+        var endTime = ReadTimeOfDay(
+            failures,
+            request.EndTime,
+            nameof(TimesheetProjectTimeLogSaveRequest.EndTime));
+
+        // An entry that starts and ends at the same moment has no duration to
+        // work out, so it is a mistake rather than a zero-length block.
+        if (startTime is { } from && endTime is { } to && from == to)
+        {
+            failures[nameof(TimesheetProjectTimeLogSaveRequest.EndTime)] = new[]
+            {
+                "EndTime must not be the same as StartTime: an entry has to cover some time."
+            };
+        }
+
+        if (request.Status is not { } status)
+        {
+            failures[nameof(TimesheetProjectTimeLogSaveRequest.Status)] = new[]
+            {
+                "Status is required: 1 (Save) or 2 (Draft)."
+            };
+        }
+        else if (!TimeLogStatuses.Contains((int)status))
+        {
+            failures[nameof(TimesheetProjectTimeLogSaveRequest.Status)] = new[]
+            {
+                "Status must be 1 (Save) or 2 (Draft)."
+            };
+        }
+
+        if (request.AddedBy <= 0)
+        {
+            failures[nameof(TimesheetProjectTimeLogSaveRequest.AddedBy)] = new[]
+            {
+                "AddedBy is required: the entry records who logged or last changed it."
+            };
+        }
+
+        if (failures.Count > 0)
+        {
+            throw new ValidationException(failures);
+        }
+
+        // Worked out, never sent: the stored figure and the clock times cannot
+        // disagree if only one of them is an input.
+        var durationMinutes = MinutesBetween(startTime!.Value, endTime!.Value);
+
+        // Then the database. No foreign key protects UserID or ProjectID, so
+        // without this an entry could name a pair that was never assigned.
+        if (!await _timesheetProjectRepository.UserProjectAssignmentExistsAsync(
+                request.UserId,
+                request.ProjectId,
+                cancellationToken))
+        {
+            throw new ValidationException(
+                nameof(TimesheetProjectTimeLogSaveRequest.UserId),
+                $"User '{request.UserId}' has no live assignment to project '{request.ProjectId}'.");
+        }
+
+        // Null and 0 both mean "add" - a negative id was refused above.
+        var timesheetProjectTimeLogId = request.TimesheetProjectTimeLogId is > 0
+            ? request.TimesheetProjectTimeLogId
+            : null;
+
+        var now = _dateTimeProvider.UtcNow;
+        TimesheetProjectTimeLog entry;
+
+        if (timesheetProjectTimeLogId is { } editedId)
+        {
+            entry = await _timesheetProjectRepository.GetProjectTimeLogForUpdateAsync(editedId, cancellationToken)
+                ?? throw NotFoundException.For("Project time log entry", editedId);
+
+            // An entry never moves between sheets: it stays on the one it was
+            // logged against, so editing it cannot change which submission it
+            // belongs to. All that is checked is that that sheet is still open.
+            await RequireSheetIsOpenAsync(entry.SheetSubmissionCode, cancellationToken);
+
+            // Everything else is overwritten as sent - a field left out is
+            // saved as null, not left as it was.
+            entry.UserId = request.UserId;
+            entry.ProjectId = request.ProjectId;
+            entry.LogDate = request.LogDate!.Value.Date;
+            entry.StartTime = startTime;
+            entry.EndTime = endTime;
+            entry.DurationMinutes = durationMinutes;
+            entry.Description = description;
+            entry.Status = (int)request.Status!.Value;
+            entry.UpdateDate = now;
+            entry.UpdatedBy = request.AddedBy;
+
+            await _timesheetProjectRepository.UpdateProjectTimeLogAsync(entry, cancellationToken);
+        }
+        else
+        {
+            entry = new TimesheetProjectTimeLog
+            {
+                UserId = request.UserId,
+                ProjectId = request.ProjectId,
+                SheetSubmissionCode = await OpenSheetCodeForUserAsync(request.UserId, cancellationToken),
+                LogDate = request.LogDate!.Value.Date,
+                StartTime = startTime,
+                EndTime = endTime,
+                DurationMinutes = durationMinutes,
+                Description = description,
+                Status = (int)request.Status!.Value,
+
+                // Both columns are NOT NULL with no default, so the insert has
+                // to say so itself.
+                IsDelete = 0,
+                CreateDate = now,
+                CreatedBy = request.AddedBy,
+            };
+
+            entry = await _timesheetProjectRepository.AddProjectTimeLogAsync(entry, cancellationToken);
+        }
+
+        _logger.LogInformation(
+            "Project time log entry {TimesheetProjectTimeLogId} {Action} for user {UserId} on project {ProjectId}, sheet {SheetSubmissionCode}, by user {PerformedBy}.",
+            entry.TimesheetProjectTimeLogId,
+            timesheetProjectTimeLogId is null ? "logged" : "edited",
+            entry.UserId,
+            entry.ProjectId,
+            entry.SheetSubmissionCode,
+            request.AddedBy);
+
+        // Read back through the list query so the saved entry comes out in the
+        // same shape, names included, as every other read of it.
+        var saved = await GetProjectTimeLogListAsync(
+            null,
+            null,
+            entry.SheetSubmissionCode,
+            null,
+            null,
+            cancellationToken);
+
+        return saved.FirstOrDefault(row => row.TimesheetProjectTimeLogId == entry.TimesheetProjectTimeLogId)
+            ?? throw new InvalidOperationException(
+                "The project time log entry was saved but cannot be read back.");
+    }
+
+    public async Task DeleteProjectTimeLogAsync(
+        TimesheetProjectTimeLogDeleteRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var failures = new Dictionary<string, string[]>();
+
+        if (request.TimesheetProjectTimeLogId <= 0)
+        {
+            failures[nameof(TimesheetProjectTimeLogDeleteRequest.TimesheetProjectTimeLogId)] = new[]
+            {
+                "TimesheetProjectTimeLogId is required and must be greater than 0."
+            };
+        }
+
+        if (request.DeletedBy <= 0)
+        {
+            failures[nameof(TimesheetProjectTimeLogDeleteRequest.DeletedBy)] = new[]
+            {
+                "DeletedBy is required: a soft delete records who performed it."
+            };
+        }
+
+        if (failures.Count > 0)
+        {
+            throw new ValidationException(failures);
+        }
+
+        // Deleted already is not found, so removing twice is a 404 rather than
+        // a silent success.
+        var entry = await _timesheetProjectRepository.GetProjectTimeLogForUpdateAsync(
+                request.TimesheetProjectTimeLogId,
+                cancellationToken)
+            ?? throw NotFoundException.For("Project time log entry", request.TimesheetProjectTimeLogId);
+
+        await RequireSheetIsOpenAsync(entry.SheetSubmissionCode, cancellationToken);
+
+        entry.IsDelete = 1;
+        entry.DeletedDate = _dateTimeProvider.UtcNow;
+        entry.DeletedBy = request.DeletedBy;
+
+        await _timesheetProjectRepository.UpdateProjectTimeLogAsync(entry, cancellationToken);
+
+        _logger.LogInformation(
+            "Project time log entry {TimesheetProjectTimeLogId} on sheet {SheetSubmissionCode} soft-deleted by user {DeletedBy}.",
+            entry.TimesheetProjectTimeLogId,
+            entry.SheetSubmissionCode,
+            request.DeletedBy);
+    }
+
+    // =====================================================================
+    //  PROJECT SHEET SUBMISSION
+    // =====================================================================
+
+    public async Task<ProjectTimesheetCurrentResponse> GetCurrentProjectTimesheetAsync(
+        int userId,
+        CancellationToken cancellationToken = default)
+    {
+        if (userId <= 0)
+        {
+            throw new ValidationException("userID", "userID is required and must be greater than 0.");
+        }
+
+        var code = await CurrentSheetCodeForUserAsync(userId, cancellationToken);
+
+        // The sheet is the user's, so another user's entries on the same code
+        // are not part of it. Nothing in the table prevents that, so it is
+        // filtered rather than assumed.
+        var entries = (await _timesheetProjectRepository.GetEntriesForSheetAsync(code, cancellationToken))
+            .Where(entry => entry.UserId == userId)
+            .ToList();
+
+        var submission = await _timesheetProjectRepository.GetSubmissionByCodeForUpdateAsync(code, cancellationToken);
+        var totalMinutes = entries.Sum(entry => entry.DurationMinutes);
+        var awaitingReview = submission is not null
+                             && submission.StatusId != Constants.TimesheetSubmission.Status.Rejected;
+
+        foreach (var entry in entries)
+        {
+            entry.StatusName = entry.Status.ToString();
+            entry.IsSubmitted = awaitingReview;
+        }
+
+        return new ProjectTimesheetCurrentResponse
+        {
+            UserId = userId,
+            SheetSubmissionCode = code,
+            PeriodStart = entries.Count == 0 ? null : entries.Min(entry => entry.LogDate),
+            PeriodEnd = entries.Count == 0 ? null : entries.Max(entry => entry.LogDate),
+            TotalMinutes = totalMinutes,
+            TotalHours = ToHours(totalMinutes),
+            EntryCount = entries.Count,
+
+            // An empty sheet is submittable on purpose: handing in a period
+            // with nothing logged is a statement, not a mistake.
+            CanSubmit = !awaitingReview,
+
+            Submission = submission is null ? null : ToResponse(submission),
+            Projects = ProjectLinesOf(entries),
+            Entries = entries,
+        };
+    }
+
+    public async Task<ProjectTimesheetSubmissionResponse> SubmitProjectTimesheetAsync(
+        ProjectTimesheetSubmitRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var failures = new Dictionary<string, string[]>();
+
+        if (request.UserId <= 0)
+        {
+            failures[nameof(ProjectTimesheetSubmitRequest.UserId)] = new[]
+            {
+                "UserId is required and must be greater than 0."
+            };
+        }
+
+        if (request.SubmittedBy <= 0)
+        {
+            failures[nameof(ProjectTimesheetSubmitRequest.SubmittedBy)] = new[]
+            {
+                "SubmittedBy is required: the sheet records who handed it in."
+            };
+        }
+
+        if (failures.Count > 0)
+        {
+            throw new ValidationException(failures);
+        }
+
+        // Deliberately NOT OpenSheetCodeForUserAsync: that allocates a fresh
+        // code when there is no open sheet, which is right for logging and
+        // wrong here. Submitting with nothing open would open a brand new
+        // sheet and immediately hand it in empty - so a double-clicked Submit
+        // would leave a junk submission behind every time.
+        var code = await _timesheetProjectRepository.GetOpenSheetCodeForUserAsync(request.UserId, cancellationToken);
+
+        if (code is null)
+        {
+            var spentCodes = await _timesheetProjectRepository.GetSheetCodesForUserAsync(
+                request.UserId,
+                cancellationToken);
+
+            // Nothing open and nothing ever logged is a user submitting their
+            // very first sheet, empty. Nothing open but sheets behind them
+            // means the last one is already in and nothing has been logged
+            // since - there is nothing to submit.
+            if (spentCodes.Count > 0)
+            {
+                throw new ConflictException(
+                    $"User '{request.UserId}' has nothing to submit: their last sheet has already been handed in, " +
+                    "and no time has been logged since.");
+            }
+
+            code = NextSheetSubmissionCode(request.UserId, spentCodes);
+        }
+
+        var entries = (await _timesheetProjectRepository.GetEntriesForSheetAsync(code, cancellationToken))
+            .Where(entry => entry.UserId == request.UserId)
+            .ToList();
+
+        // dbo.TimesheetProjectSubmission has no UserID column: whose sheet it
+        // is can only be read back from its entries, or from SubmittedBy. An
+        // EMPTY sheet has no entries, so if somebody else submits it the row
+        // records the wrong person and nothing can recover the right one.
+        // Refused rather than stored wrong.
+        if (entries.Count == 0 && request.SubmittedBy != request.UserId)
+        {
+            throw new ValidationException(
+                nameof(ProjectTimesheetSubmitRequest.SubmittedBy),
+                $"An empty sheet can only be submitted by the user it belongs to: the submission row has no column " +
+                $"for whose sheet it is, so submitting user '{request.UserId}' empty sheet as user " +
+                $"'{request.SubmittedBy}' would leave nothing to tie it back to them.");
+        }
+
+        var totalMinutes = entries.Sum(entry => entry.DurationMinutes);
+        var now = _dateTimeProvider.UtcNow;
+
+        var submission = await _timesheetProjectRepository.GetSubmissionByCodeForUpdateAsync(code, cancellationToken);
+
+        if (submission is not null
+            && submission.StatusId != Constants.TimesheetSubmission.Status.Rejected)
+        {
+            throw new ConflictException(
+                $"Sheet '{code}' has already been submitted and is awaiting review.");
+        }
+
+        if (submission is null)
+        {
+            submission = await _timesheetProjectRepository.AddSubmissionAsync(
+                new TimesheetProjectSubmission
+                {
+                    SheetSubmissionCode = code,
+                    TotalMinutes = totalMinutes,
+                    TotalHours = ToHours(totalMinutes),
+                    StatusId = Constants.TimesheetSubmission.Status.Submitted,
+                    SubmittedBy = request.SubmittedBy,
+                    SubmittedDate = now,
+                    IsDelete = 0,
+                },
+                cancellationToken);
+        }
+        else
+        {
+            // A rejected sheet is resubmitted in place rather than as a second
+            // row, so one code never means two sheets. The rejection is not
+            // lost: it is in the audit trail, which is append-only.
+            submission.TotalMinutes = totalMinutes;
+            submission.TotalHours = ToHours(totalMinutes);
+            submission.StatusId = Constants.TimesheetSubmission.Status.Submitted;
+            submission.SubmittedBy = request.SubmittedBy;
+            submission.SubmittedDate = now;
+            submission.RejectedBy = null;
+            submission.RejectedDate = null;
+            submission.RejectionReason = null;
+
+            await _timesheetProjectRepository.UpdateSubmissionAsync(submission, cancellationToken);
+        }
+
+        await _timesheetProjectRepository.AddSubmissionAuditAsync(
+            new TimesheetProjectSubmissionAuditLog
+            {
+                TimesheetProjectSubmissionId = submission.TimesheetProjectSubmissionId,
+                StatusId = Constants.TimesheetSubmission.Status.Submitted,
+                Remark = entries.Count == 0 ? "Submitted with no time logged." : null,
+                CreatedBy = request.SubmittedBy,
+                CreateDate = now,
+            },
+            cancellationToken);
+
+        _logger.LogInformation(
+            "Project sheet {SheetSubmissionCode} ({TimesheetProjectSubmissionId}) submitted for user {UserId} by user {SubmittedBy}: {EntryCount} entries, {TotalMinutes} minutes.",
+            code,
+            submission.TimesheetProjectSubmissionId,
+            request.UserId,
+            request.SubmittedBy,
+            entries.Count,
+            totalMinutes);
+
+        return ToResponse(submission);
+    }
+
+    public async Task<ProjectTimesheetSubmissionResponse> UpdateProjectTimesheetStatusAsync(
+        ProjectTimesheetStatusUpdateRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var reason = string.IsNullOrWhiteSpace(request.RejectionReason) ? null : request.RejectionReason.Trim();
+        var failures = new Dictionary<string, string[]>();
+
+        if (request.TimesheetProjectSubmissionId <= 0)
+        {
+            failures[nameof(ProjectTimesheetStatusUpdateRequest.TimesheetProjectSubmissionId)] = new[]
+            {
+                "TimesheetProjectSubmissionId is required and must be greater than 0."
+            };
+        }
+
+        // 1 (Submitted) is reached by submitting, never by reviewing.
+        if (request.StatusId != Constants.TimesheetSubmission.Status.Approved
+            && request.StatusId != Constants.TimesheetSubmission.Status.Rejected)
+        {
+            failures[nameof(ProjectTimesheetStatusUpdateRequest.StatusId)] = new[]
+            {
+                "StatusId must be 2 (Approved) or 3 (Rejected): a sheet is moved to 1 (Submitted) by submitting it."
+            };
+        }
+
+        // A rejection a user cannot act on is a rejection that wastes their
+        // time, so the reason is required rather than merely allowed.
+        if (request.StatusId == Constants.TimesheetSubmission.Status.Rejected && reason is null)
+        {
+            failures[nameof(ProjectTimesheetStatusUpdateRequest.RejectionReason)] = new[]
+            {
+                "RejectionReason is required when rejecting a sheet: the user has to know what to correct."
+            };
+        }
+        else if (reason?.Length > RejectionReasonMaximumLength)
+        {
+            failures[nameof(ProjectTimesheetStatusUpdateRequest.RejectionReason)] = new[]
+            {
+                $"RejectionReason must be {RejectionReasonMaximumLength} characters or fewer."
+            };
+        }
+
+        if (request.ReviewedBy <= 0)
+        {
+            failures[nameof(ProjectTimesheetStatusUpdateRequest.ReviewedBy)] = new[]
+            {
+                "ReviewedBy is required: the sheet records who reviewed it."
+            };
+        }
+
+        if (failures.Count > 0)
+        {
+            throw new ValidationException(failures);
+        }
+
+        var submission = await _timesheetProjectRepository.GetSubmissionForUpdateAsync(
+                request.TimesheetProjectSubmissionId,
+                cancellationToken)
+            ?? throw NotFoundException.For("Project sheet", request.TimesheetProjectSubmissionId);
+
+        var now = _dateTimeProvider.UtcNow;
+
+        // The stamps describe the CURRENT status, so the pair that no longer
+        // applies is cleared as the new one is written. The history is in the
+        // audit trail.
+        if (request.StatusId == Constants.TimesheetSubmission.Status.Approved)
+        {
+            submission.StatusId = Constants.TimesheetSubmission.Status.Approved;
+            submission.ApprovedBy = request.ReviewedBy;
+            submission.ApprovedDate = now;
+            submission.RejectedBy = null;
+            submission.RejectedDate = null;
+            submission.RejectionReason = null;
+        }
+        else
+        {
+            submission.StatusId = Constants.TimesheetSubmission.Status.Rejected;
+            submission.RejectedBy = request.ReviewedBy;
+            submission.RejectedDate = now;
+            submission.RejectionReason = reason;
+            submission.ApprovedBy = null;
+            submission.ApprovedDate = null;
+        }
+
+        await _timesheetProjectRepository.UpdateSubmissionAsync(submission, cancellationToken);
+
+        await _timesheetProjectRepository.AddSubmissionAuditAsync(
+            new TimesheetProjectSubmissionAuditLog
+            {
+                TimesheetProjectSubmissionId = submission.TimesheetProjectSubmissionId,
+                StatusId = request.StatusId,
+                Remark = reason,
+                CreatedBy = request.ReviewedBy,
+                CreateDate = now,
+            },
+            cancellationToken);
+
+        _logger.LogInformation(
+            "Project sheet {SheetSubmissionCode} ({TimesheetProjectSubmissionId}) moved to status {StatusId} by user {ReviewedBy}.",
+            submission.SheetSubmissionCode,
+            submission.TimesheetProjectSubmissionId,
+            request.StatusId,
+            request.ReviewedBy);
+
+        return ToResponse(submission);
+    }
+
+    public async Task DeleteProjectTimesheetAsync(
+        ProjectTimesheetDeleteRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var failures = new Dictionary<string, string[]>();
+
+        if (request.TimesheetProjectSubmissionId <= 0)
+        {
+            failures[nameof(ProjectTimesheetDeleteRequest.TimesheetProjectSubmissionId)] = new[]
+            {
+                "TimesheetProjectSubmissionId is required and must be greater than 0."
+            };
+        }
+
+        if (request.DeletedBy <= 0)
+        {
+            failures[nameof(ProjectTimesheetDeleteRequest.DeletedBy)] = new[]
+            {
+                "DeletedBy is required: a delete records who performed it."
+            };
+        }
+
+        if (failures.Count > 0)
+        {
+            throw new ValidationException(failures);
+        }
+
+        var submission = await _timesheetProjectRepository.GetSubmissionForUpdateAsync(
+                request.TimesheetProjectSubmissionId,
+                cancellationToken)
+            ?? throw NotFoundException.For("Project sheet", request.TimesheetProjectSubmissionId);
+
+        submission.IsDelete = 1;
+
+        await _timesheetProjectRepository.UpdateSubmissionAsync(submission, cancellationToken);
+
+        // Worth being loud about: the sheet was the only thing holding its
+        // entries shut, so removing it reopens them for editing and the user
+        // can submit the same code again.
+        _logger.LogWarning(
+            "Project sheet {SheetSubmissionCode} ({TimesheetProjectSubmissionId}) removed by user {DeletedBy}; its entries are editable again. The table has no DeletedBy column, so this log is the only record of who removed it.",
+            submission.SheetSubmissionCode,
+            submission.TimesheetProjectSubmissionId,
+            request.DeletedBy);
+    }
+
+    /// <summary>One line per project on a sheet, ordered by project name.</summary>
+    private static IReadOnlyList<ProjectTimesheetProjectLineResponse> ProjectLinesOf(
+        IReadOnlyList<TimesheetProjectTimeLogResponse> entries) =>
+        entries
+            .GroupBy(entry => new { entry.ProjectId, entry.ProjectCode, entry.ProjectName })
+            .Select(group =>
+            {
+                var minutes = group.Sum(entry => entry.DurationMinutes);
+
+                return new ProjectTimesheetProjectLineResponse
+                {
+                    ProjectId = group.Key.ProjectId,
+                    ProjectCode = group.Key.ProjectCode,
+                    ProjectName = group.Key.ProjectName,
+                    TotalMinutes = minutes,
+                    TotalHours = ToHours(minutes),
+                    EntryCount = group.Count(),
+                };
+            })
+            .OrderBy(line => line.ProjectName)
+            .ThenBy(line => line.ProjectId)
+            .ToList();
+
+    private static ProjectTimesheetSubmissionResponse ToResponse(TimesheetProjectSubmission submission) => new()
+    {
+        TimesheetProjectSubmissionId = submission.TimesheetProjectSubmissionId,
+        SheetSubmissionCode = submission.SheetSubmissionCode,
+        TotalMinutes = submission.TotalMinutes,
+        TotalHours = submission.TotalHours,
+        StatusId = submission.StatusId,
+        StatusName = SubmissionStatusName(submission.StatusId),
+        SubmittedBy = submission.SubmittedBy,
+        SubmittedDate = submission.SubmittedDate,
+        ApprovedBy = submission.ApprovedBy,
+        ApprovedDate = submission.ApprovedDate,
+        RejectedBy = submission.RejectedBy,
+        RejectedDate = submission.RejectedDate,
+        RejectionReason = submission.RejectionReason,
+    };
+
+    /// <summary>
+    /// Nothing in the table restricts <c>StatusID</c> to the three known
+    /// values, so an unrecognised one is reported as itself rather than
+    /// guessed at or thrown over.
+    /// </summary>
+    private static string SubmissionStatusName(int statusId) => statusId switch
+    {
+        Constants.TimesheetSubmission.Status.Submitted => "Submitted",
+        Constants.TimesheetSubmission.Status.Approved => "Approved",
+        Constants.TimesheetSubmission.Status.Rejected => "Rejected",
+        _ => statusId.ToString(CultureInfo.InvariantCulture),
+    };
+
+    /// <summary>
+    /// Minutes as hours to two places, rounded away from zero like SQL ROUND -
+    /// the same rounding <c>dbo.TimesheetSubmission.TotalHours</c> uses, so the
+    /// two modules report one number the same way.
+    /// </summary>
+    private static decimal ToHours(int minutes) =>
+        Math.Round(minutes / 60m, 2, MidpointRounding.AwayFromZero);
+
+    /// <summary>
+    /// The sheet a newly logged entry belongs to: the user's open sheet when
+    /// they have one, otherwise a fresh code.
+    /// <para>
+    /// This is the whole of the rule. One code covers every entry a user logs
+    /// between one submission and the next - across every project, and for
+    /// however long that is - and <b>submitting the sheet is what ends it</b>.
+    /// The next entry logged after a submission finds no open sheet and starts
+    /// a new code.
+    /// </para>
+    /// <para>
+    /// Note what does NOT end a sheet: a date. The project's
+    /// <c>SubmissionFrequency</c> says how often a sheet is EXPECTED to be
+    /// handed in, but nothing here rolls the code over when that long has
+    /// passed - so a user who never submits keeps one code indefinitely. It is
+    /// also why the per-project frequency does not have to be reconciled with
+    /// a per-user sheet to allocate a code.
+    /// </para>
+    /// </summary>
+    private async Task<string> OpenSheetCodeForUserAsync(int userId, CancellationToken cancellationToken) =>
+        await _timesheetProjectRepository.GetOpenSheetCodeForUserAsync(userId, cancellationToken)
+            ?? NextSheetSubmissionCode(
+                userId,
+                await _timesheetProjectRepository.GetSheetCodesForUserAsync(userId, cancellationToken));
+
+    /// <summary>
+    /// The sheet a REVIEW screen should show: the user's open sheet when they
+    /// have one, otherwise the last one they handed in, and only for a user
+    /// with no history at all the code their first sheet would take.
+    /// <para>
+    /// The fallback matters. Straight after a submission the user has no open
+    /// sheet, and allocating the next code here would show them a fresh empty
+    /// sheet that looks submittable - while
+    /// <see cref="SubmitProjectTimesheetAsync"/> would refuse it, because
+    /// nothing has been logged since. Showing the sheet they just handed in,
+    /// with its status, is both honest and what they want to see.
+    /// </para>
+    /// </summary>
+    private async Task<string> CurrentSheetCodeForUserAsync(int userId, CancellationToken cancellationToken)
+    {
+        var open = await _timesheetProjectRepository.GetOpenSheetCodeForUserAsync(userId, cancellationToken);
+
+        if (open is not null)
+        {
+            return open;
+        }
+
+        var spentCodes = await _timesheetProjectRepository.GetSheetCodesForUserAsync(userId, cancellationToken);
+
+        // Codes run PSH-{user}-0001, 0002, ... so the latest is the highest.
+        return HighestSequenceOf(userId, spentCodes) is { } highest
+            ? SheetSubmissionCodeFor(userId, highest)
+            : SheetSubmissionCodeFor(userId, 1);
+    }
+
+    /// <summary>
+    /// The user's next sheet code - <c>PSH-58-0001</c>, then
+    /// <c>PSH-58-0002</c>, and so on.
+    /// <para>
+    /// The sequence is <b>per user</b>, not global like
+    /// <c>dbo.TimeLog.SheetCode</c>'s, and that is what makes allocating one
+    /// safe without a unique index to fall back on. Two requests racing to
+    /// start the same user's first sheet both read the same highest code and
+    /// both write the same next one - so they land on the SAME sheet, which is
+    /// where they belonged anyway. Two different users cannot collide at all,
+    /// because their ids differ. The global sequence can do neither: there,
+    /// two racing allocations hand one code to two people.
+    /// </para>
+    /// </summary>
+    private static string NextSheetSubmissionCode(int userId, IReadOnlyCollection<string> existingCodes) =>
+        SheetSubmissionCodeFor(userId, (HighestSequenceOf(userId, existingCodes) ?? 0) + 1);
+
+    /// <summary>
+    /// The highest sequence number the user's codes have reached, or
+    /// <see langword="null"/> when they have none.
+    /// <para>
+    /// A code not of this shape is ignored rather than guessed at: one written
+    /// by hand, or by an older rule, must not stall the sequence.
+    /// </para>
+    /// </summary>
+    private static int? HighestSequenceOf(int userId, IReadOnlyCollection<string> existingCodes)
+    {
+        var prefix = $"{SheetSubmissionCodePrefix}-{userId}-";
+
+        var sequences = existingCodes
+            .Where(code => code.StartsWith(prefix, StringComparison.Ordinal))
+            .Select(code => int.TryParse(
+                code[prefix.Length..],
+                NumberStyles.None,
+                CultureInfo.InvariantCulture,
+                out var number)
+                ? number
+                : 0)
+            .ToArray();
+
+        return sequences.Length == 0 ? null : sequences.Max();
+    }
+
+    private static string SheetSubmissionCodeFor(int userId, int sequence) =>
+        $"{SheetSubmissionCodePrefix}-{userId}-" + sequence.ToString(
+            new string('0', SheetSubmissionCodeInitialDigits),
+            CultureInfo.InvariantCulture);
+
+    /// <summary>
+    /// Refuses the write when the sheet has been submitted and not rejected.
+    /// A REJECTED sheet leaves its entries open: that is how a user corrects
+    /// them and submits again.
+    /// </summary>
+    private async Task RequireSheetIsOpenAsync(string sheetSubmissionCode, CancellationToken cancellationToken)
+    {
+        if (await _timesheetProjectRepository.SheetIsSubmittedAsync(sheetSubmissionCode, cancellationToken))
+        {
+            throw new ConflictException(
+                $"Sheet '{sheetSubmissionCode}' has been submitted. Its entries cannot be changed until it is rejected.");
+        }
+    }
+
+    /// <summary>
+    /// Reads a required <c>hh:mm:ss</c> time, recording the shared message
+    /// rather than throwing, so one bad time does not hide the other failures
+    /// in the same payload.
+    /// </summary>
+    private static TimeSpan? ReadTimeOfDay(
+        Dictionary<string, string[]> failures,
+        string? value,
+        string field)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            failures[field] = new[] { TimeOfDay.RequiredMessage(field) };
+            return null;
+        }
+
+        if (TimeOfDay.TryParse(value, out var parsed))
+        {
+            return parsed;
+        }
+
+        failures[field] = new[] { TimeOfDay.MalformedMessage(field) };
+        return null;
+    }
+
+    /// <summary>
+    /// How long a block ran, from its clock times alone.
+    /// <para>
+    /// An end <b>before</b> the start is read as crossing midnight rather than
+    /// as a negative duration, so 22:00:00 to 02:00:00 is 240 minutes on the
+    /// day it started. The two times are never equal by the time this is
+    /// called, so the result is always between 1 and 1439 - an entry can never
+    /// be empty, nor longer than the day that holds it.
+    /// </para>
+    /// </summary>
+    private static int MinutesBetween(TimeSpan startTime, TimeSpan endTime) =>
+        (int)(endTime > startTime
+            ? (endTime - startTime).TotalMinutes
+            : (endTime - startTime + TimeSpan.FromDays(1)).TotalMinutes);
 }

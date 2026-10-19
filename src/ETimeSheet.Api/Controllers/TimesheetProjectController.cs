@@ -649,4 +649,264 @@ public class TimesheetProjectController : ControllerBase
     }
 
     #endregion
+
+    #region Project Time Log
+
+    /// <summary>
+    /// Returns the live project time log entries matching the filters, with
+    /// the user and project named.
+    /// <para>
+    /// Filter by user, by project, by sheet code, or any combination, and
+    /// narrow to a <c>LogDate</c> range with <c>fromDate</c> / <c>toDate</c>.
+    /// A filter left out or sent as <c>0</c> is not applied. <b>At least one
+    /// of <c>userID</c>, <c>projectID</c> and <c>sheetSubmissionCode</c> is
+    /// required</b> - the whole table is never returned. Deleted entries are
+    /// not included.
+    /// </para>
+    /// <para>
+    /// Read through EF Core, not a stored procedure: this module has none, so
+    /// it works as soon as the tables exist. Ordered by <c>logDate</c>, then
+    /// start time, then id.
+    /// </para>
+    /// </summary>
+    /// <param name="userID">Whose entries to list. Optional when another filter is sent.</param>
+    /// <param name="projectID">Which project's entries to list. Optional when another filter is sent.</param>
+    /// <param name="sheetSubmissionCode">Which sheet's entries to list. Optional when another filter is sent.</param>
+    /// <param name="fromDate">Earliest <c>logDate</c> to include. Optional; any time part is ignored.</param>
+    /// <param name="toDate">Latest <c>logDate</c> to include. Optional; any time part is ignored.</param>
+    /// <response code="200">The entries. None matching is an empty list, not a 404.</response>
+    /// <response code="400">No filter was sent, one is negative, or <c>toDate</c> is before <c>fromDate</c>.</response>
+    [HttpGet("get-project-time-log")]
+    [ProducesResponseType(typeof(ApiResponse<IReadOnlyList<TimesheetProjectTimeLogResponse>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> GetProjectTimeLog(
+        // Query string rather than route segments: every filter is optional on
+        // its own, and only the combination is required.
+        [FromQuery] int? userID,
+        [FromQuery] int? projectID,
+        [FromQuery] string? sheetSubmissionCode,
+        [FromQuery] DateTime? fromDate,
+        [FromQuery] DateTime? toDate,
+        CancellationToken cancellationToken)
+    {
+        var result = await _timesheetProjectService.GetProjectTimeLogListAsync(
+            userID,
+            projectID,
+            sheetSubmissionCode,
+            fromDate,
+            toDate,
+            cancellationToken);
+
+        return Ok(ApiResponse.Ok(result));
+    }
+
+    /// <summary>
+    /// Logs a block of time against a project, or edits one - <b>one endpoint
+    /// for both</b>.
+    /// <para>
+    /// Send <c>timesheetProjectTimeLogId</c> as <c>0</c> (or leave it out) to
+    /// log a new block. Send an existing entry's id to edit it. An edit
+    /// overwrites every field, so a field left out is saved as <c>null</c>
+    /// rather than left as it was - send the whole entry.
+    /// </para>
+    /// <para>
+    /// <b>The sheet is decided here, not sent.</b> A new entry joins the
+    /// user's open sheet - every entry they log between one submission and the
+    /// next shares one <c>sheetSubmissionCode</c>, across every project - and
+    /// starts a new sheet only when their last one has been submitted.
+    /// Submitting is what ends a sheet; no date does. An edit leaves the entry
+    /// on the sheet it is already on, so editing can never move time from one
+    /// submission to another.
+    /// </para>
+    /// <para>
+    /// Once a sheet is submitted its entries are frozen: editing or removing
+    /// one answers <b>409</b> until the sheet is rejected. Logging NEW time
+    /// after a submission is always fine - it simply starts the next sheet.
+    /// </para>
+    /// </summary>
+    /// <response code="200">The saved entry, with the <c>sheetSubmissionCode</c> it was filed under.</response>
+    /// <response code="400">The payload failed validation, or the user has no live assignment to the project - every failure is listed.</response>
+    /// <response code="404">An id was sent, but no live entry has it.</response>
+    /// <response code="409">The edited entry's sheet has been submitted and not rejected.</response>
+    [HttpPost("add-edit-project-time-log")]
+    [ProducesResponseType(typeof(ApiResponse<TimesheetProjectTimeLogResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> AddEditProjectTimeLog(
+        [FromBody] TimesheetProjectTimeLogSaveRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await _timesheetProjectService.SaveProjectTimeLogAsync(request, cancellationToken);
+        return Ok(ApiResponse.Ok(result, "Time log entry saved."));
+    }
+
+    /// <summary>
+    /// Soft-deletes a project time log entry. The row is kept, stamped with
+    /// <c>IsDelete</c> = 1, <c>DeletedDate</c> and <c>DeletedBy</c>; nothing
+    /// is physically deleted.
+    /// <para>
+    /// A POST rather than an HTTP DELETE, matching the other removes here:
+    /// every argument in this API travels in the payload.
+    /// </para>
+    /// </summary>
+    /// <response code="200">The entry was removed.</response>
+    /// <response code="400">A <c>timesheetProjectTimeLogId</c> or <c>deletedBy</c> that is not greater than zero.</response>
+    /// <response code="404">No live entry has that id; removing one twice is not a silent success.</response>
+    /// <response code="409">The entry's sheet has been submitted and not rejected.</response>
+    [HttpPost("remove-project-time-log")]
+    [ProducesResponseType(typeof(ApiResponse<object?>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> RemoveProjectTimeLog(
+        [FromBody] TimesheetProjectTimeLogDeleteRequest request,
+        CancellationToken cancellationToken)
+    {
+        await _timesheetProjectService.DeleteProjectTimeLogAsync(request, cancellationToken);
+        return Ok(ApiResponse.Ok("Time log entry removed."));
+    }
+
+    #endregion
+
+    #region Project Sheet Submission
+
+    /// <summary>
+    /// Returns the user's current project sheet, ready to review and hand in.
+    /// <para>
+    /// Everything a review-and-submit screen needs in one call: the sheet's
+    /// <c>sheetSubmissionCode</c>, the span actually logged, the totals in
+    /// minutes and hours, one line per project worked on, and every entry
+    /// behind them. <c>canSubmit</c> says whether the button should be live.
+    /// </para>
+    /// <para>
+    /// A user who has never logged anything still gets a sheet back - the code
+    /// their first one would take, with zero totals and no entries. That is a
+    /// submittable sheet, not an error: handing in a period with nothing
+    /// logged is a statement.
+    /// </para>
+    /// <para>
+    /// When the sheet has already been handed in, <c>submission</c> carries
+    /// it. A <b>rejected</b> sheet comes back here too, with
+    /// <c>rejectionReason</c>, which is what the screen shows the user to
+    /// correct before they submit again.
+    /// </para>
+    /// </summary>
+    /// <param name="userID">Whose sheet to return.</param>
+    /// <response code="200">The sheet, empty or not.</response>
+    /// <response code="400">A <c>userID</c> that is not greater than zero.</response>
+    [HttpGet("get-current-project-timesheet")]
+    [ProducesResponseType(typeof(ApiResponse<ProjectTimesheetCurrentResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> GetCurrentProjectTimesheet(
+        [FromQuery] int userID,
+        CancellationToken cancellationToken)
+    {
+        var result = await _timesheetProjectService.GetCurrentProjectTimesheetAsync(userID, cancellationToken);
+        return Ok(ApiResponse.Ok(result));
+    }
+
+    /// <summary>
+    /// Hands in the user's open sheet.
+    /// <para>
+    /// There is no sheet code to send: whichever sheet the user's entries are
+    /// accumulating on is the one submitted. Its entries are totalled, the
+    /// submission is written with status <c>1</c> (Submitted), and a row is
+    /// appended to the audit trail.
+    /// </para>
+    /// <para>
+    /// Submitting is what <b>ends</b> a sheet. From then on its entries are
+    /// frozen - editing or removing one answers 409 - and the next time the
+    /// user logs anything it starts the next sheet, with the next code.
+    /// </para>
+    /// <para>
+    /// A user with nothing logged submits an <b>empty</b> sheet, which is
+    /// allowed; only its owner may submit it, because the row has no column
+    /// for whose sheet it is and an empty one has no entries to recover that
+    /// from. A <b>rejected</b> sheet is resubmitted in place, so one code
+    /// never becomes two sheets.
+    /// </para>
+    /// </summary>
+    /// <response code="200">The submitted sheet.</response>
+    /// <response code="400">The payload failed validation, or an empty sheet was submitted by someone other than its owner.</response>
+    /// <response code="409">The sheet has already been submitted and is awaiting review.</response>
+    [HttpPost("submit-project-timesheet")]
+    [ProducesResponseType(typeof(ApiResponse<ProjectTimesheetSubmissionResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> SubmitProjectTimesheet(
+        [FromBody] ProjectTimesheetSubmitRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await _timesheetProjectService.SubmitProjectTimesheetAsync(request, cancellationToken);
+        return Ok(ApiResponse.Ok(result, "Timesheet submitted."));
+    }
+
+    /// <summary>
+    /// Approves or rejects a submitted sheet.
+    /// <para>
+    /// <c>statusId</c> takes <c>2</c> (Approved) or <c>3</c> (Rejected) only -
+    /// a sheet reaches <c>1</c> (Submitted) by being submitted, not here. A
+    /// rejection <b>requires</b> a <c>rejectionReason</c>: the user has to
+    /// know what to correct.
+    /// </para>
+    /// <para>
+    /// Repeatable, like the review on the employee timesheet module: an
+    /// approved sheet can be rejected and the other way round. The columns
+    /// describe the sheet's <b>current</b> status, so the stamps that no
+    /// longer apply are cleared - the history is in the audit trail, which is
+    /// append-only.
+    /// </para>
+    /// <para>
+    /// Rejecting a sheet <b>reopens its entries</b>, so the user can correct
+    /// them and submit the same sheet again.
+    /// </para>
+    /// </summary>
+    /// <response code="200">The reviewed sheet.</response>
+    /// <response code="400">A status other than 2 or 3, a rejection with no reason, or a field that failed its rule.</response>
+    /// <response code="404">No live sheet has that id.</response>
+    [HttpPost("update-project-timesheet-status")]
+    [ProducesResponseType(typeof(ApiResponse<ProjectTimesheetSubmissionResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> UpdateProjectTimesheetStatus(
+        [FromBody] ProjectTimesheetStatusUpdateRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await _timesheetProjectService.UpdateProjectTimesheetStatusAsync(request, cancellationToken);
+        return Ok(ApiResponse.Ok(result, "Timesheet status updated."));
+    }
+
+    /// <summary>
+    /// Soft-deletes a submitted sheet. The row is kept with <c>IsDelete</c> =
+    /// 1; nothing is physically deleted.
+    /// <para>
+    /// <b>This reopens the sheet's entries.</b> The submission was the only
+    /// thing holding them shut, so after this the user can edit them and
+    /// submit the same code again - the sheet goes back to being their open
+    /// one.
+    /// </para>
+    /// <para>
+    /// <c>dbo.TimesheetProjectSubmission</c> has no <c>DeletedBy</c> or
+    /// <c>DeletedDate</c> column, so <c>deletedBy</c> is recorded in the
+    /// application log and nowhere else. The audit trail is not touched: it
+    /// records status changes, and a removal is not one.
+    /// </para>
+    /// </summary>
+    /// <response code="200">The sheet was removed.</response>
+    /// <response code="400">An id or a <c>deletedBy</c> that is not greater than zero.</response>
+    /// <response code="404">No live sheet has that id; removing one twice is not a silent success.</response>
+    [HttpPost("remove-project-timesheet")]
+    [ProducesResponseType(typeof(ApiResponse<object?>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> RemoveProjectTimesheet(
+        [FromBody] ProjectTimesheetDeleteRequest request,
+        CancellationToken cancellationToken)
+    {
+        await _timesheetProjectService.DeleteProjectTimesheetAsync(request, cancellationToken);
+        return Ok(ApiResponse.Ok("Timesheet removed."));
+    }
+
+    #endregion
 }

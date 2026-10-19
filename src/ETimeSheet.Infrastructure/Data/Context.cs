@@ -156,6 +156,28 @@ public class Context : DbContext
     /// </summary>
     public DbSet<TimesheetRoleAssignment> Timesheet_role_assignment { get; set; } = null!;
 
+    /// <summary>
+    /// The <c>dbo.TimesheetProjectTimeLog</c> table - one block of time logged
+    /// against one project. Soft delete: <c>IsDelete</c> is an <c>int</c>, NOT
+    /// NULL, and <c>0</c> is live.
+    /// </summary>
+    public DbSet<TimesheetProjectTimeLog> TimesheetProjectTimeLog { get; set; } = null!;
+
+    /// <summary>
+    /// The <c>dbo.TimesheetProjectSubmission</c> table - one submitted project
+    /// sheet, joined to its entries by <c>SheetSubmissionCode</c>. Mapped
+    /// ahead of the submission endpoints because the time log reads it to
+    /// refuse editing an entry that has already gone out on a sheet.
+    /// </summary>
+    public DbSet<TimesheetProjectSubmission> TimesheetProjectSubmission { get; set; } = null!;
+
+    /// <summary>
+    /// The <c>dbo.TimesheetProjectSubmissionAuditLog</c> table - one row per
+    /// status change on a project sheet. Append-only: no soft delete, and
+    /// rows outlive the sheet they describe.
+    /// </summary>
+    public DbSet<TimesheetProjectSubmissionAuditLog> TimesheetProjectSubmissionAuditLog { get; set; } = null!;
+
     // =====================================================================
     // STORED PROCEDURES  -  property name == procedure name
     //

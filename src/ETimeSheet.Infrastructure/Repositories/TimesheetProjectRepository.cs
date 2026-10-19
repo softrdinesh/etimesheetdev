@@ -2,6 +2,8 @@ using ETimeSheet.Application.Interfaces.Repositories;
 using ETimeSheet.Application.Models.Entities;
 using ETimeSheet.Application.Models;
 using ETimeSheet.Infrastructure.Data;
+using ETimeSheet.Shared.Enums;
+using ETimeSheet.Shared.Utilities;
 using Microsoft.EntityFrameworkCore;
 
 namespace ETimeSheet.Infrastructure.Repositories;
@@ -607,4 +609,260 @@ public class TimesheetProjectRepository : ITimesheetProjectRepository
             .AnyAsync(
                 user => user.UserId == userId && user.OrganizationId == organizationId && user.IsDelete == 0,
                 cancellationToken);
+
+    // =====================================================================
+    //  PROJECT TIME LOG
+    // =====================================================================
+
+    public async Task<IReadOnlyList<TimesheetProjectTimeLogResponse>> GetProjectTimeLogListAsync(
+        int? userId,
+        int? projectId,
+        string? sheetSubmissionCode,
+        DateTime? fromDate,
+        DateTime? toDate,
+        CancellationToken cancellationToken = default)
+    {
+        // No stored procedure exists for this module, so the join and the
+        // filters are composed here. The query filter already hides deleted
+        // entries.
+        var entries = _db.TimesheetProjectTimeLog.AsNoTracking();
+
+        if (userId is { } user)
+        {
+            entries = entries.Where(entry => entry.UserId == user);
+        }
+
+        if (projectId is { } project)
+        {
+            entries = entries.Where(entry => entry.ProjectId == project);
+        }
+
+        if (sheetSubmissionCode is { Length: > 0 } code)
+        {
+            entries = entries.Where(entry => entry.SheetSubmissionCode == code);
+        }
+
+        if (fromDate is { } from)
+        {
+            entries = entries.Where(entry => entry.LogDate >= from);
+        }
+
+        if (toDate is { } to)
+        {
+            entries = entries.Where(entry => entry.LogDate <= to);
+        }
+
+        // LEFT JOINs: an entry whose user or project is unknown is still
+        // returned, with null names, rather than vanishing from the list.
+        var rows =
+            from entry in entries
+            join signup in _db.Signup.AsNoTracking()
+                on entry.UserId equals signup.UserId into users
+            from signup in users.DefaultIfEmpty()
+            join timesheetProject in _db.TimesheetProject.AsNoTracking()
+                on entry.ProjectId equals timesheetProject.ProjectId into projects
+            from timesheetProject in projects.DefaultIfEmpty()
+            orderby entry.LogDate, entry.StartTime, entry.TimesheetProjectTimeLogId
+            select new TimesheetProjectTimeLogResponse
+            {
+                TimesheetProjectTimeLogId = entry.TimesheetProjectTimeLogId,
+                UserId = entry.UserId,
+                UserName = signup == null ? null : signup.Name,
+                ProjectId = entry.ProjectId,
+                ProjectCode = timesheetProject == null ? null : timesheetProject.Code,
+                ProjectName = timesheetProject == null ? null : timesheetProject.ProjectName,
+                SheetSubmissionCode = entry.SheetSubmissionCode,
+                LogDate = entry.LogDate,
+                StartTime = entry.StartTime,
+                EndTime = entry.EndTime,
+                DurationMinutes = entry.DurationMinutes,
+                Description = entry.Description,
+                Status = (TimeLogStatus)entry.Status,
+                CreateDate = entry.CreateDate,
+                CreatedBy = entry.CreatedBy,
+                UpdateDate = entry.UpdateDate,
+                UpdatedBy = entry.UpdatedBy,
+            };
+
+        return await rows.ToListAsync(cancellationToken);
+    }
+
+    public async Task<TimesheetProjectTimeLog?> GetProjectTimeLogForUpdateAsync(
+        int timesheetProjectTimeLogId,
+        CancellationToken cancellationToken = default) =>
+        // Tracked on purpose - this is the write path. The query filter still
+        // applies, so an entry deleted already is not found.
+        await _db.TimesheetProjectTimeLog
+            .FirstOrDefaultAsync(
+                entry => entry.TimesheetProjectTimeLogId == timesheetProjectTimeLogId,
+                cancellationToken);
+
+    public async Task<TimesheetProjectTimeLog> AddProjectTimeLogAsync(
+        TimesheetProjectTimeLog entry,
+        CancellationToken cancellationToken = default)
+    {
+        _db.TimesheetProjectTimeLog.Add(entry);
+        await _db.SaveChangesAsync(cancellationToken);
+
+        // TimesheetProjectTimeLogID is IDENTITY; EF has read it back by now.
+        return entry;
+    }
+
+    public async Task UpdateProjectTimeLogAsync(
+        TimesheetProjectTimeLog entry,
+        CancellationToken cancellationToken = default) =>
+        await _db.SaveChangesAsync(cancellationToken);
+
+    public async Task<bool> UserProjectAssignmentExistsAsync(
+        int userId,
+        int projectId,
+        CancellationToken cancellationToken = default) =>
+        // The query filter hides deleted assignments, so a removed one does
+        // not count as an assignment.
+        await _db.Timesheet_Users_Project_setup
+            .AnyAsync(
+                setup => setup.UserId == userId && setup.ProjectId == projectId,
+                cancellationToken);
+
+    public async Task<bool> SheetIsSubmittedAsync(
+        string sheetSubmissionCode,
+        CancellationToken cancellationToken = default) =>
+        // Rejected sheets are excluded on purpose: a rejection is what frees
+        // the entries to be corrected and sent again.
+        await _db.TimesheetProjectSubmission
+            .AnyAsync(
+                sheet => sheet.SheetSubmissionCode == sheetSubmissionCode
+                         && sheet.StatusId != Constants.TimesheetSubmission.Status.Rejected,
+                cancellationToken);
+
+    public async Task<IReadOnlyCollection<string>> GetSubmittedSheetCodesAsync(
+        IReadOnlyCollection<string> sheetSubmissionCodes,
+        CancellationToken cancellationToken = default)
+    {
+        if (sheetSubmissionCodes.Count == 0)
+        {
+            return Array.Empty<string>();
+        }
+
+        var codes = await _db.TimesheetProjectSubmission
+            .Where(sheet => sheetSubmissionCodes.Contains(sheet.SheetSubmissionCode)
+                            && sheet.StatusId != Constants.TimesheetSubmission.Status.Rejected)
+            .Select(sheet => sheet.SheetSubmissionCode)
+            .Distinct()
+            .ToListAsync(cancellationToken);
+
+        return codes;
+    }
+
+    public async Task<string?> GetOpenSheetCodeForUserAsync(
+        int userId,
+        CancellationToken cancellationToken = default)
+    {
+        // IgnoreQueryFilters: a deleted entry still owns its code, so a sheet
+        // whose entries were all deleted is still the user's current one and
+        // must not be handed out again as a fresh code.
+        var codes = await _db.TimesheetProjectTimeLog
+            .IgnoreQueryFilters()
+            .AsNoTracking()
+            .Where(entry => entry.UserId == userId)
+            .GroupBy(entry => entry.SheetSubmissionCode)
+            .Select(group => new
+            {
+                Code = group.Key,
+                LatestEntryId = group.Max(entry => entry.TimesheetProjectTimeLogId),
+            })
+            .OrderByDescending(row => row.LatestEntryId)
+            .ToListAsync(cancellationToken);
+
+        if (codes.Count == 0)
+        {
+            return null;
+        }
+
+        // Submitted sheets are closed; a rejected one is open again, which is
+        // how a correction goes back onto the sheet it was rejected on.
+        var closed = await GetSubmittedSheetCodesAsync(
+            codes.Select(row => row.Code).ToArray(),
+            cancellationToken);
+
+        return codes.FirstOrDefault(row => !closed.Contains(row.Code))?.Code;
+    }
+
+    public async Task<IReadOnlyCollection<string>> GetSheetCodesForUserAsync(
+        int userId,
+        CancellationToken cancellationToken = default)
+    {
+        // IgnoreQueryFilters, as above: a deleted entry's code is still spent.
+        var fromEntries = await _db.TimesheetProjectTimeLog
+            .IgnoreQueryFilters()
+            .AsNoTracking()
+            .Where(entry => entry.UserId == userId)
+            .Select(entry => entry.SheetSubmissionCode)
+            .Distinct()
+            .ToListAsync(cancellationToken);
+
+        // An EMPTY sheet has no entries, so its code lives only on the
+        // submission. Without this the next sheet would reuse it.
+        // dbo.TimesheetProjectSubmission has no UserID column, so SubmittedBy
+        // is the only link back to a person - see the service, which refuses
+        // to submit an empty sheet for anybody but its owner.
+        var fromSubmissions = await _db.TimesheetProjectSubmission
+            .IgnoreQueryFilters()
+            .AsNoTracking()
+            .Where(sheet => sheet.SubmittedBy == userId)
+            .Select(sheet => sheet.SheetSubmissionCode)
+            .Distinct()
+            .ToListAsync(cancellationToken);
+
+        return fromEntries.Union(fromSubmissions, StringComparer.Ordinal).ToArray();
+    }
+
+    // =====================================================================
+    //  PROJECT SHEET SUBMISSION
+    // =====================================================================
+
+    public async Task<TimesheetProjectSubmission?> GetSubmissionByCodeForUpdateAsync(
+        string sheetSubmissionCode,
+        CancellationToken cancellationToken = default) =>
+        // Tracked on purpose - a rejected sheet is revived through this.
+        await _db.TimesheetProjectSubmission
+            .FirstOrDefaultAsync(
+                sheet => sheet.SheetSubmissionCode == sheetSubmissionCode,
+                cancellationToken);
+
+    public async Task<TimesheetProjectSubmission?> GetSubmissionForUpdateAsync(
+        int timesheetProjectSubmissionId,
+        CancellationToken cancellationToken = default) =>
+        await _db.TimesheetProjectSubmission
+            .FirstOrDefaultAsync(
+                sheet => sheet.TimesheetProjectSubmissionId == timesheetProjectSubmissionId,
+                cancellationToken);
+
+    public async Task<TimesheetProjectSubmission> AddSubmissionAsync(
+        TimesheetProjectSubmission submission,
+        CancellationToken cancellationToken = default)
+    {
+        _db.TimesheetProjectSubmission.Add(submission);
+        await _db.SaveChangesAsync(cancellationToken);
+
+        return submission;
+    }
+
+    public async Task UpdateSubmissionAsync(
+        TimesheetProjectSubmission submission,
+        CancellationToken cancellationToken = default) =>
+        await _db.SaveChangesAsync(cancellationToken);
+
+    public async Task AddSubmissionAuditAsync(
+        TimesheetProjectSubmissionAuditLog audit,
+        CancellationToken cancellationToken = default)
+    {
+        _db.TimesheetProjectSubmissionAuditLog.Add(audit);
+        await _db.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<TimesheetProjectTimeLogResponse>> GetEntriesForSheetAsync(
+        string sheetSubmissionCode,
+        CancellationToken cancellationToken = default) =>
+        await GetProjectTimeLogListAsync(null, null, sheetSubmissionCode, null, null, cancellationToken);
 }

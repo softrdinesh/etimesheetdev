@@ -19,6 +19,8 @@
     client receives. Reordering is a contract change, not a tidy-up.
 */
 
+using ETimeSheet.Shared.Enums;
+
 namespace ETimeSheet.Application.Models;
 
 /// <summary>
@@ -1635,4 +1637,387 @@ public class TimesheetRoleAssignmentDeleteRequest
     /// <summary>The assignment to remove. Required, greater than 0.</summary>
     /// <example>2</example>
     public int AssignmentId { get; set; }
+}
+
+/// <summary>
+/// Body of <c>add-edit-project-time-log</c> - logs a block of time against one
+/// project, or edits one. <b>One request for both</b>, chosen by
+/// <see cref="TimesheetProjectTimeLogId"/>.
+/// <para>
+/// An edit overwrites every field with what is sent - an optional field left
+/// out is saved as null, not left as it was. Send the whole entry.
+/// </para>
+/// <para>
+/// <b>There is no <c>durationMinutes</c> field.</b> How long the block ran is
+/// worked out from <see cref="StartTime"/> and <see cref="EndTime"/>, so the
+/// stored figure and the clock times can never disagree.
+/// </para>
+/// <para>
+/// <b>There is no <c>sheetSubmissionCode</c> field.</b> The service decides
+/// which sheet an entry belongs to: a new entry joins the user's open sheet,
+/// or starts a new one when their last sheet has been submitted, and an edit
+/// leaves the entry on the sheet it is already on. See
+/// <see cref="TimesheetProjectTimeLogResponse.SheetSubmissionCode"/>.
+/// </para>
+/// <para>
+/// Validated by <c>TimesheetProjectService</c>, not by a FluentValidation
+/// validator.
+/// </para>
+/// </summary>
+public class TimesheetProjectTimeLogSaveRequest
+{
+    /// <summary>
+    /// <c>0</c> or absent logs a new block; an existing id edits that entry.
+    /// </summary>
+    /// <example>0</example>
+    public int? TimesheetProjectTimeLogId { get; set; }
+
+    /// <summary>
+    /// Whose time it is. Required, greater than 0, and must have a live
+    /// assignment to <see cref="ProjectId"/>.
+    /// </summary>
+    /// <example>58</example>
+    public int UserId { get; set; }
+
+    /// <summary>
+    /// The project the time is logged against. Required, greater than 0, and
+    /// must have a live assignment for <see cref="UserId"/>.
+    /// </summary>
+    /// <example>4</example>
+    public int ProjectId { get; set; }
+
+    /// <summary>
+    /// The day the work was done. Required. Any time part is ignored - the
+    /// column is a <c>date</c>.
+    /// </summary>
+    /// <example>2026-10-19</example>
+    public DateTime? LogDate { get; set; }
+
+    /// <summary>
+    /// Clock time the work started, as a string in <c>hh:mm:ss</c> - for
+    /// example <c>"09:00:00"</c>. Required.
+    /// <para>
+    /// A string rather than a <c>TimeSpan</c>, as on every time input in this
+    /// API: the contract is one exact format, and
+    /// <c>TimesheetProjectService</c> is what reads it. See
+    /// <see cref="ETimeSheet.Shared.Utilities.TimeOfDay"/>.
+    /// </para>
+    /// </summary>
+    /// <example>09:00:00</example>
+    public string? StartTime { get; set; }
+
+    /// <summary>
+    /// Clock time the work ended, also <c>hh:mm:ss</c>. Required, and not the
+    /// same as <see cref="StartTime"/>.
+    /// <para>
+    /// An end <b>before</b> the start is read as crossing midnight: 22:00:00
+    /// to 02:00:00 is four hours on <see cref="LogDate"/>, not minus twenty.
+    /// </para>
+    /// </summary>
+    /// <example>12:30:00</example>
+    public string? EndTime { get; set; }
+
+    /// <summary>
+    /// What was worked on. Optional; blank is saved as null. There is no task
+    /// on a project entry, so this is the only record of it.
+    /// </summary>
+    /// <example>Checkout rewrite - payment step</example>
+    public string? Description { get; set; }
+
+    /// <summary>
+    /// Required. <c>Save</c> (1) or <c>Draft</c> (2); the name or the number
+    /// is accepted. A draft still occupies its time.
+    /// </summary>
+    /// <example>Save</example>
+    public TimeLogStatus? Status { get; set; }
+
+    /// <summary>
+    /// The user logging or editing the entry - written to <c>CreatedBy</c> on
+    /// add and <c>UpdatedBy</c> on edit. Required, greater than 0.
+    /// <b>Temporary</b>: it comes from the token once authentication is on.
+    /// </summary>
+    /// <example>7</example>
+    public int AddedBy { get; set; }
+}
+
+/// <summary>
+/// Body of <c>remove-project-time-log</c> - a <b>soft</b> delete: the row
+/// stays, stamped with <c>IsDelete</c> = 1, <c>DeletedDate</c> and
+/// <c>DeletedBy</c>, and drops out of every read.
+/// </summary>
+public class TimesheetProjectTimeLogDeleteRequest
+{
+    /// <summary>The entry to remove. Required, greater than 0.</summary>
+    /// <example>31</example>
+    public int TimesheetProjectTimeLogId { get; set; }
+
+    /// <summary>
+    /// The user performing the delete, written to <c>DeletedBy</c>. Required,
+    /// greater than 0. <b>Temporary</b>: it comes from the token once
+    /// authentication is on.
+    /// </summary>
+    /// <example>7</example>
+    public int DeletedBy { get; set; }
+}
+
+/// <summary>
+/// One project time log entry, with the user and project named, as
+/// <c>get-project-time-log</c> and <c>add-edit-project-time-log</c> return it.
+/// </summary>
+public class TimesheetProjectTimeLogResponse
+{
+    public int TimesheetProjectTimeLogId { get; set; }
+
+    /// <summary><c>dbo.Signup.UserID</c>.</summary>
+    public int UserId { get; set; }
+
+    /// <summary>The user's name. Null when the user is unknown.</summary>
+    public string? UserName { get; set; }
+
+    public int ProjectId { get; set; }
+
+    /// <summary>The project's code - <c>PR0001</c> ... Null when the project is unknown.</summary>
+    public string? ProjectCode { get; set; }
+
+    /// <summary>The project's <c>Projectname</c>. Null when the project is unknown.</summary>
+    public string? ProjectName { get; set; }
+
+    /// <summary>
+    /// The sheet this entry belongs to - allocated by the service, not sent by
+    /// the caller. Every entry logged between one submission and the next
+    /// carries the same code; submitting the sheet is what makes the next
+    /// entry start a new one.
+    /// </summary>
+    public string SheetSubmissionCode { get; set; } = string.Empty;
+
+    /// <summary>A date; the time part is always midnight.</summary>
+    public DateTime LogDate { get; set; }
+
+    /// <summary>
+    /// <c>hh:mm:ss</c>, so a value read here can be sent straight back to the
+    /// save. Null only on a row written before clock times were required.
+    /// </summary>
+    public TimeSpan? StartTime { get; set; }
+
+    /// <summary><c>hh:mm:ss</c>. Null only on a row written before clock times were required.</summary>
+    public TimeSpan? EndTime { get; set; }
+
+    /// <summary>
+    /// How long the block ran, worked out from the clock times when it was
+    /// saved. The figure every total is built from.
+    /// </summary>
+    public int DurationMinutes { get; set; }
+
+    public string? Description { get; set; }
+
+    /// <summary><c>Save</c> (1) or <c>Draft</c> (2).</summary>
+    public TimeLogStatus Status { get; set; }
+
+    /// <summary>"Save" or "Draft".</summary>
+    public string StatusName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// <see langword="true"/> when a live sheet carrying this entry's
+    /// <see cref="SheetSubmissionCode"/> has been submitted and not rejected -
+    /// in which case the entry can no longer be edited or removed.
+    /// </summary>
+    public bool IsSubmitted { get; set; }
+
+    public DateTime CreateDate { get; set; }
+
+    public int CreatedBy { get; set; }
+
+    public DateTime? UpdateDate { get; set; }
+
+    public int? UpdatedBy { get; set; }
+}
+
+/// <summary>
+/// Body of <c>submit-project-timesheet</c> - hands in the user's open sheet.
+/// <para>
+/// There is no sheet code to send: the service submits whichever sheet the
+/// user's entries are currently accumulating on. A user with no entries at
+/// all submits an <b>empty</b> sheet, which is a deliberate statement that
+/// there was nothing to log.
+/// </para>
+/// </summary>
+public class ProjectTimesheetSubmitRequest
+{
+    /// <summary>Whose sheet to submit. Required, greater than 0.</summary>
+    /// <example>58</example>
+    public int UserId { get; set; }
+
+    /// <summary>
+    /// Who is submitting it, written to <c>SubmittedBy</c>. Required, greater
+    /// than 0. <b>Temporary</b>: it comes from the token once authentication
+    /// is on.
+    /// </summary>
+    /// <example>58</example>
+    public int SubmittedBy { get; set; }
+}
+
+/// <summary>
+/// Body of <c>update-project-timesheet-status</c> - approves or rejects a
+/// submitted sheet. Repeatable: an approved sheet can be rejected and the
+/// other way round, and every change is written to the audit trail.
+/// </summary>
+public class ProjectTimesheetStatusUpdateRequest
+{
+    /// <summary>The sheet to review. Required, greater than 0.</summary>
+    /// <example>14</example>
+    public int TimesheetProjectSubmissionId { get; set; }
+
+    /// <summary>
+    /// Required. <c>2</c> (Approved) or <c>3</c> (Rejected) only - a sheet is
+    /// moved to <c>1</c> (Submitted) by submitting it, not by this endpoint.
+    /// </summary>
+    /// <example>2</example>
+    public int StatusId { get; set; }
+
+    /// <summary>
+    /// Required when <see cref="StatusId"/> is <c>3</c>, and 500 characters or
+    /// fewer. Ignored on an approval, which clears it.
+    /// </summary>
+    /// <example>Friday is missing - please add it and resubmit.</example>
+    public string? RejectionReason { get; set; }
+
+    /// <summary>
+    /// The reviewer, written to <c>ApprovedBy</c> or <c>RejectedBy</c>.
+    /// Required, greater than 0. <b>Temporary</b>: it comes from the token
+    /// once authentication is on.
+    /// </summary>
+    /// <example>7</example>
+    public int ReviewedBy { get; set; }
+}
+
+/// <summary>
+/// Body of <c>remove-project-timesheet</c> - a <b>soft</b> delete: the row
+/// stays with <c>IsDelete</c> = 1 and drops out of every read.
+/// </summary>
+public class ProjectTimesheetDeleteRequest
+{
+    /// <summary>The sheet to remove. Required, greater than 0.</summary>
+    /// <example>14</example>
+    public int TimesheetProjectSubmissionId { get; set; }
+
+    /// <summary>
+    /// Who is removing it. Required, greater than 0. Recorded in the
+    /// application log only - <c>dbo.TimesheetProjectSubmission</c> has no
+    /// <c>DeletedBy</c> column. <b>Temporary</b>: it comes from the token once
+    /// authentication is on.
+    /// </summary>
+    /// <example>7</example>
+    public int DeletedBy { get; set; }
+}
+
+/// <summary>One submitted project sheet, as the submission endpoints return it.</summary>
+public class ProjectTimesheetSubmissionResponse
+{
+    public int TimesheetProjectSubmissionId { get; set; }
+
+    /// <summary>The sheet. Its entries are the time log rows carrying this code.</summary>
+    public string SheetSubmissionCode { get; set; } = string.Empty;
+
+    /// <summary>Total minutes logged on the sheet. <c>0</c> on an empty sheet.</summary>
+    public decimal TotalMinutes { get; set; }
+
+    /// <summary>The same figure as hours, to two places. <c>0</c> on an empty sheet.</summary>
+    public decimal TotalHours { get; set; }
+
+    /// <summary><c>1</c> Submitted, <c>2</c> Approved, <c>3</c> Rejected.</summary>
+    public int StatusId { get; set; }
+
+    /// <summary>"Submitted", "Approved" or "Rejected".</summary>
+    public string StatusName { get; set; } = string.Empty;
+
+    public int SubmittedBy { get; set; }
+
+    public DateTime SubmittedDate { get; set; }
+
+    public int? ApprovedBy { get; set; }
+
+    public DateTime? ApprovedDate { get; set; }
+
+    public int? RejectedBy { get; set; }
+
+    public DateTime? RejectedDate { get; set; }
+
+    /// <summary>Why it was rejected. Cleared when the sheet is approved or resubmitted.</summary>
+    public string? RejectionReason { get; set; }
+}
+
+/// <summary>One project's share of a sheet - its totals across the period.</summary>
+public class ProjectTimesheetProjectLineResponse
+{
+    public int ProjectId { get; set; }
+
+    /// <summary>The project's code - <c>PR0001</c> ... Null when the project is unknown.</summary>
+    public string? ProjectCode { get; set; }
+
+    /// <summary>The project's <c>Projectname</c>. Null when the project is unknown.</summary>
+    public string? ProjectName { get; set; }
+
+    public decimal TotalMinutes { get; set; }
+
+    /// <summary>The same figure as hours, to two places.</summary>
+    public decimal TotalHours { get; set; }
+
+    /// <summary>How many entries make up this line.</summary>
+    public int EntryCount { get; set; }
+}
+
+/// <summary>
+/// The user's current project sheet, as <c>get-current-project-timesheet</c>
+/// returns it: everything a review-and-submit screen needs in one call - the
+/// totals, the per-project breakdown and the entries behind them.
+/// </summary>
+public class ProjectTimesheetCurrentResponse
+{
+    public int UserId { get; set; }
+
+    /// <summary>
+    /// The sheet the entries are on. A user who has never logged anything gets
+    /// the code their first sheet <b>would</b> take, so the screen has
+    /// something to show before anything exists.
+    /// </summary>
+    public string SheetSubmissionCode { get; set; } = string.Empty;
+
+    /// <summary>
+    /// The first day logged on this sheet, or <see langword="null"/> when it
+    /// is empty. The period is what was <b>actually</b> logged, not a calendar
+    /// window - nothing rolls a sheet over on a date.
+    /// </summary>
+    public DateTime? PeriodStart { get; set; }
+
+    /// <summary>The last day logged on this sheet, or <see langword="null"/> when it is empty.</summary>
+    public DateTime? PeriodEnd { get; set; }
+
+    public decimal TotalMinutes { get; set; }
+
+    /// <summary>The same figure as hours, to two places.</summary>
+    public decimal TotalHours { get; set; }
+
+    public int EntryCount { get; set; }
+
+    /// <summary>
+    /// <see langword="true"/> when the sheet can be handed in now - it has not
+    /// already been submitted and is not awaiting review. An empty sheet is
+    /// still submittable.
+    /// </summary>
+    public bool CanSubmit { get; set; }
+
+    /// <summary>
+    /// The sheet's submission, or <see langword="null"/> when it has never
+    /// been handed in. A <c>Rejected</c> one is still here, with the reason,
+    /// which is what the screen shows the user to correct.
+    /// </summary>
+    public ProjectTimesheetSubmissionResponse? Submission { get; set; }
+
+    /// <summary>One line per project worked on, ordered by project name.</summary>
+    public IReadOnlyList<ProjectTimesheetProjectLineResponse> Projects { get; set; } =
+        Array.Empty<ProjectTimesheetProjectLineResponse>();
+
+    /// <summary>Every entry on the sheet, ordered by day then start time.</summary>
+    public IReadOnlyList<TimesheetProjectTimeLogResponse> Entries { get; set; } =
+        Array.Empty<TimesheetProjectTimeLogResponse>();
 }

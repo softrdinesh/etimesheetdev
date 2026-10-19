@@ -372,4 +372,136 @@ public interface ITimesheetProjectService
     Task DeleteRoleAssignmentAsync(
         TimesheetRoleAssignmentDeleteRequest request,
         CancellationToken cancellationToken = default);
+
+    // =====================================================================
+    //  PROJECT TIME LOG
+    // =====================================================================
+
+    /// <summary>
+    /// Returns live project time log entries, filtered by any combination of
+    /// user, project and sheet code, and optionally to a <c>LogDate</c> range.
+    /// At least one of user, project or sheet code is required - the whole
+    /// table is never returned.
+    /// </summary>
+    /// <returns>
+    /// The entries, ordered by <c>LogDate</c>, then start time, then id. None
+    /// matching is an empty list, not an error.
+    /// </returns>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.ValidationException">
+    /// No filter was sent, or one is negative.
+    /// </exception>
+    Task<IReadOnlyList<TimesheetProjectTimeLogResponse>> GetProjectTimeLogListAsync(
+        int? userId,
+        int? projectId,
+        string? sheetSubmissionCode,
+        DateTime? fromDate,
+        DateTime? toDate,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Logs a block of time against a project, or edits one - <b>one method
+    /// for both</b>. A
+    /// <see cref="TimesheetProjectTimeLogSaveRequest.TimesheetProjectTimeLogId"/>
+    /// absent or <c>0</c> adds; any greater value edits that entry.
+    /// </summary>
+    /// <returns>The saved entry, including its id.</returns>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.ValidationException">
+    /// Any field fails its rule, or the user has no live assignment to the
+    /// project - every failure is reported together.
+    /// </exception>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.NotFoundException">
+    /// An id was sent, but no live entry has it.
+    /// </exception>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.ConflictException">
+    /// The entry's sheet has been submitted and not rejected, so it may no
+    /// longer be changed.
+    /// </exception>
+    Task<TimesheetProjectTimeLogResponse> SaveProjectTimeLogAsync(
+        TimesheetProjectTimeLogSaveRequest request,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Soft-deletes a project time log entry: the row stays, stamped with
+    /// <c>IsDelete</c> = 1, <c>DeletedDate</c> and <c>DeletedBy</c>.
+    /// </summary>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.ValidationException">
+    /// An id or a <c>DeletedBy</c> that is not positive.
+    /// </exception>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.NotFoundException">
+    /// No live entry has that id - including one removed already, so removing
+    /// twice is a 404.
+    /// </exception>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.ConflictException">
+    /// The entry's sheet has been submitted and not rejected.
+    /// </exception>
+    Task DeleteProjectTimeLogAsync(
+        TimesheetProjectTimeLogDeleteRequest request,
+        CancellationToken cancellationToken = default);
+
+    // =====================================================================
+    //  PROJECT SHEET SUBMISSION
+    // =====================================================================
+
+    /// <summary>
+    /// The user's current sheet, ready to review and hand in: its code, the
+    /// span actually logged, the totals, one line per project and every entry
+    /// behind them - plus the submission, when it has already been handed in
+    /// or rejected.
+    /// </summary>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.ValidationException">
+    /// A <c>userID</c> that is not positive.
+    /// </exception>
+    Task<ProjectTimesheetCurrentResponse> GetCurrentProjectTimesheetAsync(
+        int userId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Hands in the user's open sheet: totals its entries, writes the
+    /// submission and appends to the audit trail. A sheet with no entries is
+    /// submitted as an empty one. A REJECTED sheet is resubmitted in place
+    /// rather than as a second row.
+    /// </summary>
+    /// <returns>The submitted sheet.</returns>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.ValidationException">
+    /// A field fails its rule, or an empty sheet is submitted by anyone but
+    /// its owner.
+    /// </exception>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.ConflictException">
+    /// The sheet has already been submitted and is awaiting review.
+    /// </exception>
+    Task<ProjectTimesheetSubmissionResponse> SubmitProjectTimesheetAsync(
+        ProjectTimesheetSubmitRequest request,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Approves or rejects a submitted sheet and appends to the audit trail.
+    /// Repeatable - an approved sheet can be rejected and the other way round;
+    /// the stamps describe the current status and the trail holds the history.
+    /// </summary>
+    /// <returns>The reviewed sheet.</returns>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.ValidationException">
+    /// A status other than 2 or 3, a rejection with no reason, or a field that
+    /// fails its rule.
+    /// </exception>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.NotFoundException">
+    /// No live sheet has that id.
+    /// </exception>
+    Task<ProjectTimesheetSubmissionResponse> UpdateProjectTimesheetStatusAsync(
+        ProjectTimesheetStatusUpdateRequest request,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Soft-deletes a submitted sheet. <b>This reopens its entries</b>: the
+    /// submission was the only thing holding them shut, so the user can edit
+    /// them and submit the same code again.
+    /// </summary>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.ValidationException">
+    /// An id or a <c>DeletedBy</c> that is not positive.
+    /// </exception>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.NotFoundException">
+    /// No live sheet has that id - including one removed already.
+    /// </exception>
+    Task DeleteProjectTimesheetAsync(
+        ProjectTimesheetDeleteRequest request,
+        CancellationToken cancellationToken = default);
 }

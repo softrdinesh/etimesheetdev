@@ -27,9 +27,11 @@ executes these files, and it is the only place they may be executed.
 
 What keeps it honest:
 
-- `AssertUsingThrowawayContainer` refuses to run unless the host resolved
-  exactly the container's connection string, so the suite cannot be pointed at
-  a real database even by a configuration mistake.
+- `ThrowawayDatabaseGuard` checks every database touch in the suite - the
+  schema build, the reset before every test, every seed and read-back. It
+  refuses unless the connection is exactly the container's, on loopback, to the
+  dedicated `ETimeSheetIntegrationTests` database, so the suite cannot reach a
+  real database even by a configuration mistake.
 - `ArchitectureRuleTests.NothingButTheTestContainerFixtureExecutesSchema` fails
   the build if any other file under `src/` or `tests/` starts issuing DDL.
 
@@ -58,6 +60,9 @@ docs/database/
 │   ├── dbo.TimesheetProjectBudget.sql
 │   ├── dbo.TimesheetProjectCategory.sql
 │   ├── dbo.TimesheetProjectStatus.sql
+│   ├── dbo.TimesheetProjectSubmission.sql
+│   ├── dbo.TimesheetProjectSubmissionAuditLog.sql
+│   ├── dbo.TimesheetProjectTimeLog.sql
 │   ├── dbo.TimesheetSubmission.sql
 │   ├── dbo.TimeSheetSubmissionAuditLog.sql
 │   └── dbo.TimesheetUserRole.sql
@@ -105,6 +110,15 @@ it from the EF mapping (`SignupConfiguration`).
 A procedure whose header says **`Status: DRAFT`** has been written here but not
 yet created in a database by the owner; the endpoint that calls it answers 500
 until it is.
+
+A **table** may say `Status: DRAFT` too. That means it was designed here and
+proposed to the owner, and **does not exist in any database yet** - the one
+case where a file in `schema/` is not a record of something real. It is still
+not a deployment mechanism: the owner creates the table by hand, as always,
+and the header is changed to record what they actually made. No table says
+`DRAFT` today - the project time log module's three tables were proposed that
+way on 2026-10-18 and the owner returned their own definitions the same day,
+which is what is recorded.
 
 Each file opens with a header giving `Recorded:` (and `Revised:`) dates, what
 maps it, what reads or writes it, and the quirks worth knowing before touching

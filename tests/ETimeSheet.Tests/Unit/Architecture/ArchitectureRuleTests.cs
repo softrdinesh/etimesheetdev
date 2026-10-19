@@ -156,7 +156,7 @@ public class ArchitectureRuleTests
     /// The sole exception is
     /// <see cref="Fixtures.ETimeSheetApiFactory.CreateSchemaAsync"/>, which
     /// replays the recorded files into the throwaway Testcontainers SQL Server
-    /// and is itself fenced by <c>AssertUsingThrowawayContainer</c>. This test
+    /// and is itself fenced by <c>ThrowawayDatabaseGuard</c>. This test
     /// is what stops that exception from widening: the day a second file starts
     /// issuing DDL, the build fails here rather than the day someone runs it
     /// against PPMUAT.
