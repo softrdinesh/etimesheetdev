@@ -484,4 +484,128 @@ public interface ITimesheetProjectRepository
         int userId,
         int organizationId,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The live time entries of a user on live sheets, ordered by date, then
+    /// start time. A null filter matches anything; the dates are inclusive.
+    /// Empty when none match.
+    /// </summary>
+    Task<IReadOnlyList<TimesheetProjectTimeLogDetail>> GetProjectTimeLogListAsync(
+        int userId,
+        int? projectId,
+        DateTime? fromDate,
+        DateTime? toDate,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns a live time entry, <b>tracked</b> for an edit or a soft delete;
+    /// <see langword="null"/> when it does not exist or is deleted.
+    /// </summary>
+    Task<TimesheetProjectTimeLog?> GetProjectTimeLogForUpdateAsync(
+        int timesheetProjectTimeLogId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns a live sheet, <b>tracked</b> so its totals can be changed;
+    /// <see langword="null"/> when it does not exist or is deleted.
+    /// </summary>
+    Task<TimesheetProjectSubmission?> GetProjectSubmissionForUpdateAsync(
+        int timesheetProjectSubmissionId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns the live sheet of a user and project for the period starting on
+    /// <paramref name="periodStartDate"/>, <b>tracked</b>;
+    /// <see langword="null"/> when the period has no sheet yet.
+    /// </summary>
+    Task<TimesheetProjectSubmission?> GetProjectSubmissionForPeriodForUpdateAsync(
+        int userId,
+        int projectId,
+        DateTime periodStartDate,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The highest generated <c>PSHT</c> sheet code - deleted sheets included,
+    /// because their codes are spent - or <see langword="null"/> when there is
+    /// none. Longer codes rank higher, so <c>PSHT10000</c> outranks
+    /// <c>PSHT9999</c>.
+    /// </summary>
+    Task<string?> GetLatestProjectSubmissionCodeAsync(
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The minutes of every live entry on a sheet except
+    /// <paramref name="excludedTimesheetProjectTimeLogId"/>; 0 when there are none.
+    /// </summary>
+    Task<int> GetProjectSubmissionLoggedMinutesAsync(
+        int timesheetProjectSubmissionId,
+        int excludedTimesheetProjectTimeLogId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Inserts a new sheet and returns it with its <c>TimesheetProjectSubmissionId</c>.</summary>
+    Task<TimesheetProjectSubmission> AddProjectSubmissionAsync(
+        TimesheetProjectSubmission submission,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Inserts <paramref name="timeLog"/> when it is new, and saves it together
+    /// with every change made to the tracked sheets - their totals - in one
+    /// save, so the entry and the totals are written together or not at all.
+    /// </summary>
+    Task<TimesheetProjectTimeLog> SaveProjectTimeLogAsync(
+        TimesheetProjectTimeLog timeLog,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The live project assignments matching every filter given,
+    /// <b>untracked</b>. A null filter matches anything;
+    /// <paramref name="organizationId"/> matches on the project's organisation.
+    /// </summary>
+    Task<IReadOnlyList<TimesheetUserProjectSetup>> GetUserProjectSetupListAsync(
+        int? userId,
+        int? projectId,
+        int? organizationId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The organisations a user has project sheets in: those of the projects
+    /// they are on now, and those of their stored sheets.
+    /// </summary>
+    Task<IReadOnlyList<int>> GetUserProjectOrganizationIdsAsync(
+        int userId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>The projects with these ids, <b>untracked</b>. An id with no project is left out.</summary>
+    Task<IReadOnlyList<TimesheetProject>> GetListByIdsAsync(
+        IReadOnlyCollection<int> projectIds,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The live sheets matching every filter given - a null filter matches
+    /// anything - each with the code, count and minutes of its live entries in
+    /// <c>dbo.TimesheetProjectTimeLog</c>.
+    /// </summary>
+    Task<IReadOnlyList<TimesheetProjectSheetDetail>> GetProjectSheetListAsync(
+        int? userId,
+        int? projectId,
+        int? organizationId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns the live sheet with this code, <b>tracked</b>;
+    /// <see langword="null"/> when there is none.
+    /// </summary>
+    Task<TimesheetProjectSubmission?> GetProjectSubmissionByCodeForUpdateAsync(
+        string sheetSubmissionCode,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Saves the status change made to a tracked sheet together with its
+    /// audit row, in one save - so the change is never written without its
+    /// record, or the record without the change.
+    /// </summary>
+    Task SaveProjectSubmissionStatusAsync(
+        TimesheetProjectSubmission submission,
+        TimesheetProjectSubmissionAuditLog auditLog,
+        CancellationToken cancellationToken = default);
 }

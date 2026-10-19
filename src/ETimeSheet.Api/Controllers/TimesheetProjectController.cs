@@ -649,4 +649,223 @@ public class TimesheetProjectController : ControllerBase
     }
 
     #endregion
+
+    #region Project Time Log
+
+    /// <summary>
+    /// Returns a user's time entries on projects, from
+    /// <c>dbo.TimesheetProjectTimeLog</c>, each with the sheet it is on from
+    /// <c>dbo.TimesheetProjectSubmission</c>. Ordered by date, then start time.
+    /// <para>
+    /// <c>projectID</c>, <c>fromDate</c> and <c>toDate</c> narrow the list; one
+    /// left out (or <c>projectID</c> sent as <c>0</c>) is not applied. The
+    /// dates are inclusive. Deleted entries are not included.
+    /// </para>
+    /// </summary>
+    /// <param name="userID">The user whose entries to list. Required.</param>
+    /// <param name="projectID">The project to narrow to. Optional.</param>
+    /// <param name="fromDate">The first log date to include. Optional.</param>
+    /// <param name="toDate">The last log date to include. Optional.</param>
+    /// <response code="200">The entries. None matching is an empty list, not a 404.</response>
+    /// <response code="400">No <c>userID</c>, a negative <c>projectID</c>, or <c>toDate</c> before <c>fromDate</c>.</response>
+    [HttpGet("get-timesheet-project-time-log")]
+    [ProducesResponseType(typeof(ApiResponse<IReadOnlyList<TimesheetProjectTimeLogResponse>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> GetTimesheetProjectTimeLog(
+        // Query string rather than route segments: all but userID may be left out.
+        [FromQuery] int userID,
+        [FromQuery] int? projectID,
+        [FromQuery] DateTime? fromDate,
+        [FromQuery] DateTime? toDate,
+        CancellationToken cancellationToken)
+    {
+        var result = await _timesheetProjectService.GetProjectTimeLogListAsync(
+            userID,
+            projectID,
+            fromDate,
+            toDate,
+            cancellationToken);
+        return Ok(ApiResponse.Ok(result));
+    }
+
+    /// <summary>
+    /// Logs time on a project, or edits an entry - <b>one endpoint for
+    /// both</b>.
+    /// <para>
+    /// Send <c>timesheetProjectTimeLogId</c> as <c>0</c> (or leave it out) to
+    /// add an entry. Send an existing entry's id to edit it; it must be
+    /// <c>userId</c>'s. An edit overwrites every field, so send the whole entry.
+    /// </para>
+    /// <para>
+    /// No sheet code is sent. The entry goes on the user's sheet for the
+    /// project's submission period that contains <c>logDate</c> - periods of 7
+    /// days, 15 days or a month, counted from the project's start date. The
+    /// period's first entry opens its sheet with the next code in the sequence
+    /// PSHT0001, PSHT0002 ...; every later entry in the period shares it. The
+    /// sheet's total hours and minutes are kept in step.
+    /// </para>
+    /// <para>
+    /// <c>startTime</c> and <c>endTime</c> are both required, as
+    /// <c>hh:mm:ss</c> on the 24-hour clock (<c>00:00:00</c> to
+    /// <c>23:59:59</c>), on the same day. No duration is sent:
+    /// <c>durationMinutes</c> is worked out from the two and returned.
+    /// </para>
+    /// </summary>
+    /// <response code="200">The saved entry, with its sheet's id, code and period.</response>
+    /// <response code="400">The payload failed validation, the user is not on the project, the date is outside the project's dates, the project is missing its start date or frequency, the entry is another user's, or the sheet is already submitted.</response>
+    /// <response code="404">A <c>timesheetProjectTimeLogId</c> was sent, but no live entry has it.</response>
+    [HttpPost("add-edit-timesheet-project-time-log")]
+    [ProducesResponseType(typeof(ApiResponse<TimesheetProjectTimeLogResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> AddEditTimesheetProjectTimeLog(
+        [FromBody] TimesheetProjectTimeLogSaveRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await _timesheetProjectService.SaveProjectTimeLogAsync(request, cancellationToken);
+        return Ok(ApiResponse.Ok(result, "Time log saved."));
+    }
+
+    /// <summary>
+    /// Soft-deletes a time entry, by <c>timesheetProjectTimeLogId</c>. The row
+    /// is kept, stamped with <c>IsDelete</c> = 1, <c>DeletedDate</c> and
+    /// <c>DeletedBy</c>, and its sheet's totals drop by its minutes. The sheet
+    /// itself stays, even when it is left empty.
+    /// <para>
+    /// A POST rather than an HTTP DELETE, matching the other removes here:
+    /// every argument in this API travels in the payload.
+    /// </para>
+    /// </summary>
+    /// <response code="200">The entry was removed.</response>
+    /// <response code="400">An id that is not greater than zero, the entry is another user's, or its sheet is already submitted.</response>
+    /// <response code="404">No live entry has that id; removing one twice is not a silent success.</response>
+    [HttpPost("remove-timesheet-project-time-log")]
+    [ProducesResponseType(typeof(ApiResponse<object?>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> RemoveTimesheetProjectTimeLog(
+        [FromBody] TimesheetProjectTimeLogDeleteRequest request,
+        CancellationToken cancellationToken)
+    {
+        await _timesheetProjectService.DeleteProjectTimeLogAsync(request, cancellationToken);
+        return Ok(ApiResponse.Ok("Time log removed."));
+    }
+
+    #endregion
+
+    #region Project Time Sheet
+
+    /// <summary>
+    /// Returns project timesheets, ordered by period, then project name, then
+    /// user - one per user, project and submission period.
+    /// <para>
+    /// Filter by user, by project, by organisation, or any combination. A
+    /// filter left out or sent as <c>0</c> is not applied; at least one is
+    /// required.
+    /// </para>
+    /// <para>
+    /// A period with time logged is listed with the code, entry count and
+    /// time from <c>dbo.TimesheetProjectTimeLog</c>. A period with no time
+    /// logged - of each user on each project, from the period they joined it
+    /// in up to the current one - is listed with <c>isCalculated</c> = true, no
+    /// <c>timesheetProjectSubmissionId</c>, zero time, and the code it is
+    /// predicted to get, in the sequence after the latest PSHT code. Codes are
+    /// predicted across the whole organisation, so a sheet shows the same code
+    /// whichever filter lists it, and no two users are shown the same one. A
+    /// sheet submitted with no time keeps the code it was submitted with.
+    /// </para>
+    /// <para>
+    /// <c>isPeriodEnded</c> is false only for the period still running. A
+    /// predicted code is not reserved: if another sheet is opened before this
+    /// one is submitted, the codes after it move on by one.
+    /// </para>
+    /// </summary>
+    /// <param name="userID">The user whose sheets to list. Optional when <c>projectID</c> or <c>orgID</c> is sent.</param>
+    /// <param name="projectID">The project whose sheets to list. Optional when <c>userID</c> or <c>orgID</c> is sent.</param>
+    /// <param name="orgID">The organisation whose sheets to list. Optional when <c>userID</c> or <c>projectID</c> is sent.</param>
+    /// <response code="200">The sheets. None matching is an empty list, not a 404.</response>
+    /// <response code="400">No filter was sent, or one is negative.</response>
+    [HttpGet("get-timesheet-project-sheet")]
+    [ProducesResponseType(typeof(ApiResponse<IReadOnlyList<TimesheetProjectSheetResponse>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> GetTimesheetProjectSheet(
+        // Query string rather than route segments: any of them may be left out.
+        [FromQuery] int? userID,
+        [FromQuery] int? projectID,
+        [FromQuery] int? orgID,
+        CancellationToken cancellationToken)
+    {
+        var result = await _timesheetProjectService.GetProjectSheetListAsync(userID, projectID, orgID, cancellationToken);
+        return Ok(ApiResponse.Ok(result));
+    }
+
+    /// <summary>
+    /// Submits a project timesheet. Send <c>userId</c> (whose sheet),
+    /// <c>projectId</c>, <c>addedBy</c> (who is submitting) and, optionally, a
+    /// <c>sheetSubmissionCode</c> from
+    /// <c>get-timesheet-project-sheet</c>. No period is sent: it is worked out
+    /// from the code, or from the project's start date and frequency.
+    /// <list type="bullet">
+    /// <item><b>A code with time logged</b> (or already saved): that sheet.</item>
+    /// <item><b>A calculated code</b>: the period the get predicted it for. The
+    /// sheet is created and submitted with no time.</item>
+    /// <item><b>No code</b>: the most recent pending or rejected period of the
+    /// project, up to the current one.</item>
+    /// </list>
+    /// <para>
+    /// A calculated code moves when any timesheet is opened before it is
+    /// submitted, so get the sheets again right before submitting one; a code
+    /// that no longer matches is a 400 rather than a guess. The response
+    /// carries the period and code actually submitted.
+    /// </para>
+    /// <para>
+    /// The totals are taken from the time log at the moment of submitting, and
+    /// the submit is recorded in <c>dbo.TimesheetProjectSubmissionAuditLog</c>.
+    /// A pending sheet can be submitted, and a rejected one resubmitted; once
+    /// submitted, its time can no longer be changed.
+    /// </para>
+    /// </summary>
+    /// <response code="200">The submitted sheet, with its period and real code.</response>
+    /// <response code="400">No user or project, the code is not a sheet of this user and project, the project is not set up for submission, or the user is not on it.</response>
+    /// <response code="409">The sheet is already submitted or approved, or with no code there is nothing left to submit.</response>
+    [HttpPost("submit-timesheet-project-sheet")]
+    [ProducesResponseType(typeof(ApiResponse<TimesheetProjectSheetResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> SubmitTimesheetProjectSheet(
+        [FromBody] TimesheetProjectSheetSubmitRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await _timesheetProjectService.SubmitProjectSheetAsync(request, cancellationToken);
+        return Ok(ApiResponse.Ok(result, $"Timesheet {result.SheetSubmissionCode} submitted."));
+    }
+
+    /// <summary>
+    /// Approves or rejects a submitted project timesheet: <c>statusId</c> 2 to
+    /// approve, 3 to reject with a <c>rejectionReason</c>. The change is
+    /// recorded in <c>dbo.TimesheetProjectSubmissionAuditLog</c>.
+    /// <para>
+    /// Only a submitted sheet can be approved or rejected. An approved sheet is
+    /// final; a rejected one goes back to the user, who can change its time
+    /// and resubmit it.
+    /// </para>
+    /// </summary>
+    /// <response code="200">The sheet after the change.</response>
+    /// <response code="400">The payload failed validation - every failing field is listed.</response>
+    /// <response code="404">No sheet has that id.</response>
+    /// <response code="409">The sheet is not submitted.</response>
+    [HttpPost("update-timesheet-project-sheet-status")]
+    [ProducesResponseType(typeof(ApiResponse<TimesheetProjectSheetResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> UpdateTimesheetProjectSheetStatus(
+        [FromBody] TimesheetProjectSheetStatusUpdateRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await _timesheetProjectService.UpdateProjectSheetStatusAsync(request, cancellationToken);
+        return Ok(ApiResponse.Ok(result, $"Timesheet {result.SheetSubmissionCode} {result.StatusName.ToLowerInvariant()}."));
+    }
+
+    #endregion
 }
