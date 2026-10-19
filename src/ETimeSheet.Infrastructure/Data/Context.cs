@@ -156,6 +156,25 @@ public class Context : DbContext
     /// </summary>
     public DbSet<TimesheetRoleAssignment> Timesheet_role_assignment { get; set; } = null!;
 
+    /// <summary>
+    /// The <c>dbo.TimesheetProjectSubmission</c> table - one sheet per user,
+    /// project and submission period. Rows with <c>IsDelete</c> = 1 are hidden
+    /// by a query filter.
+    /// </summary>
+    public DbSet<TimesheetProjectSubmission> TimesheetProjectSubmission { get; set; } = null!;
+
+    /// <summary>
+    /// The <c>dbo.TimesheetProjectTimeLog</c> table - the time entries on each
+    /// project sheet. Rows with <c>IsDelete</c> = 1 are hidden by a query filter.
+    /// </summary>
+    public DbSet<TimesheetProjectTimeLog> TimesheetProjectTimeLog { get; set; } = null!;
+
+    /// <summary>
+    /// The <c>dbo.TimesheetProjectSubmissionAuditLog</c> table - one row per
+    /// submit, approve and reject of a project sheet. Append-only.
+    /// </summary>
+    public DbSet<TimesheetProjectSubmissionAuditLog> TimesheetProjectSubmissionAuditLog { get; set; } = null!;
+
     // =====================================================================
     // STORED PROCEDURES  -  property name == procedure name
     //

@@ -1636,3 +1636,407 @@ public class TimesheetRoleAssignmentDeleteRequest
     /// <example>2</example>
     public int AssignmentId { get; set; }
 }
+
+/// <summary>
+/// One time entry on a project sheet, as <c>get-timesheet-project-time-log</c>
+/// and <c>add-edit-timesheet-project-time-log</c> return it - the entry from
+/// <c>dbo.TimesheetProjectTimeLog</c> with the sheet it belongs to from
+/// <c>dbo.TimesheetProjectSubmission</c>.
+/// </summary>
+public class TimesheetProjectTimeLogResponse
+{
+    /// <example>15</example>
+    public int TimesheetProjectTimeLogId { get; set; }
+
+    /// <summary>The sheet the entry is on.</summary>
+    /// <example>4</example>
+    public int TimesheetProjectSubmissionId { get; set; }
+
+    /// <summary>The sheet's code, shared by every entry of the same user, project and period.</summary>
+    /// <example>PSHT0004</example>
+    public string SheetSubmissionCode { get; set; } = string.Empty;
+
+    /// <summary>The sheet's status: 0 Pending, 1 Submitted, 2 Approved, 3 Rejected.</summary>
+    /// <example>0</example>
+    public int SubmissionStatusId { get; set; }
+
+    /// <summary>The first day of the sheet's period.</summary>
+    public DateTime PeriodStartDate { get; set; }
+
+    /// <summary>The last day of the sheet's period, inclusive.</summary>
+    public DateTime PeriodEndDate { get; set; }
+
+    /// <example>7</example>
+    public int UserId { get; set; }
+
+    /// <example>12</example>
+    public int ProjectId { get; set; }
+
+    public DateTime LogDate { get; set; }
+
+    /// <summary>Written as <c>hh:mm:ss</c> on the 24-hour clock.</summary>
+    public TimeSpan? StartTime { get; set; }
+
+    /// <summary>Written as <c>hh:mm:ss</c> on the 24-hour clock.</summary>
+    public TimeSpan? EndTime { get; set; }
+
+    /// <summary>Worked out from <see cref="StartTime"/> and <see cref="EndTime"/>.</summary>
+    /// <example>90</example>
+    public int DurationMinutes { get; set; }
+
+    /// <summary><see cref="DurationMinutes"/> in hours, rounded to 2 places.</summary>
+    /// <example>1.5</example>
+    public decimal DurationHours { get; set; }
+
+    public string? Description { get; set; }
+
+    /// <summary>1 = Save, 2 = Draft.</summary>
+    /// <example>1</example>
+    public int Status { get; set; }
+
+    public DateTime CreateDate { get; set; }
+
+    public int CreatedBy { get; set; }
+
+    public DateTime? UpdateDate { get; set; }
+
+    public int? UpdatedBy { get; set; }
+}
+
+/// <summary>
+/// One row of the time entry list - a live entry joined to its live sheet -
+/// as <c>ITimesheetProjectRepository.GetProjectTimeLogListAsync</c> reads it.
+/// </summary>
+public class TimesheetProjectTimeLogDetail
+{
+    public int TimesheetProjectTimeLogId { get; set; }
+
+    public int TimesheetProjectSubmissionId { get; set; }
+
+    public string SheetSubmissionCode { get; set; } = string.Empty;
+
+    public int SubmissionStatusId { get; set; }
+
+    public DateTime PeriodStartDate { get; set; }
+
+    public DateTime PeriodEndDate { get; set; }
+
+    public int UserId { get; set; }
+
+    public int ProjectId { get; set; }
+
+    public DateTime LogDate { get; set; }
+
+    public TimeSpan? StartTime { get; set; }
+
+    public TimeSpan? EndTime { get; set; }
+
+    public int DurationMinutes { get; set; }
+
+    public string? Description { get; set; }
+
+    public int Status { get; set; }
+
+    public DateTime CreateDate { get; set; }
+
+    public int CreatedBy { get; set; }
+
+    public DateTime? UpdateDate { get; set; }
+
+    public int? UpdatedBy { get; set; }
+}
+
+/// <summary>
+/// Body of <c>add-edit-timesheet-project-time-log</c>.
+/// <para>
+/// No sheet code is sent: the entry is put on the user's sheet for the
+/// project's submission period that contains <see cref="LogDate"/>, and that
+/// sheet is opened - with the next <c>PSHT</c> code - if it does not exist yet.
+/// </para>
+/// <para>
+/// No duration is sent: it is worked out from <see cref="StartTime"/> and
+/// <see cref="EndTime"/>, which are both required, on the 24-hour clock.
+/// </para>
+/// <para>
+/// Validated by <c>TimesheetProjectService</c>, not by a FluentValidation
+/// validator.
+/// </para>
+/// </summary>
+public class TimesheetProjectTimeLogSaveRequest
+{
+    /// <summary>Absent or <c>0</c> to add an entry; the id of a live entry of this user to edit it.</summary>
+    /// <example>0</example>
+    public int TimesheetProjectTimeLogId { get; set; }
+
+    /// <summary>The user the time is logged for. Required, greater than 0.</summary>
+    /// <example>7</example>
+    public int UserId { get; set; }
+
+    /// <summary>A project the user is assigned to. Required, greater than 0.</summary>
+    /// <example>12</example>
+    public int ProjectId { get; set; }
+
+    /// <summary>The day worked. Required; only the date part is used.</summary>
+    /// <example>2026-10-20</example>
+    public DateTime LogDate { get; set; }
+
+    /// <summary>
+    /// Start of the work. Required, in <c>hh:mm:ss</c> on the 24-hour clock -
+    /// <c>00:00:00</c> to <c>23:59:59</c>; no AM/PM.
+    /// </summary>
+    /// <example>13:00:00</example>
+    public string? StartTime { get; set; }
+
+    /// <summary>
+    /// End of the work. Required, in <c>hh:mm:ss</c> on the 24-hour clock, on
+    /// the same day and at least one minute after <see cref="StartTime"/>.
+    /// </summary>
+    /// <example>14:30:00</example>
+    public string? EndTime { get; set; }
+
+    /// <summary>What was done. Optional.</summary>
+    /// <example>Sprint planning</example>
+    public string? Description { get; set; }
+
+    /// <summary>1 = Save, 2 = Draft. Required.</summary>
+    /// <example>1</example>
+    public int Status { get; set; }
+
+    /// <summary>
+    /// The user performing the save, written to <c>CreatedBy</c> on add and
+    /// <c>UpdatedBy</c> on edit. Required, greater than 0. <b>Temporary</b>:
+    /// it comes from the token once authentication is on.
+    /// </summary>
+    /// <example>7</example>
+    public int AddedBy { get; set; }
+}
+
+/// <summary>
+/// Body of <c>remove-timesheet-project-time-log</c>. A soft delete: the entry
+/// is kept, stamped with <c>IsDelete</c> = 1, <c>DeletedDate</c> and
+/// <c>DeletedBy</c>.
+/// <para>
+/// Validated by <c>TimesheetProjectService</c>, not by a FluentValidation
+/// validator.
+/// </para>
+/// </summary>
+public class TimesheetProjectTimeLogDeleteRequest
+{
+    /// <summary>The entry to remove. Required, greater than 0.</summary>
+    /// <example>15</example>
+    public int TimesheetProjectTimeLogId { get; set; }
+
+    /// <summary>The user the entry belongs to. Required, greater than 0.</summary>
+    /// <example>7</example>
+    public int UserId { get; set; }
+
+    /// <summary>
+    /// The user performing the delete, written to <c>DeletedBy</c>. Required,
+    /// greater than 0. <b>Temporary</b>: it comes from the token once
+    /// authentication is on.
+    /// </summary>
+    /// <example>7</example>
+    public int AddedBy { get; set; }
+}
+
+/// <summary>
+/// One project sheet - a user's timesheet for one project and one submission
+/// period - as <c>get-timesheet-project-sheet</c>,
+/// <c>submit-timesheet-project-sheet</c> and
+/// <c>update-timesheet-project-sheet-status</c> return it.
+/// <para>
+/// A sheet is either <b>stored</b> - it has a row in
+/// <c>dbo.TimesheetProjectSubmission</c>, because time was logged on it or it
+/// was submitted, and its code is the one its entries in
+/// <c>dbo.TimesheetProjectTimeLog</c> carry - or <b>calculated</b>: a period
+/// up to the current one with no time logged and no row. A calculated sheet
+/// has no <see cref="TimesheetProjectSubmissionId"/>, zero time, and a
+/// <see cref="SheetSubmissionCode"/> that is a prediction of the code it will
+/// be given when submitted, not a reservation.
+/// </para>
+/// </summary>
+public class TimesheetProjectSheetResponse
+{
+    /// <summary>The stored sheet's id; null for a calculated sheet.</summary>
+    /// <example>4</example>
+    public int? TimesheetProjectSubmissionId { get; set; }
+
+    /// <summary>
+    /// The code from the sheet's time log entries; for a stored sheet with no
+    /// live entry, its own code; for a calculated sheet, the code it is
+    /// predicted to get.
+    /// </summary>
+    /// <example>PSHT0004</example>
+    public string SheetSubmissionCode { get; set; } = string.Empty;
+
+    /// <summary>True for a period with no row yet: nothing logged, not submitted.</summary>
+    /// <example>false</example>
+    public bool IsCalculated { get; set; }
+
+    /// <summary>True once <see cref="PeriodEndDate"/> has passed; false for the period still running.</summary>
+    /// <example>true</example>
+    public bool IsPeriodEnded { get; set; }
+
+    /// <summary>0 Pending, 1 Submitted, 2 Approved, 3 Rejected. A calculated sheet is 0.</summary>
+    /// <example>0</example>
+    public int StatusId { get; set; }
+
+    /// <example>Pending</example>
+    public string StatusName { get; set; } = string.Empty;
+
+    /// <example>7</example>
+    public int UserId { get; set; }
+
+    /// <example>12</example>
+    public int ProjectId { get; set; }
+
+    /// <example>PR0012</example>
+    public string? ProjectCode { get; set; }
+
+    /// <example>Website redesign</example>
+    public string? ProjectName { get; set; }
+
+    /// <summary>The first day of the period.</summary>
+    public DateTime PeriodStartDate { get; set; }
+
+    /// <summary>The last day of the period, inclusive.</summary>
+    public DateTime PeriodEndDate { get; set; }
+
+    /// <summary>The live entries on the sheet, from <c>dbo.TimesheetProjectTimeLog</c>.</summary>
+    /// <example>3</example>
+    public int TimeLogCount { get; set; }
+
+    /// <summary>Their minutes, from <c>dbo.TimesheetProjectTimeLog</c>.</summary>
+    /// <example>450</example>
+    public int TotalMinutesLogged { get; set; }
+
+    /// <summary><see cref="TotalMinutesLogged"/> in hours, rounded to 2 places.</summary>
+    /// <example>7.5</example>
+    public decimal TotalHoursLogged { get; set; }
+
+    public int? SubmittedBy { get; set; }
+
+    public DateTime? SubmittedDate { get; set; }
+
+    public int? ApprovedBy { get; set; }
+
+    public DateTime? ApprovedDate { get; set; }
+
+    public int? RejectedBy { get; set; }
+
+    public DateTime? RejectedDate { get; set; }
+
+    public string? RejectionReason { get; set; }
+}
+
+/// <summary>
+/// One stored sheet of a user, with the time on it summed from its live
+/// entries, as <c>ITimesheetProjectRepository.GetProjectSheetListAsync</c>
+/// reads it.
+/// </summary>
+public class TimesheetProjectSheetDetail
+{
+    public int TimesheetProjectSubmissionId { get; set; }
+
+    public string SheetSubmissionCode { get; set; } = string.Empty;
+
+    public int StatusId { get; set; }
+
+    public int UserId { get; set; }
+
+    public int ProjectId { get; set; }
+
+    public DateTime PeriodStartDate { get; set; }
+
+    public DateTime PeriodEndDate { get; set; }
+
+    public int TimeLogCount { get; set; }
+
+    public int TotalMinutesLogged { get; set; }
+
+    public int? SubmittedBy { get; set; }
+
+    public DateTime? SubmittedDate { get; set; }
+
+    public int? ApprovedBy { get; set; }
+
+    public DateTime? ApprovedDate { get; set; }
+
+    public int? RejectedBy { get; set; }
+
+    public DateTime? RejectedDate { get; set; }
+
+    public string? RejectionReason { get; set; }
+}
+
+/// <summary>
+/// Body of <c>submit-timesheet-project-sheet</c>. No period is sent: it is
+/// worked out from the code, or from the project's start date and frequency.
+/// <para>
+/// With a <see cref="SheetSubmissionCode"/> from <c>get-timesheet-project-sheet</c>,
+/// that sheet is submitted - a stored sheet by its code, a calculated one by
+/// the period the code was predicted for, which is created and submitted with
+/// no time. Without one, the most recent pending or rejected period of the
+/// project, up to the current one, is submitted.
+/// </para>
+/// <para>
+/// Validated by <c>TimesheetProjectService</c>, not by a FluentValidation
+/// validator.
+/// </para>
+/// </summary>
+public class TimesheetProjectSheetSubmitRequest
+{
+    /// <summary>
+    /// The sheet's code, as the get returned it. Optional: left out, the most
+    /// recent unsubmitted period of <see cref="ProjectId"/> is submitted.
+    /// </summary>
+    /// <example>PSHT0004</example>
+    public string? SheetSubmissionCode { get; set; }
+
+    /// <summary>The user whose sheet it is. Required, greater than 0.</summary>
+    /// <example>7</example>
+    public int UserId { get; set; }
+
+    /// <summary>The sheet's project. Required, greater than 0.</summary>
+    /// <example>12</example>
+    public int ProjectId { get; set; }
+
+    /// <summary>
+    /// The user performing the submit, written to <c>SubmittedBy</c> and the
+    /// audit log. Required, greater than 0. <b>Temporary</b>: it comes from
+    /// the token once authentication is on.
+    /// </summary>
+    /// <example>7</example>
+    public int AddedBy { get; set; }
+}
+
+/// <summary>
+/// Body of <c>update-timesheet-project-sheet-status</c> - approves or rejects
+/// a submitted sheet.
+/// <para>
+/// Validated by <c>TimesheetProjectService</c>, not by a FluentValidation
+/// validator.
+/// </para>
+/// </summary>
+public class TimesheetProjectSheetStatusUpdateRequest
+{
+    /// <summary>The submitted sheet. Required, greater than 0.</summary>
+    /// <example>4</example>
+    public int TimesheetProjectSubmissionId { get; set; }
+
+    /// <summary>2 = Approved, 3 = Rejected.</summary>
+    /// <example>2</example>
+    public int StatusId { get; set; }
+
+    /// <summary>Why the sheet is rejected. Required when rejecting, 500 characters or fewer; ignored when approving.</summary>
+    /// <example>Missing Friday's hours.</example>
+    public string? RejectionReason { get; set; }
+
+    /// <summary>
+    /// The user approving or rejecting, written to <c>ApprovedBy</c> or
+    /// <c>RejectedBy</c> and the audit log. Required, greater than 0.
+    /// <b>Temporary</b>: it comes from the token once authentication is on.
+    /// </summary>
+    /// <example>3</example>
+    public int AddedBy { get; set; }
+}

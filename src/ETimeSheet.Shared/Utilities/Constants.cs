@@ -231,6 +231,52 @@ public static class Constants
         }
     }
 
+    /// <summary>Coded column values for the <c>dbo.TimesheetProjectSubmission</c> table.</summary>
+    public static class TimesheetProjectSubmission
+    {
+        /// <summary>
+        /// Values of the <c>dbo.TimesheetProjectSubmission.StatusID</c> column.
+        /// <para>
+        /// <b>0 = Pending, 1 = Submitted, 2 = Approved, 3 = Rejected.</b> These
+        /// are persisted, so they can never be renumbered.
+        /// </para>
+        /// </summary>
+        public static class Status
+        {
+            /// <summary>A sheet still open for time to be logged. Stored as <c>0</c>.</summary>
+            public const int Pending = 0;
+
+            /// <summary>A submitted sheet. Stored as <c>1</c>.</summary>
+            public const int Submitted = 1;
+
+            /// <summary>An approved sheet. Stored as <c>2</c>.</summary>
+            public const int Approved = 2;
+
+            /// <summary>A rejected sheet, open again for changes. Stored as <c>3</c>.</summary>
+            public const int Rejected = 3;
+        }
+    }
+
+    /// <summary>Coded column values for the <c>dbo.TimesheetProjectTimeLog</c> table.</summary>
+    public static class TimesheetProjectTimeLog
+    {
+        /// <summary>
+        /// Values of the <c>dbo.TimesheetProjectTimeLog.Status</c> column.
+        /// <para>
+        /// <b>1 = Save, 2 = Draft.</b> These are persisted, so they can never
+        /// be renumbered.
+        /// </para>
+        /// </summary>
+        public static class Status
+        {
+            /// <summary>A saved entry. Stored as <c>1</c>.</summary>
+            public const int Save = 1;
+
+            /// <summary>A draft entry. Stored as <c>2</c>.</summary>
+            public const int Draft = 2;
+        }
+    }
+
     /// <summary>
     /// The contents of the <c>dbo.EmailType</c> lookup table - reference data,
     /// inserted with the schema and never written by the API.

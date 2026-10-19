@@ -1,4 +1,5 @@
 using ETimeSheet.Application.Models;
+using ETimeSheet.Application.Models.Entities;
 
 namespace ETimeSheet.Application.Common.Mapping;
 
@@ -255,4 +256,89 @@ internal static class TimesheetProjectMappings
         UpdatedDate = assignment.UpdatedDate,
         UpdatedBy = assignment.UpdatedBy,
     };
+
+    /// <summary>Projects a time entry row from the time entry list to the time entry response.</summary>
+    internal static TimesheetProjectTimeLogResponse ToResponse(this TimesheetProjectTimeLogDetail timeLog) => new()
+    {
+        TimesheetProjectTimeLogId = timeLog.TimesheetProjectTimeLogId,
+        TimesheetProjectSubmissionId = timeLog.TimesheetProjectSubmissionId,
+        SheetSubmissionCode = timeLog.SheetSubmissionCode,
+        SubmissionStatusId = timeLog.SubmissionStatusId,
+        PeriodStartDate = timeLog.PeriodStartDate,
+        PeriodEndDate = timeLog.PeriodEndDate,
+        UserId = timeLog.UserId,
+        ProjectId = timeLog.ProjectId,
+        LogDate = timeLog.LogDate,
+        StartTime = timeLog.StartTime,
+        EndTime = timeLog.EndTime,
+        DurationMinutes = timeLog.DurationMinutes,
+        DurationHours = ToHours(timeLog.DurationMinutes),
+        Description = timeLog.Description,
+        Status = timeLog.Status,
+        CreateDate = timeLog.CreateDate,
+        CreatedBy = timeLog.CreatedBy,
+        UpdateDate = timeLog.UpdateDate,
+        UpdatedBy = timeLog.UpdatedBy,
+    };
+
+    /// <summary>Projects a saved time entry and the sheet it is on to the time entry response.</summary>
+    internal static TimesheetProjectTimeLogResponse ToResponse(
+        this TimesheetProjectTimeLog timeLog,
+        TimesheetProjectSubmission submission) => new()
+    {
+        TimesheetProjectTimeLogId = timeLog.TimesheetProjectTimeLogId,
+        TimesheetProjectSubmissionId = submission.TimesheetProjectSubmissionId,
+        SheetSubmissionCode = submission.SheetSubmissionCode,
+        SubmissionStatusId = submission.StatusId,
+        PeriodStartDate = submission.PeriodStartDate,
+        PeriodEndDate = submission.PeriodEndDate,
+        UserId = submission.UserId,
+        ProjectId = submission.ProjectId,
+        LogDate = timeLog.LogDate,
+        StartTime = timeLog.StartTime,
+        EndTime = timeLog.EndTime,
+        DurationMinutes = timeLog.DurationMinutes,
+        DurationHours = ToHours(timeLog.DurationMinutes),
+        Description = timeLog.Description,
+        Status = timeLog.Status,
+        CreateDate = timeLog.CreateDate,
+        CreatedBy = timeLog.CreatedBy,
+        UpdateDate = timeLog.UpdateDate,
+        UpdatedBy = timeLog.UpdatedBy,
+    };
+
+    /// <summary>
+    /// Projects a stored sheet to the sheet response. <paramref name="project"/>
+    /// is null only for a sheet whose project no longer exists.
+    /// </summary>
+    internal static TimesheetProjectSheetResponse ToResponse(
+        this TimesheetProjectSheetDetail sheet,
+        TimesheetProject? project,
+        string statusName) => new()
+    {
+        TimesheetProjectSubmissionId = sheet.TimesheetProjectSubmissionId,
+        SheetSubmissionCode = sheet.SheetSubmissionCode,
+        IsCalculated = false,
+        StatusId = sheet.StatusId,
+        StatusName = statusName,
+        UserId = sheet.UserId,
+        ProjectId = sheet.ProjectId,
+        ProjectCode = project?.Code,
+        ProjectName = project?.ProjectName,
+        PeriodStartDate = sheet.PeriodStartDate,
+        PeriodEndDate = sheet.PeriodEndDate,
+        TimeLogCount = sheet.TimeLogCount,
+        TotalMinutesLogged = sheet.TotalMinutesLogged,
+        TotalHoursLogged = ToHours(sheet.TotalMinutesLogged),
+        SubmittedBy = sheet.SubmittedBy,
+        SubmittedDate = sheet.SubmittedDate,
+        ApprovedBy = sheet.ApprovedBy,
+        ApprovedDate = sheet.ApprovedDate,
+        RejectedBy = sheet.RejectedBy,
+        RejectedDate = sheet.RejectedDate,
+        RejectionReason = sheet.RejectionReason,
+    };
+
+    /// <summary>Minutes as hours, rounded to 2 places: 90 is 1.5.</summary>
+    internal static decimal ToHours(int minutes) => decimal.Round(minutes / 60m, 2);
 }
