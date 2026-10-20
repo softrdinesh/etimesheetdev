@@ -453,6 +453,7 @@ public interface ITimesheetProjectRepository
         bool isRoleSetup,
         bool isUserSetup,
         bool isTimeLog,
+        bool isViewTimesheet,
         int loginUserId,
         DateTime now,
         CancellationToken cancellationToken = default);

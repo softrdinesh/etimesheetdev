@@ -5087,6 +5087,7 @@ then `assignmentId`.
 | `isRoleSetup` | bool \| null | `Mod_IsRoleSetup` |
 | `isUserSetup` | bool \| null | `Mod_IsUsersetup` |
 | `isTimeLog` | bool \| null | `Mod_IsTimeLog` |
+| `isViewTimesheet` | bool \| null | `Mod_IsViewTimesheet` |
 | `createDate` | datetime \| null | |
 | `createdBy` | int \| null | |
 | `updatedDate` | datetime \| null | `null` until the first edit |
@@ -5113,6 +5114,7 @@ then `assignmentId`.
       "isRoleSetup": false,
       "isUserSetup": false,
       "isTimeLog": true,
+      "isViewTimesheet": true,
       "createDate": "2026-10-18T10:41:07.233",
       "createdBy": 7,
       "updatedDate": null,
@@ -5143,7 +5145,7 @@ database yet.
 
 **Purpose** — Add the access setup of a user, or edit one — **one endpoint for
 both**. `assignmentId` `0` (or absent) adds; an existing `assignmentId` edits
-it. An edit overwrites the user and all eight module flags, so send them all.
+it. An edit overwrites the user and all nine module flags, so send them all.
 Written through `dbo.spc_AddEditUserAccessSetup`.
 
 **One user has only one setup.** Adding a second setup for a user, or editing
@@ -5158,7 +5160,7 @@ again under a lock. The table does not enforce it — see
 | `assignmentId` | int \| null | no | `0` / absent to add; `> 0` to edit |
 | `organizationId` | int | yes | `> 0`. **Not stored** — the table has no organisation column — but the user must be a live user of it |
 | `userId` | int | yes | `> 0`; a live user (`dbo.Signup.IsDelete = 0`) of `organizationId` with no other setup |
-| `isClientSetup`, `isProject`, `isProjectBudget`, `isProjectCategory`, `isStatusSetup`, `isRoleSetup`, `isUserSetup`, `isTimeLog` | bool | no | Absent is `false` |
+| `isClientSetup`, `isProject`, `isProjectBudget`, `isProjectCategory`, `isStatusSetup`, `isRoleSetup`, `isUserSetup`, `isTimeLog`, `isViewTimesheet` | bool | no | Absent is `false` |
 | `loginUserId` | int | yes | `> 0`. The user performing the save — written to `CreatedBy` on add, `Updatedby` on edit. Temporary — from the token once authentication is on |
 
 #### Example request
@@ -5176,6 +5178,7 @@ again under a lock. The table does not enforce it — see
   "isRoleSetup": false,
   "isUserSetup": false,
   "isTimeLog": true,
+  "isViewTimesheet": true,
   "loginUserId": 7
 }
 ```

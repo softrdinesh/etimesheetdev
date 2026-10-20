@@ -912,7 +912,7 @@ public class Context : DbContext
             assignment.ToView(null);
 
             // Aliased by the procedure: Signup.Name AS UserName, the Mod_
-            // columns AS IsClientSetup .. IsTimeLog, Updatedby AS UpdatedBy.
+            // columns AS IsClientSetup .. IsViewTimesheet, Updatedby AS UpdatedBy.
             assignment.Property(row => row.AssignmentId).HasColumnName("AssignmentID");
             assignment.Property(row => row.UserId).HasColumnName("UserID");
             assignment.Property(row => row.UserName).HasColumnName("UserName");
@@ -926,6 +926,7 @@ public class Context : DbContext
             assignment.Property(row => row.IsRoleSetup).HasColumnName("IsRoleSetup");
             assignment.Property(row => row.IsUserSetup).HasColumnName("IsUserSetup");
             assignment.Property(row => row.IsTimeLog).HasColumnName("IsTimeLog");
+            assignment.Property(row => row.IsViewTimesheet).HasColumnName("IsViewTimesheet");
             assignment.Property(row => row.CreateDate).HasColumnName("CreateDate").HasColumnType("datetime");
             assignment.Property(row => row.CreatedBy).HasColumnName("CreatedBy");
             assignment.Property(row => row.UpdatedDate).HasColumnName("UpdatedDate").HasColumnType("datetime");
@@ -951,6 +952,7 @@ public class Context : DbContext
             assignment.Property(row => row.IsRoleSetup).HasColumnName("IsRoleSetup");
             assignment.Property(row => row.IsUserSetup).HasColumnName("IsUserSetup");
             assignment.Property(row => row.IsTimeLog).HasColumnName("IsTimeLog");
+            assignment.Property(row => row.IsViewTimesheet).HasColumnName("IsViewTimesheet");
             assignment.Property(row => row.CreateDate).HasColumnName("CreateDate").HasColumnType("datetime");
             assignment.Property(row => row.CreatedBy).HasColumnName("CreatedBy");
             assignment.Property(row => row.UpdatedDate).HasColumnName("UpdatedDate").HasColumnType("datetime");

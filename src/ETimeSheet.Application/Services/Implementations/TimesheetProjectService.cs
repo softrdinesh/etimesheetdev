@@ -1830,6 +1830,7 @@ public class TimesheetProjectService : ITimesheetProjectService
                 request.IsRoleSetup,
                 request.IsUserSetup,
                 request.IsTimeLog,
+                request.IsViewTimesheet,
                 request.LoginUserId,
                 _dateTimeProvider.UtcNow,
                 cancellationToken)

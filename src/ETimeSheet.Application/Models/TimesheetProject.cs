@@ -1452,6 +1452,8 @@ public class TimesheetRoleAssignmentResponse
 
     public bool? IsTimeLog { get; set; }
 
+    public bool? IsViewTimesheet { get; set; }
+
     public DateTime? CreateDate { get; set; }
 
     public int? CreatedBy { get; set; }
@@ -1493,6 +1495,8 @@ public class TimesheetRoleAssignmentDetail
     public bool? IsUserSetup { get; set; }
 
     public bool? IsTimeLog { get; set; }
+
+    public bool? IsViewTimesheet { get; set; }
 
     public DateTime? CreateDate { get; set; }
 
@@ -1567,6 +1571,10 @@ public class TimesheetRoleAssignmentSaveRequest
     /// <example>true</example>
     public bool IsTimeLog { get; set; }
 
+    /// <summary>Whether the user may use the View Timesheet module. Left out is <c>false</c>.</summary>
+    /// <example>true</example>
+    public bool IsViewTimesheet { get; set; }
+
     /// <summary>
     /// The user performing the save, written to <c>CreatedBy</c> on add and
     /// <c>Updatedby</c> on edit. Required, greater than 0. <b>Temporary</b>:
@@ -1609,6 +1617,8 @@ public class TimesheetRoleAssignmentSaveDetail
     public bool? IsUserSetup { get; set; }
 
     public bool? IsTimeLog { get; set; }
+
+    public bool? IsViewTimesheet { get; set; }
 
     public DateTime? CreateDate { get; set; }
 

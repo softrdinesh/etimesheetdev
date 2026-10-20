@@ -3,6 +3,8 @@
     Recorded: 2026-10-18 (sp_help column list supplied by the database owner,
               who created the table by hand; AssignmentID is IDENTITY(1,1) as
               stated by the owner)
+    Revised:  2026-10-20 (Mod_IsViewTimesheet bit NULL added as the last
+              column by the database owner)
 
     Which modules of the application a user may use - one bit per module -
     with audit columns.
@@ -37,6 +39,7 @@
           Mod_IsRoleSetup
           Mod_IsUsersetup        (lower-case "setup")
           Mod_IsTimeLog
+          Mod_IsViewTimesheet    (added 2026-10-20, after Updatedby)
         Map each one by its exact name. 1 presumably grants the module; all
         are nullable, so a module may be neither granted nor refused.
       - Audit columns are irregularly cased too: Updatedby (lower-case "by"),
@@ -76,6 +79,7 @@ CREATE TABLE dbo.Timesheet_role_assignment
     CreateDate              datetime    NULL,
     CreatedBy               int         NULL,
     UpdatedDate             datetime    NULL,
-    Updatedby               int         NULL
+    Updatedby               int         NULL,
+    Mod_IsViewTimesheet     bit         NULL
 );
 GO

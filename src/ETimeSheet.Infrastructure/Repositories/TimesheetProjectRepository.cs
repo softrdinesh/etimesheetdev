@@ -547,6 +547,7 @@ public class TimesheetProjectRepository : ITimesheetProjectRepository
         bool isRoleSetup,
         bool isUserSetup,
         bool isTimeLog,
+        bool isViewTimesheet,
         int loginUserId,
         DateTime now,
         CancellationToken cancellationToken = default)
@@ -566,6 +567,7 @@ public class TimesheetProjectRepository : ITimesheetProjectRepository
                 @PIsRoleSetup = {isRoleSetup},
                 @PIsUserSetup = {isUserSetup},
                 @PIsTimeLog = {isTimeLog},
+                @PIsViewTimesheet = {isViewTimesheet},
                 @PLoginUserID = {loginUserId},
                 @PDate = {now}")
             .ToListAsync(cancellationToken);
