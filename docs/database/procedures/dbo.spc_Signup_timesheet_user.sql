@@ -5,6 +5,8 @@
                added, and written to Max_log_hour_day in BOTH insert branches,
                for the column the owner added to the table the same day.
                create-timesheet-user answers 500 until the owner applies this.
+    Revised:   2026-10-22 - @Projectloclongtitude is now written to
+               ProjectlocLongtitude in the new-user branch, beside the latitude.
 
     Signs a user up to the timesheet and puts them on a project:
       - Email not yet in dbo.Signup: adds the user to dbo.Signup (RoleID 2,
@@ -23,9 +25,9 @@
 
     Recorded as CREATE OR ALTER: the owner supplied it as ALTER PROCEDURE,
     which only works where the procedure already exists. The body below is as
-    supplied, with the 2026-10-18 revision above applied to it - the new
-    parameter is last, so every existing caller is unaffected, and it defaults
-    to NULL, so a caller that does not send it writes no cap.
+    supplied, with the 2026-10-18 and 2026-10-22 revisions above applied to
+    it - the new parameter is last, so every existing caller is unaffected, and
+    it defaults to NULL, so a caller that does not send it writes no cap.
 
     Quirks worth knowing before calling it:
       - NO RESULT. @Code (5999 success / 6000 failure) and @Message are set but
@@ -36,9 +38,9 @@
       - Pwd is HASHBYTES('SHA2_512', @Email) - a hash of the EMAIL, not of a
         password. It is unsalted and derivable by anyone who knows the
         address, so it does not protect the account.
-      - @Projectloclongtitude is accepted but never used. ProjectlocLatitude
-        is written for a new user only, not in the existing-user branch.
-        @Maxloghourday, unlike the latitude, IS written in both branches: an
+      - ProjectlocLatitude and ProjectlocLongtitude are written for a new user
+        only, not in the existing-user branch.
+        @Maxloghourday, unlike the coordinates, IS written in both branches: an
         existing user put on another project gets that project's cap.
       - Nothing stops the same user being put on the same project twice: the
         existing-user branch always inserts.
@@ -81,8 +83,8 @@ BEGIN
   Values(@Fullname,upper(trim(@Email)),@Encrypt_pwd,NULL,GETUTCDATE(),@CountryID,'','',@OrganizationName,@Organizationsize,@Address,@OrgID,0,0,2)
   Select @ID=SCOPE_IDENTITY();
   Insert into dbo.Login(UserID, IsLoginSuccess, LoginErrcnt, LastLogindatetime, CurrentLatitude, CurrentLongtitude) values(@ID,0,0,GETUTCDATE(),'','')
-  Insert into dbo.Timesheet_Users_Project_setup(UserID,ProjectRoleID,Cost_rate_per_hour,Billable_rate_per_hour,CreateDate,CreatedBy,IsDelete,Jobtype,Worklocationrange,ProjectID,ProjectlocLatitude,Max_log_hour_day)
-   values(@ID,@ProjectroleID,@Costrate,@Billrate,GETDATE(),@LoginuserID,0,@Jobtype,@worklocrange,@projectID,@Projectloclatitude,@Maxloghourday)
+  Insert into dbo.Timesheet_Users_Project_setup(UserID,ProjectRoleID,Cost_rate_per_hour,Billable_rate_per_hour,CreateDate,CreatedBy,IsDelete,Jobtype,Worklocationrange,ProjectID,ProjectlocLatitude,ProjectlocLongtitude,Max_log_hour_day)
+   values(@ID,@ProjectroleID,@Costrate,@Billrate,GETDATE(),@LoginuserID,0,@Jobtype,@worklocrange,@projectID,@Projectloclatitude,@Projectloclongtitude,@Maxloghourday)
   SET @Code=5999
   SET @Message='Account created'
 END

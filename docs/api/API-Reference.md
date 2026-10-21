@@ -4281,11 +4281,17 @@ and the reason is logged.
 | `billRate` | decimal | yes | `>= 0` | Billable rate per hour |
 | `workLocationRange` | int \| null | no | `>= 0` | |
 | `projectLocationLatitude` | string \| null | no | a number from -90 to 90, `<= 25` characters | Saved for a **new** user only |
-| `maxLogHoursPerDay` | int \| null | no | `0`–`24` | The most hours a day this assignment may log. **Stored only — nothing enforces it**; see [Known gaps](#known-gaps) 57. Unlike the latitude, it is saved for an existing user too |
+| `projectLocationLongitude` | string \| null | no | a number from -180 to 180, `<= 25` characters | Saved for a **new** user only, and only once the procedure revision below is applied |
+| `maxLogHoursPerDay` | int \| null | no | `0`–`24` | The most hours a day this assignment may log. **Stored only — nothing enforces it**; see [Known gaps](#known-gaps) 57. Unlike the latitude and longitude, it is saved for an existing user too |
 | `createdBy` | int | yes | `> 0` | Temporary — from the token once authentication is on |
 
-The procedure's `@Range` and `@Projectloclongtitude` parameters are **not**
-exposed: the procedure never uses either.
+The procedure's `@Range` parameter is **not** exposed: the procedure never
+uses it.
+
+> `projectLocationLongitude` is passed as `@Projectloclongtitude`. The
+> procedure has always accepted that parameter but, until the owner applies
+> the 2026-10-22 revision, never writes it — the longitude is validated and
+> then silently dropped. The call itself does not fail.
 
 > `maxLogHoursPerDay` is passed as `@Maxloghourday`, added to
 > `spc_Signup_timesheet_user` on 2026-10-18 and **still DRAFT**. Until the
@@ -4309,6 +4315,7 @@ exposed: the procedure never uses either.
   "billRate": 45.00,
   "workLocationRange": 500,
   "projectLocationLatitude": "18.5204",
+  "projectLocationLongitude": "73.8567",
   "maxLogHoursPerDay": 8,
   "createdBy": 7
 }

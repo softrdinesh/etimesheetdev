@@ -49,8 +49,8 @@ public class TimesheetProjectService : ITimesheetProjectService
 
     /// <summary>
     /// <c>dbo.Timesheet_Users_Project_setup.ProjectlocLatitude</c> and
-    /// <c>ProjectlocLongtitude</c> - and the procedure's <c>@Projectloclatitude</c> -
-    /// are <c>nvarchar(25)</c>.
+    /// <c>ProjectlocLongtitude</c> - and the procedure's <c>@Projectloclatitude</c>
+    /// and <c>@Projectloclongtitude</c> - are <c>nvarchar(25)</c>.
     /// </summary>
     private const int CoordinateMaximumLength = 25;
 
@@ -636,6 +636,7 @@ public class TimesheetProjectService : ITimesheetProjectService
         var email = string.IsNullOrWhiteSpace(request.Email) ? null : request.Email.Trim();
         var address = string.IsNullOrWhiteSpace(request.Address) ? null : request.Address.Trim();
         var latitude = string.IsNullOrWhiteSpace(request.ProjectLocationLatitude) ? null : request.ProjectLocationLatitude.Trim();
+        var longitude = string.IsNullOrWhiteSpace(request.ProjectLocationLongitude) ? null : request.ProjectLocationLongitude.Trim();
         var failures = new Dictionary<string, string[]>();
 
         AddFullNameFailure(failures, nameof(TimesheetUserCreateRequest.FullName), fullName);
@@ -698,6 +699,7 @@ public class TimesheetProjectService : ITimesheetProjectService
             request.MaxLogHoursPerDay);
 
         AddCoordinateFailure(failures, nameof(TimesheetUserCreateRequest.ProjectLocationLatitude), latitude, 90m);
+        AddCoordinateFailure(failures, nameof(TimesheetUserCreateRequest.ProjectLocationLongitude), longitude, 180m);
 
         if (request.CreatedBy <= 0)
         {
@@ -787,6 +789,7 @@ public class TimesheetProjectService : ITimesheetProjectService
             request.WorkLocationRange,
             request.ProjectId,
             latitude,
+            longitude,
             request.MaxLogHoursPerDay,
             cancellationToken);
 

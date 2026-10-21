@@ -276,6 +276,7 @@ public class TimesheetProjectRepository : ITimesheetProjectRepository
         int? workLocationRange,
         int projectId,
         string? projectLocationLatitude,
+        string? projectLocationLongitude,
         int? maxLogHoursPerDay,
         CancellationToken cancellationToken = default)
     {
@@ -284,10 +285,10 @@ public class TimesheetProjectRepository : ITimesheetProjectRepository
 
         try
         {
-            // @Range and @Projectloclongtitude are left to their NULL defaults:
-            // the procedure never reads either. @Maxloghourday was added to the
-            // procedure on 2026-10-18 and is still DRAFT: until the owner
-            // applies it, this EXEC fails on the unknown parameter.
+            // @Range is left to its NULL default: the procedure never reads it.
+            // @Projectloclongtitude has always been a parameter, but the
+            // procedure only writes it from the 2026-10-22 revision; until the
+            // owner applies that, the longitude is accepted and dropped.
             await _db.Database.ExecuteSqlInterpolatedAsync(
                 $@"EXEC dbo.spc_Signup_timesheet_user
                     @Fullname = {fullName},
@@ -303,6 +304,7 @@ public class TimesheetProjectRepository : ITimesheetProjectRepository
                     @worklocrange = {workLocationRange},
                     @projectID = {projectId},
                     @Projectloclatitude = {projectLocationLatitude},
+                    @Projectloclongtitude = {projectLocationLongitude},
                     @Maxloghourday = {maxLogHoursPerDay}",
                 cancellationToken);
         }
