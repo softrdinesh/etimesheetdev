@@ -74,6 +74,11 @@ public class TimesheetProjectService : ITimesheetProjectService
     /// <summary>The welcome email for a new account, in <c>Infrastructure/Assets/EmailTemplates/</c>.</summary>
     private const string WelcomeEmailTemplateName = "WelcomeUserTemplate.html";
 
+    /// <summary>The email to a project's approver when a sheet is submitted, in <c>Infrastructure/Assets/EmailTemplates/</c>.</summary>
+    private const string ProjectSheetSubmittedEmailTemplateName = "ProjectSheetSubmittedTemplate.html";
+
+    private const string ProjectSheetSubmittedEmailSubject = "Timesheet Submitted for Approval";
+
     private readonly ITimesheetProjectRepository _timesheetProjectRepository;
     private readonly IDateTimeProvider _dateTimeProvider;
     private readonly IEmailSender _emailSender;
@@ -2565,6 +2570,8 @@ public class TimesheetProjectService : ITimesheetProjectService
             request.AddedBy,
             minutes);
 
+        await SendProjectSheetSubmittedEmailAsync(submission);
+
         return await ProjectSheetResponseAsync(submission, cancellationToken);
     }
 
@@ -2673,6 +2680,79 @@ public class TimesheetProjectService : ITimesheetProjectService
             request.AddedBy);
 
         return await ProjectSheetResponseAsync(submission, cancellationToken);
+    }
+
+    /// <summary>
+    /// Emails the project's approver - the live setup in
+    /// <c>dbo.Timesheet_Approver_setup</c> with <c>IsTimesheetApprover</c> = 1 -
+    /// that a sheet was submitted, directly through the email service. Never
+    /// throws: the sheet is submitted by now, and failing the request would
+    /// tell the user it was not. A project with no approver, an approver with
+    /// no email, or a failed send is logged and skipped.
+    /// </summary>
+    private async Task SendProjectSheetSubmittedEmailAsync(TimesheetProjectSubmission submission)
+    {
+        try
+        {
+            // CancellationToken.None throughout: the sheet is already
+            // submitted, so a caller that disconnects now must not cost the
+            // approver their email. The email service's own timeout still
+            // bounds the wait.
+            var approver = (await _timesheetProjectRepository.GetApproverSetupListAsync(
+                    null,
+                    submission.ProjectId,
+                    CancellationToken.None))
+                .FirstOrDefault(setup => setup.IsTimesheetApprover == true);
+
+            if (approver is null || string.IsNullOrWhiteSpace(approver.ApproverEmail))
+            {
+                _logger.LogWarning(
+                    "Timesheet {SheetSubmissionCode} submitted, but project {ProjectId} has no timesheet approver with an email; no email sent.",
+                    submission.SheetSubmissionCode,
+                    submission.ProjectId);
+                return;
+            }
+
+            var employee = await _timesheetProjectRepository.GetUserByIdAsync(submission.UserId, CancellationToken.None);
+            var employeeName = employee?.Name ?? string.Empty;
+
+            var body = await _emailTemplateStore.GetAsync(ProjectSheetSubmittedEmailTemplateName, CancellationToken.None);
+
+            // Every value is HTML-encoded: a name with a '<' in it is text, not markup.
+            var values = new Dictionary<string, string>
+            {
+                ["ApproverName"] = approver.ApproverName ?? string.Empty,
+                ["EmployeeName"] = employeeName,
+                ["Period"] =
+                    $"{submission.PeriodStartDate.ToString("dd MMM yyyy", CultureInfo.InvariantCulture)} - " +
+                    $"{submission.PeriodEndDate.ToString("dd MMM yyyy", CultureInfo.InvariantCulture)}",
+            };
+
+            foreach (var (placeholder, value) in values)
+            {
+                body = body.Replace($"[{placeholder}]", WebUtility.HtmlEncode(value), StringComparison.Ordinal);
+            }
+
+            var result = await _emailSender.SendAsync(
+                new EmailMessage(approver.ApproverEmail, ProjectSheetSubmittedEmailSubject, body),
+                CancellationToken.None);
+
+            if (!result.Succeeded)
+            {
+                _logger.LogWarning(
+                    "Submission email for timesheet {SheetSubmissionCode} to approver {ApproverId} was not sent: {Error}",
+                    submission.SheetSubmissionCode,
+                    approver.ApproverId,
+                    result.Error);
+            }
+        }
+        catch (Exception exception)
+        {
+            _logger.LogError(
+                exception,
+                "Submission email for timesheet {SheetSubmissionCode} could not be built or sent.",
+                submission.SheetSubmissionCode);
+        }
     }
 
     /// <summary>

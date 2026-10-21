@@ -919,4 +919,11 @@ public class TimesheetProjectRepository : ITimesheetProjectRepository
                          && setup.ApproverId == approverId
                          && setup.IsTimesheetApprover == true,
                 cancellationToken);
+
+    public async Task<Signup?> GetUserByIdAsync(
+        int userId,
+        CancellationToken cancellationToken = default) =>
+        await _db.Signup
+            .AsNoTracking()
+            .FirstOrDefaultAsync(user => user.UserId == userId, cancellationToken);
 }

@@ -5714,6 +5714,13 @@ can now point to a different period of the same project — see
 that says to reload. The response always carries the period and code actually
 submitted, and the message names the code.
 
+**The project's approver is emailed.** After the submit is saved, the live
+approver of the project with `isTimesheetApprover` true (see
+[Approver Setup](#55-approver-setup-list)) is sent
+`ProjectSheetSubmittedTemplate.html`, with the approver's name, the
+employee's name and the period. The email never fails the submit: no
+approver, no email address, or a failed send is only logged.
+
 #### Request body — `TimesheetProjectSheetSubmitRequest` (JSON)
 
 | Field | Type | Required | Rules |

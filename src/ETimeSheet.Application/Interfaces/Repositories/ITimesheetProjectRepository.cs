@@ -668,4 +668,12 @@ public interface ITimesheetProjectRepository
         int projectId,
         int approverId,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns one <c>dbo.Signup</c> user, untracked, or <see langword="null"/>
+    /// when there is none. Deleted users are returned too; the caller decides.
+    /// </summary>
+    Task<Signup?> GetUserByIdAsync(
+        int userId,
+        CancellationToken cancellationToken = default);
 }
