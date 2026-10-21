@@ -3,7 +3,7 @@
 Every endpoint the API exposes today, with its purpose, input payload, success
 response and failure responses — each with a worked example.
 
-Generated from the code on branch `develop` (2026-10-20). If you change a
+Generated from the code on branch `develop` (2026-10-21). If you change a
 controller, DTO or validator, change this file with it.
 
 ---
@@ -78,6 +78,9 @@ controller, DTO or validator, change this file with it.
   - [Project Timesheet List](#52-project-timesheet-list)
   - [Submit Project Timesheet](#53-submit-project-timesheet)
   - [Approve / Reject Project Timesheet](#54-approve--reject-project-timesheet)
+  - [Approver Setup List](#55-approver-setup-list)
+  - [Add / Edit Approver Setup](#56-add--edit-approver-setup)
+  - [Remove Approver Setup](#57-remove-approver-setup)
 - [Health endpoints](#health-endpoints)
 - [Enumerations](#enumerations)
 - [Endpoint summary table](#endpoint-summary-table)
@@ -189,7 +192,7 @@ successes would tell a client that something happened when nothing did.
 | `ValidationException` / FluentValidation failure | **400** | The payload is malformed — wrong shape, missing field, out-of-range value |
 | `BusinessException` | **400** | The payload is well formed but breaks a rule that needed the database to check |
 | `UnauthorizedException` | **401** | Not authenticated *(unreachable today — auth is off)* |
-| `ForbiddenException` | **403** | Authenticated but not allowed *(unreachable today)* |
+| `ForbiddenException` | **403** | Not allowed. Today only [Approve / Reject Project Timesheet](#54-approve--reject-project-timesheet), when `addedBy` is not the project's timesheet approver |
 | `NotFoundException` | **404** | A **write** named a row that does not exist. Never used for a read that simply found nothing — see [Empty results are successes](#empty-results-are-successes) |
 | `ConflictException` | **409** | The request collides with data already stored |
 | `ExternalServiceException` | **502** | A service this API calls (the document upload service) failed or answered with something unusable. The request was fine; nothing was saved |
@@ -5719,7 +5722,8 @@ approver of the project with `isTimesheetApprover` true (see
 [Approver Setup](#55-approver-setup-list)) is sent
 `ProjectSheetSubmittedTemplate.html`, with the approver's name, the
 employee's name and the period. The email never fails the submit: no
-approver, no email address, or a failed send is only logged.
+approver, no email address, or a failed send is only logged — see
+[Known gaps](#known-gaps) 71.
 
 #### Request body — `TimesheetProjectSheetSubmitRequest` (JSON)
 
@@ -5963,7 +5967,9 @@ send them all. Written through `dbo.spc_AddEditTimesheetApproverSetup`.
 **One project has only one approver.** Adding a second setup for a project, or
 editing a setup onto a project that already has one, is a **409**; the
 procedure checks again under a lock. One user may approve several projects.
-The table does not enforce the rule — no unique constraint.
+The table does not enforce the rule — see [Known gaps](#known-gaps) 67. A setup
+with `isTimesheetApprover` false still counts as the project's one setup — see
+[Known gaps](#known-gaps) 68.
 
 The table has no `UpdatedDate` / `UpdatedBy` columns, so an edit is not
 stamped: `loginUserId` is written to `CreatedBy` on add only.
@@ -6352,8 +6358,10 @@ Documented so nobody has to rediscover them:
     `spc_GetTimesheetProjectBudgetByOrgID`,
     `spc_GetTimesheetUserListByOrgID`, `spc_GetTimesheetHolidaySetup`,
     `spc_AddEditTimesheetHolidaySetup`, `spc_GetTimesheetWeekendSetup`,
-    `spc_AddEditTimesheetWeekendSetup`, `spc_GetUserAccessSetup` and
-    `spc_AddEditUserAccessSetup` are
+    `spc_AddEditTimesheetWeekendSetup`, `spc_GetUserAccessSetup`,
+    `spc_AddEditUserAccessSetup` (both revised 2026-10-20 for
+    `Mod_IsViewTimesheet`), `spc_GetTimesheetApproverSetup` and
+    `spc_AddEditTimesheetApproverSetup` are
     recorded in `docs/database/procedures/` and must be created by hand; each
     matching endpoint answers 500 until its procedure exists in its latest
     version. `spc_Signup_timesheet_user` exists in the database but its
@@ -6478,8 +6486,9 @@ Documented so nobody has to rediscover them:
     future `logDate` is accepted.
 62. **Project timesheet writes trust `userId` and `addedBy`.** With
     authentication off, any caller can log, edit, remove or submit time as any
-    user, and approve or reject any organisation's sheet — the status update
-    checks no role and no organisation (see 1).
+    user. The status update does check that `addedBy` is the project's
+    timesheet approver, but `addedBy` is whatever the caller sends, so anyone
+    who knows the approver's id can approve or reject as them (see 1).
 63. **A resubmitted sheet keeps its last rejection.** After a reject and a
     resubmit, `rejectedBy`, `rejectedDate` and `rejectionReason` still show the
     earlier rejection. The audit log has the full history.
@@ -6491,3 +6500,28 @@ Documented so nobody has to rediscover them:
     `dbo.TimesheetProjectSubmissionAuditLog` were recorded on 2026-10-20 from
     the owner's scripts. Until they are created, endpoints 49–54 answer 500
     (`Invalid object name`).
+66. **`dbo.Timesheet_Approver_setup` must be changed and its procedures
+    created.** The table's `TimesheetApproverSetupID` key (recorded
+    2026-10-20) and `Mod_IsViewTimesheet` on `dbo.Timesheet_role_assignment`
+    must be applied by the owner. Until then endpoints 46–47 and 55–57 answer
+    500 — and so does Approve / Reject (54), which reads the approver table.
+67. **One approver per project is kept by the API and the procedure, not the
+    table.** No unique constraint on `dbo.Timesheet_Approver_setup.ProjectID`
+    was reported. Racing saves behave as in 51 (the loser answers 500), and a
+    row written directly can give a project a second approver — who could then
+    also approve. A filtered unique index on `ProjectID` `WHERE IsDelete = 0`,
+    added by the owner, would close this.
+68. **An approver setup with `isTimesheetApprover` false still takes the
+    project's one slot.** The one-per-project check ignores the flag, so such
+    a project has a setup but nobody who may approve: every Approve / Reject
+    answers 403, and no submission email is sent. Edit the setup to `true`, or
+    remove it, rather than adding another.
+69. **Approver setup edits record nobody.** `dbo.Timesheet_Approver_setup` has
+    no updated columns, so an edit leaves only the original `CreateDate` /
+    `CreatedBy`.
+70. **Remove Approver Setup has no organisation check.** It takes an id alone,
+    as in 53.
+71. **The submission email is fire-and-forget.** Submit Project Timesheet
+    never reports whether the approver was emailed: no approver, no address,
+    or a failed send is only logged. The subject is fixed in code
+    (`Timesheet Submitted for Approval`), not configuration.
