@@ -343,4 +343,36 @@ internal static class TimesheetProjectMappings
 
     /// <summary>Minutes as hours, rounded to 2 places: 90 is 1.5.</summary>
     internal static decimal ToHours(int minutes) => decimal.Round(minutes / 60m, 2);
+
+    /// <summary>Projects an approver setup row from <c>spc_GetTimesheetApproverSetup</c> to the approver setup response.</summary>
+    internal static TimesheetApproverSetupResponse ToResponse(this TimesheetApproverSetupDetail setup) => new()
+    {
+        TimesheetApproverSetupId = setup.TimesheetApproverSetupId,
+        OrganizationId = setup.OrganizationId,
+        ProjectId = setup.ProjectId,
+        ProjectCode = setup.ProjectCode,
+        ProjectName = setup.ProjectName,
+        ApproverId = setup.ApproverId,
+        ApproverName = setup.ApproverName,
+        ApproverEmail = setup.ApproverEmail,
+        IsTimesheetApprover = setup.IsTimesheetApprover,
+        CreateDate = setup.CreateDate,
+        CreatedBy = setup.CreatedBy,
+    };
+
+    /// <summary>Projects the row <c>spc_AddEditTimesheetApproverSetup</c> returns to the approver setup response.</summary>
+    internal static TimesheetApproverSetupResponse ToResponse(this TimesheetApproverSetupSaveDetail setup) => new()
+    {
+        TimesheetApproverSetupId = setup.TimesheetApproverSetupId,
+        OrganizationId = setup.OrganizationId,
+        ProjectId = setup.ProjectId,
+        ProjectCode = setup.ProjectCode,
+        ProjectName = setup.ProjectName,
+        ApproverId = setup.ApproverId,
+        ApproverName = setup.ApproverName,
+        ApproverEmail = setup.ApproverEmail,
+        IsTimesheetApprover = setup.IsTimesheetApprover,
+        CreateDate = setup.CreateDate,
+        CreatedBy = setup.CreatedBy,
+    };
 }

@@ -5801,6 +5801,11 @@ database yet.
 sheet is final. A rejected one goes back to the user, who can change its time
 and resubmit it.
 
+**Only the project's approver may review.** `addedBy` must be the live
+approver of the sheet's project in `dbo.Timesheet_Approver_setup` with
+`isTimesheetApprover` true (see [Approver Setup](#55-approver-setup-list));
+anyone else gets a **403**.
+
 #### Request body — `TimesheetProjectSheetStatusUpdateRequest` (JSON)
 
 | Field | Type | Required | Rules |
@@ -5808,7 +5813,7 @@ and resubmit it.
 | `timesheetProjectSubmissionId` | int | yes | `> 0`. A stored sheet's id, from the list |
 | `statusId` | int | yes | `2` Approved or `3` Rejected |
 | `rejectionReason` | string \| null | when rejecting | Required for `3`, at most 500 characters; ignored for `2` |
-| `addedBy` | int | yes | `> 0`. Written to `ApprovedBy` / `RejectedBy` and the audit log. Temporary — from the token once authentication is on |
+| `addedBy` | int | yes | `> 0`; the project's timesheet approver. Written to `ApprovedBy` / `RejectedBy` and the audit log. Temporary — from the token once authentication is on |
 
 #### Example request
 
@@ -5833,6 +5838,12 @@ and resubmit it.
 `StatusId: StatusId must be 2 (Approved) or 3 (Rejected).`,
 `RejectionReason: RejectionReason is required when rejecting a timesheet.`
 
+**403** — `addedBy` is not the project's timesheet approver:
+
+```json
+{ "success": false, "message": "User '3' is not the timesheet approver of project '12', so cannot approve or reject its timesheets.", "data": null, "errors": [] }
+```
+
 **404** — no live sheet has that id: `Timesheet '11' was not found.`
 
 **409** — the sheet is not Submitted:
@@ -5843,6 +5854,199 @@ and resubmit it.
 
 **500** — unhandled defect, or the tables have not been created in the
 database yet.
+
+---
+
+### 55. Approver Setup List
+
+`GET /api/v1/TimesheetProject/get-timesheet-approver-setup?orgID={orgID}&projectID={projectID}`
+
+**Purpose** — The live approver setups in `dbo.Timesheet_Approver_setup` —
+who reviews each project's timesheets — with the project's code and name and
+the approver's name and email. Read through `dbo.spc_GetTimesheetApproverSetup`.
+
+#### Query parameters
+
+| Name | Type | Rules |
+|---|---|---|
+| `orgID` | int \| absent | `>= 0`. Absent or `0` = not filtered by organisation |
+| `projectID` | int \| absent | `>= 0`. Absent or `0` = not filtered by project |
+
+| Sent | Returns |
+|---|---|
+| `orgID` only | Every setup of the organisation |
+| `projectID` only | The project's approver — at most one |
+| both | The project's approver, if the project is in the organisation |
+| neither | **400** — the whole table is never returned |
+
+#### Example request
+
+```
+GET /api/v1/TimesheetProject/get-timesheet-approver-setup?orgID=12
+```
+
+#### Success response — `200 OK`
+
+`data` is an array of `TimesheetApproverSetupResponse`, ordered by project
+name, then `timesheetApproverSetupId`.
+
+| Field | Type | Notes |
+|---|---|---|
+| `timesheetApproverSetupId` | int | The id the edit and remove take |
+| `organizationId` | int \| null | The `OrgID` column |
+| `projectId` | int \| null | |
+| `projectCode` | string \| null | `dbo.TimesheetProject.Code` |
+| `projectName` | string \| null | `dbo.TimesheetProject.Projectname` |
+| `approverId` | int \| null | The approving user's `dbo.Signup.UserID` |
+| `approverName` | string \| null | `dbo.Signup.Name` |
+| `approverEmail` | string \| null | `dbo.Signup.Email` |
+| `isTimesheetApprover` | bool \| null | |
+| `createDate` | datetime \| null | |
+| `createdBy` | int \| null | |
+
+Project and approver names come from LEFT JOINs: a setup whose project or
+user is missing is still listed, with `null` names.
+
+```json
+{
+  "success": true,
+  "message": null,
+  "data": [
+    {
+      "timesheetApproverSetupId": 1,
+      "organizationId": 12,
+      "projectId": 5,
+      "projectCode": "PRJ001",
+      "projectName": "Website Revamp",
+      "approverId": 58,
+      "approverName": "Asha Patel",
+      "approverEmail": "asha@example.com",
+      "isTimesheetApprover": true,
+      "createDate": "2026-10-20T09:12:44.107",
+      "createdBy": 7
+    }
+  ],
+  "errors": []
+}
+```
+
+#### Empty result
+
+No matching setups is `data: []`, a 200.
+
+#### Error responses
+
+**400** — neither filter sent (`orgID: orgID or projectID is required.`), or
+one is negative.
+
+**500** — unhandled defect, or the procedure has not been created in the
+database yet.
+
+---
+
+### 56. Add / Edit Approver Setup
+
+`POST /api/v1/TimesheetProject/add-edit-timesheet-approver-setup`
+
+**Purpose** — Add the approver of a project, or edit one — **one endpoint for
+both**. `timesheetApproverSetupId` `0` (or absent) adds; an existing id edits
+it. An edit overwrites the project, the approver and `isTimesheetApprover`, so
+send them all. Written through `dbo.spc_AddEditTimesheetApproverSetup`.
+
+**One project has only one approver.** Adding a second setup for a project, or
+editing a setup onto a project that already has one, is a **409**; the
+procedure checks again under a lock. One user may approve several projects.
+The table does not enforce the rule — no unique constraint.
+
+The table has no `UpdatedDate` / `UpdatedBy` columns, so an edit is not
+stamped: `loginUserId` is written to `CreatedBy` on add only.
+
+#### Request body — `TimesheetApproverSetupSaveRequest` (JSON)
+
+| Field | Type | Required | Rules |
+|---|---|---|---|
+| `timesheetApproverSetupId` | int \| null | no | `0` / absent to add; `> 0` to edit a live setup of `organizationId` |
+| `organizationId` | int | yes | `> 0`. Not changed by an edit |
+| `projectId` | int | yes | `> 0`; a project of `organizationId` with no other approver |
+| `approverId` | int | yes | `> 0`; a live user (`dbo.Signup.IsDelete = 0`) of `organizationId` |
+| `isTimesheetApprover` | bool | no | Absent is `false` |
+| `loginUserId` | int | yes | `> 0`. Written to `CreatedBy` on add. Temporary — from the token once authentication is on |
+
+#### Example request
+
+```json
+{
+  "timesheetApproverSetupId": 0,
+  "organizationId": 12,
+  "projectId": 5,
+  "approverId": 58,
+  "isTimesheetApprover": true,
+  "loginUserId": 7
+}
+```
+
+#### Success response — `200 OK`
+
+`data` is the saved `TimesheetApproverSetupResponse` (fields as in 55), with
+message `Approver setup saved.`
+
+#### Error responses
+
+**400** — every failing field together: a negative id, a missing
+`organizationId` / `projectId` / `approverId` / `loginUserId`, a project not in
+the organisation, or an approver who is not a live user of it.
+
+**404** — an id was sent, but no live setup of the organisation has it:
+`Approver setup '3' was not found.`
+
+**409** — the project already has another approver:
+
+```json
+{ "success": false, "message": "Project '5' already has an approver. Edit that setup instead.", "data": null, "errors": [] }
+```
+
+**500** — unhandled defect, or the procedure has not been created in the
+database yet. Also the loser of two saves for the same project racing past
+the 409 check.
+
+---
+
+### 57. Remove Approver Setup
+
+`POST /api/v1/TimesheetProject/remove-timesheet-approver-setup`
+
+**Purpose** — Remove an approver setup by its id. **A soft delete**: the row
+is stamped with `IsDelete = 1`, `DeletedDate` and `DeletedBy` and kept; the
+list and the add/edit no longer see it, so the project may be given a new
+approver. By the API through EF Core; no stored procedure.
+
+#### Request body — `TimesheetApproverSetupDeleteRequest` (JSON)
+
+| Field | Type | Required | Rules |
+|---|---|---|---|
+| `timesheetApproverSetupId` | int | yes | `> 0` |
+| `deletedBy` | int | yes | `> 0`. Written to `DeletedBy`. Temporary — from the token once authentication is on |
+
+#### Example request
+
+```json
+{ "timesheetApproverSetupId": 1, "deletedBy": 7 }
+```
+
+#### Success response — `200 OK`
+
+```json
+{ "success": true, "message": "Approver setup removed.", "data": null, "errors": [] }
+```
+
+#### Error responses
+
+**400** — `timesheetApproverSetupId` or `deletedBy` `<= 0`.
+
+**404** — no live setup has that id. Removing one twice is **not** a silent
+success: `Approver setup '1' was not found.`
+
+**500** — unhandled defect.
 
 ---
 
@@ -6004,7 +6208,10 @@ authentication is off.
 | 51 | Remove Project Time Log | POST | `/api/v1/TimesheetProject/remove-timesheet-project-time-log` | Soft-delete a time entry; its sheet's totals drop | `TimesheetProjectTimeLogDeleteRequest` | `null` | 400, 404, 500 |
 | 52 | Project Timesheet List | GET | `/api/v1/TimesheetProject/get-timesheet-project-sheet?userID=&projectID=&orgID=` | Sheets per user, project and period — stored ones with logged time, and calculated ones with a predicted code | query params (at least one) | `TimesheetProjectSheetResponse[]` | 400, 500 |
 | 53 | Submit Project Timesheet | POST | `/api/v1/TimesheetProject/submit-timesheet-project-sheet` | Submit a sheet by code, or the most recent unsubmitted one; a period with no time is created and submitted empty; audit logged | `TimesheetProjectSheetSubmitRequest` | `TimesheetProjectSheetResponse` | 400, 409, 500 |
-| 54 | Approve / Reject Project Timesheet | POST | `/api/v1/TimesheetProject/update-timesheet-project-sheet-status` | Approve (2) or reject (3, with reason) a submitted sheet; audit logged | `TimesheetProjectSheetStatusUpdateRequest` | `TimesheetProjectSheetResponse` | 400, 404, 409, 500 |
+| 54 | Approve / Reject Project Timesheet | POST | `/api/v1/TimesheetProject/update-timesheet-project-sheet-status` | Approve (2) or reject (3, with reason) a submitted sheet; audit logged | `TimesheetProjectSheetStatusUpdateRequest` | `TimesheetProjectSheetResponse` | 400, 403, 404, 409, 500 |
+| 55 | Approver Setup List | GET | `/api/v1/TimesheetProject/get-timesheet-approver-setup?orgID=&projectID=` | Live approver setups of an organisation, a project or both | query params (at least one) | `TimesheetApproverSetupResponse[]` | 400, 500 |
+| 56 | Add / Edit Approver Setup | POST | `/api/v1/TimesheetProject/add-edit-timesheet-approver-setup` | Add a project's approver (`timesheetApproverSetupId` 0 / absent) or edit one; one approver per project | `TimesheetApproverSetupSaveRequest` | `TimesheetApproverSetupResponse` | 400, 404, 409, 500 |
+| 57 | Remove Approver Setup | POST | `/api/v1/TimesheetProject/remove-timesheet-approver-setup` | Soft-delete an approver setup by its id | `TimesheetApproverSetupDeleteRequest` | `null` | 400, 404, 500 |
 | — | Health | GET | `/health`, `/health/live`, `/health/ready` | Liveness / readiness | — | *(unenveloped)* | 503 |
 
 ---

@@ -2050,3 +2050,172 @@ public class TimesheetProjectSheetStatusUpdateRequest
     /// <example>3</example>
     public int AddedBy { get; set; }
 }
+
+/// <summary>
+/// The approver setup of one project from <c>dbo.Timesheet_Approver_setup</c>,
+/// as <c>get-timesheet-approver-setup</c> and
+/// <c>add-edit-timesheet-approver-setup</c> return it - who reviews the
+/// project's timesheets, with the project's code and name and the approver's
+/// name and email.
+/// </summary>
+public class TimesheetApproverSetupResponse
+{
+    public int TimesheetApproverSetupId { get; set; }
+
+    public int? OrganizationId { get; set; }
+
+    public int? ProjectId { get; set; }
+
+    public string? ProjectCode { get; set; }
+
+    public string? ProjectName { get; set; }
+
+    public int? ApproverId { get; set; }
+
+    public string? ApproverName { get; set; }
+
+    public string? ApproverEmail { get; set; }
+
+    public bool? IsTimesheetApprover { get; set; }
+
+    public DateTime? CreateDate { get; set; }
+
+    public int? CreatedBy { get; set; }
+}
+
+/// <summary>
+/// One row of <c>dbo.spc_GetTimesheetApproverSetup</c>. Property names follow
+/// the procedure's column aliases; the mapping is in
+/// <c>Context.ConfigureStoredProcedureResults</c>.
+/// </summary>
+public class TimesheetApproverSetupDetail
+{
+    public int TimesheetApproverSetupId { get; set; }
+
+    public int? OrganizationId { get; set; }
+
+    public int? ProjectId { get; set; }
+
+    public string? ProjectCode { get; set; }
+
+    public string? ProjectName { get; set; }
+
+    public int? ApproverId { get; set; }
+
+    public string? ApproverName { get; set; }
+
+    public string? ApproverEmail { get; set; }
+
+    public bool? IsTimesheetApprover { get; set; }
+
+    public DateTime? CreateDate { get; set; }
+
+    public int? CreatedBy { get; set; }
+}
+
+/// <summary>
+/// Body of <c>add-edit-timesheet-approver-setup</c> - <b>one payload for both
+/// add and edit</b>, chosen by <see cref="TimesheetApproverSetupId"/>.
+/// <para>
+/// A project has at most one approver.
+/// </para>
+/// <para>
+/// Validated by <c>TimesheetProjectService</c>, not by a FluentValidation
+/// validator.
+/// </para>
+/// </summary>
+public class TimesheetApproverSetupSaveRequest
+{
+    /// <summary>Absent or <c>0</c> to add; the id of an existing setup to edit it.</summary>
+    /// <example>0</example>
+    public int? TimesheetApproverSetupId { get; set; }
+
+    /// <summary>
+    /// The organisation the setup belongs to. Required, greater than 0. Not
+    /// changed by an edit: an edit must name a setup of this organisation.
+    /// </summary>
+    /// <example>12</example>
+    public int OrganizationId { get; set; }
+
+    /// <summary>
+    /// The project whose timesheets the approver reviews - a project of the
+    /// organisation with no other approver. Required, greater than 0.
+    /// </summary>
+    /// <example>5</example>
+    public int ProjectId { get; set; }
+
+    /// <summary>The approving user - a live user of the organisation. Required, greater than 0.</summary>
+    /// <example>58</example>
+    public int ApproverId { get; set; }
+
+    /// <summary>Whether the user approves the project's timesheets. Left out is <c>false</c>.</summary>
+    /// <example>true</example>
+    public bool IsTimesheetApprover { get; set; }
+
+    /// <summary>
+    /// The user performing the save, written to <c>CreatedBy</c> on add. The
+    /// table has no updated columns, so an edit records nothing. Required,
+    /// greater than 0. <b>Temporary</b>: it comes from the token once
+    /// authentication is on.
+    /// </summary>
+    /// <example>7</example>
+    public int LoginUserId { get; set; }
+}
+
+/// <summary>
+/// The row <c>dbo.spc_AddEditTimesheetApproverSetup</c> returns - the setup
+/// just saved. The same columns as <see cref="TimesheetApproverSetupDetail"/>,
+/// but its own type: EF Core maps one CLR type to one result set.
+/// </summary>
+public class TimesheetApproverSetupSaveDetail
+{
+    public int TimesheetApproverSetupId { get; set; }
+
+    public int? OrganizationId { get; set; }
+
+    public int? ProjectId { get; set; }
+
+    public string? ProjectCode { get; set; }
+
+    public string? ProjectName { get; set; }
+
+    public int? ApproverId { get; set; }
+
+    public string? ApproverName { get; set; }
+
+    public string? ApproverEmail { get; set; }
+
+    public bool? IsTimesheetApprover { get; set; }
+
+    public DateTime? CreateDate { get; set; }
+
+    public int? CreatedBy { get; set; }
+}
+
+/// <summary>
+/// Body of <c>remove-timesheet-approver-setup</c>.
+/// <para>
+/// A <b>soft</b> delete: the row is never removed. It is stamped with
+/// <c>IsDelete</c> = 1, <c>DeletedDate</c> and <c>DeletedBy</c>, and from then
+/// on the list and <c>add-edit-timesheet-approver-setup</c> no longer see it -
+/// so the project may be given a new approver.
+/// </para>
+/// <para>
+/// Validated by <c>TimesheetProjectService</c>, not by a FluentValidation
+/// validator.
+/// </para>
+/// </summary>
+public class TimesheetApproverSetupDeleteRequest
+{
+    /// <summary>The setup to remove. Required, greater than 0.</summary>
+    /// <example>2</example>
+    public int TimesheetApproverSetupId { get; set; }
+
+    /// <summary>
+    /// The user performing the remove, written to <c>DeletedBy</c>. Required,
+    /// greater than 0. <b>Temporary</b>: it comes from the token once
+    /// authentication is on.
+    /// </summary>
+    /// <example>7</example>
+    public int DeletedBy { get; set; }
+}

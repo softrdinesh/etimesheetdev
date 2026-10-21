@@ -599,7 +599,7 @@ public class TimesheetProjectController : ControllerBase
     /// <para>
     /// Send <c>assignmentId</c> as <c>0</c> (or leave it out) to add an
     /// assignment. Send an existing assignment's <c>assignmentId</c> to edit
-    /// it. An edit overwrites the user and all eight module flags, so send
+    /// it. An edit overwrites the user and all nine module flags, so send
     /// them all.
     /// </para>
     /// <para>
@@ -852,11 +852,13 @@ public class TimesheetProjectController : ControllerBase
     /// </summary>
     /// <response code="200">The sheet after the change.</response>
     /// <response code="400">The payload failed validation - every failing field is listed.</response>
+    /// <response code="403"><c>addedBy</c> is not the project's timesheet approver (<c>get-timesheet-approver-setup</c>, <c>isTimesheetApprover</c> true).</response>
     /// <response code="404">No sheet has that id.</response>
     /// <response code="409">The sheet is not submitted.</response>
     [HttpPost("update-timesheet-project-sheet-status")]
     [ProducesResponseType(typeof(ApiResponse<TimesheetProjectSheetResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> UpdateTimesheetProjectSheetStatus(
@@ -865,6 +867,95 @@ public class TimesheetProjectController : ControllerBase
     {
         var result = await _timesheetProjectService.UpdateProjectSheetStatusAsync(request, cancellationToken);
         return Ok(ApiResponse.Ok(result, $"Timesheet {result.SheetSubmissionCode} {result.StatusName.ToLowerInvariant()}."));
+    }
+
+    #endregion
+
+    #region Approver Setup
+
+    /// <summary>
+    /// Returns the live approver setups in <c>dbo.Timesheet_Approver_setup</c> -
+    /// who reviews each project's timesheets - with the project's code and name
+    /// and the approver's name and email.
+    /// <para>
+    /// Filter by organisation, project or both. A filter left out or sent as
+    /// <c>0</c> is not applied: <c>orgID</c> alone returns every setup of the
+    /// organisation, <c>projectID</c> alone the project's approver (a project
+    /// has at most one). At least one is required. Deleted setups are not
+    /// included.
+    /// </para>
+    /// </summary>
+    /// <param name="orgID">The organisation whose setups to list. Optional when <c>projectID</c> is sent.</param>
+    /// <param name="projectID">The project whose approver to return. Optional when <c>orgID</c> is sent.</param>
+    /// <response code="200">The setups. None matching is an empty list, not a 404.</response>
+    /// <response code="400">Neither <c>orgID</c> nor <c>projectID</c> was sent, or one is negative.</response>
+    [HttpGet("get-timesheet-approver-setup")]
+    [ProducesResponseType(typeof(ApiResponse<IReadOnlyList<TimesheetApproverSetupResponse>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> GetTimesheetApproverSetup(
+        // Query string rather than route segments: either may be left out.
+        [FromQuery] int? orgID,
+        [FromQuery] int? projectID,
+        CancellationToken cancellationToken)
+    {
+        var result = await _timesheetProjectService.GetApproverSetupListAsync(orgID, projectID, cancellationToken);
+        return Ok(ApiResponse.Ok(result));
+    }
+
+    /// <summary>
+    /// Adds the approver of a project, or edits one - <b>one endpoint for
+    /// both</b>.
+    /// <para>
+    /// Send <c>timesheetApproverSetupId</c> as <c>0</c> (or leave it out) to
+    /// add a setup. Send an existing setup's id to edit it; it must belong to
+    /// <c>organizationId</c>. An edit overwrites the project, the approver and
+    /// <c>isTimesheetApprover</c>, so send them all.
+    /// </para>
+    /// <para>
+    /// A project has only one approver: adding a second one for the same
+    /// project, or moving a setup onto a project that already has one, is a 409.
+    /// </para>
+    /// </summary>
+    /// <response code="200">The saved setup, including its <c>timesheetApproverSetupId</c>.</response>
+    /// <response code="400">The payload failed validation, the project is not in the organisation, or the approver is not a live user of it.</response>
+    /// <response code="404">A <c>timesheetApproverSetupId</c> was sent, but no live setup of the organisation has it.</response>
+    /// <response code="409">The project already has another approver.</response>
+    [HttpPost("add-edit-timesheet-approver-setup")]
+    [ProducesResponseType(typeof(ApiResponse<TimesheetApproverSetupResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> AddEditTimesheetApproverSetup(
+        [FromBody] TimesheetApproverSetupSaveRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await _timesheetProjectService.SaveApproverSetupAsync(request, cancellationToken);
+        return Ok(ApiResponse.Ok(result, "Approver setup saved."));
+    }
+
+    /// <summary>
+    /// Removes an approver setup, by <c>timesheetApproverSetupId</c>. <b>A soft
+    /// delete</b>: the row is stamped with <c>IsDelete</c>, <c>DeletedDate</c>
+    /// and <c>DeletedBy</c> and kept, and the project may then be given a new
+    /// approver.
+    /// <para>
+    /// A POST rather than an HTTP DELETE, matching the other removes here:
+    /// every argument in this API travels in the payload.
+    /// </para>
+    /// </summary>
+    /// <response code="200">The setup was removed.</response>
+    /// <response code="400">A <c>timesheetApproverSetupId</c> or <c>deletedBy</c> that is not greater than zero.</response>
+    /// <response code="404">No live setup has that id; removing one twice is not a silent success.</response>
+    [HttpPost("remove-timesheet-approver-setup")]
+    [ProducesResponseType(typeof(ApiResponse<object?>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> RemoveTimesheetApproverSetup(
+        [FromBody] TimesheetApproverSetupDeleteRequest request,
+        CancellationToken cancellationToken)
+    {
+        await _timesheetProjectService.DeleteApproverSetupAsync(request, cancellationToken);
+        return Ok(ApiResponse.Ok("Approver setup removed."));
     }
 
     #endregion

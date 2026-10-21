@@ -609,4 +609,63 @@ public interface ITimesheetProjectRepository
         TimesheetProjectSubmission submission,
         TimesheetProjectSubmissionAuditLog auditLog,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The live approver setups of an organisation, a project or both, via
+    /// <c>spc_GetTimesheetApproverSetup</c>. A null filter matches anything.
+    /// Empty when none match.
+    /// </summary>
+    Task<IReadOnlyList<TimesheetApproverSetupDetail>> GetApproverSetupListAsync(
+        int? organizationId,
+        int? projectId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Adds an approver setup (<paramref name="timesheetApproverSetupId"/>
+    /// null) or edits one, via <c>spc_AddEditTimesheetApproverSetup</c>, and
+    /// returns the saved row. <see langword="null"/> when an edit names a
+    /// setup that does not exist, is deleted, or belongs to another
+    /// organisation.
+    /// </summary>
+    Task<TimesheetApproverSetupSaveDetail?> SaveApproverSetupAsync(
+        int? timesheetApproverSetupId,
+        int organizationId,
+        int projectId,
+        int approverId,
+        bool isTimesheetApprover,
+        int loginUserId,
+        DateTime now,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Whether the project has a live approver setup other than
+    /// <paramref name="excludedTimesheetApproverSetupId"/>.
+    /// </summary>
+    Task<bool> ApproverSetupExistsForProjectAsync(
+        int projectId,
+        int excludedTimesheetApproverSetupId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns the live approver setup with this id, <b>tracked</b>;
+    /// <see langword="null"/> when there is none.
+    /// </summary>
+    Task<TimesheetApproverSetup?> GetApproverSetupForUpdateAsync(
+        int timesheetApproverSetupId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Saves the changes made to a tracked approver setup.</summary>
+    Task UpdateApproverSetupAsync(
+        TimesheetApproverSetup setup,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Whether the user is the live approver of the project with
+    /// <c>IsTimesheetApprover</c> = 1 - the one user who may approve or reject
+    /// its sheets.
+    /// </summary>
+    Task<bool> IsProjectTimesheetApproverAsync(
+        int projectId,
+        int approverId,
+        CancellationToken cancellationToken = default);
 }

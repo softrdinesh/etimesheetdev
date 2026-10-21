@@ -844,4 +844,79 @@ public class TimesheetProjectRepository : ITimesheetProjectRepository
         // transaction.
         await _db.SaveChangesAsync(cancellationToken);
     }
+
+    public async Task<IReadOnlyList<TimesheetApproverSetupDetail>> GetApproverSetupListAsync(
+        int? organizationId,
+        int? projectId,
+        CancellationToken cancellationToken = default) =>
+        // The procedure does the joins, the filters and the ordering; no LINQ
+        // is composed on top, because SQL Server cannot wrap an EXEC.
+        await _db.spc_GetTimesheetApproverSetup
+            .FromSqlInterpolated($"EXEC dbo.spc_GetTimesheetApproverSetup @POrgID = {organizationId}, @PProjectID = {projectId}")
+            .ToListAsync(cancellationToken);
+
+    public async Task<TimesheetApproverSetupSaveDetail?> SaveApproverSetupAsync(
+        int? timesheetApproverSetupId,
+        int organizationId,
+        int projectId,
+        int approverId,
+        bool isTimesheetApprover,
+        int loginUserId,
+        DateTime now,
+        CancellationToken cancellationToken = default)
+    {
+        // Materialised as a list, then the first row taken in memory:
+        // FirstOrDefault on the query would try to compose SELECT TOP(1) around
+        // the EXEC, which SQL Server cannot do.
+        var rows = await _db.spc_AddEditTimesheetApproverSetup
+            .FromSqlInterpolated($@"EXEC dbo.spc_AddEditTimesheetApproverSetup
+                @PTimesheetApproverSetupID = {timesheetApproverSetupId},
+                @POrgID = {organizationId},
+                @PProjectID = {projectId},
+                @PApproverID = {approverId},
+                @PIsTimesheetApprover = {isTimesheetApprover},
+                @PLoginUserID = {loginUserId},
+                @PDate = {now}")
+            .ToListAsync(cancellationToken);
+
+        return rows.FirstOrDefault();
+    }
+
+    public async Task<bool> ApproverSetupExistsForProjectAsync(
+        int projectId,
+        int excludedTimesheetApproverSetupId,
+        CancellationToken cancellationToken = default) =>
+        // The query filter hides deleted setups, so a deleted one does not
+        // count.
+        await _db.Timesheet_Approver_setup
+            .AnyAsync(
+                setup => setup.ProjectId == projectId
+                         && setup.TimesheetApproverSetupId != excludedTimesheetApproverSetupId,
+                cancellationToken);
+
+    public async Task<TimesheetApproverSetup?> GetApproverSetupForUpdateAsync(
+        int timesheetApproverSetupId,
+        CancellationToken cancellationToken = default) =>
+        // Tracked on purpose - this is the write path. The query filter still
+        // applies, so a setup deleted already is not found.
+        await _db.Timesheet_Approver_setup
+            .FirstOrDefaultAsync(setup => setup.TimesheetApproverSetupId == timesheetApproverSetupId, cancellationToken);
+
+    public async Task UpdateApproverSetupAsync(
+        TimesheetApproverSetup setup,
+        CancellationToken cancellationToken = default) =>
+        await _db.SaveChangesAsync(cancellationToken);
+
+    public async Task<bool> IsProjectTimesheetApproverAsync(
+        int projectId,
+        int approverId,
+        CancellationToken cancellationToken = default) =>
+        // The query filter hides deleted setups, so a removed approver no
+        // longer counts. A NULL IsTimesheetApprover is not an approver.
+        await _db.Timesheet_Approver_setup
+            .AnyAsync(
+                setup => setup.ProjectId == projectId
+                         && setup.ApproverId == approverId
+                         && setup.IsTimesheetApprover == true,
+                cancellationToken);
 }
