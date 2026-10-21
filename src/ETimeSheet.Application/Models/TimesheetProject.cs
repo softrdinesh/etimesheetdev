@@ -686,6 +686,13 @@ public class TimesheetUserCreateRequest
     public string? ProjectLocationLatitude { get; set; }
 
     /// <summary>
+    /// Optional. The project location's longitude, a number from -180 to 180,
+    /// 25 characters or fewer. Saved for a new user only.
+    /// </summary>
+    /// <example>73.8567</example>
+    public string? ProjectLocationLongitude { get; set; }
+
+    /// <summary>
     /// Optional. The most hours a day this assignment may log. Not negative,
     /// and 24 or fewer. Left out means this assignment sets no cap.
     /// <para>
