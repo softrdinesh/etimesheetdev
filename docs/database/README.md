@@ -48,6 +48,7 @@ docs/database/
 │   ├── dbo.EmailType.sql
 │   ├── dbo.SchedulerConfiguration.sql
 │   ├── dbo.TimeLog.sql
+│   ├── dbo.Timesheet_Approver_setup.sql
 │   ├── dbo.Timesheet_role_assignment.sql
 │   ├── dbo.Timesheet_Users_Project_setup.sql
 │   ├── dbo.TimeSheet_Weekend_setup.sql
@@ -67,6 +68,7 @@ docs/database/
 │   ├── dbo.spc_AddEditTimesheetProject.sql
 │   ├── dbo.spc_AddEditTimesheetProjectBudget.sql
 │   ├── dbo.spc_AddEditTimesheetProjectCategory.sql
+│   ├── dbo.spc_AddEditTimesheetApproverSetup.sql
 │   ├── dbo.spc_AddEditTimesheetProjectStatus.sql
 │   ├── dbo.spc_AddEditTimesheetWeekendSetup.sql
 │   ├── dbo.spc_AddEditUserAccessSetup.sql
@@ -77,6 +79,7 @@ docs/database/
 │   ├── dbo.spc_GetOrganizationList.sql
 │   ├── dbo.spc_GetSubmittedSheetList.sql
 │   ├── dbo.spc_GetTimeLoggedDetailsForTask.sql
+│   ├── dbo.spc_GetTimesheetApproverSetup.sql
 │   ├── dbo.spc_GetTimesheetHolidaySetup.sql
 │   ├── dbo.spc_GetTimesheetMasterSetupByUserID.sql
 │   ├── dbo.spc_GetTimesheetProject.sql

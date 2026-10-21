@@ -74,6 +74,11 @@ public class TimesheetProjectService : ITimesheetProjectService
     /// <summary>The welcome email for a new account, in <c>Infrastructure/Assets/EmailTemplates/</c>.</summary>
     private const string WelcomeEmailTemplateName = "WelcomeUserTemplate.html";
 
+    /// <summary>The email to a project's approver when a sheet is submitted, in <c>Infrastructure/Assets/EmailTemplates/</c>.</summary>
+    private const string ProjectSheetSubmittedEmailTemplateName = "ProjectSheetSubmittedTemplate.html";
+
+    private const string ProjectSheetSubmittedEmailSubject = "Timesheet Submitted for Approval";
+
     private readonly ITimesheetProjectRepository _timesheetProjectRepository;
     private readonly IDateTimeProvider _dateTimeProvider;
     private readonly IEmailSender _emailSender;
@@ -1830,6 +1835,7 @@ public class TimesheetProjectService : ITimesheetProjectService
                 request.IsRoleSetup,
                 request.IsUserSetup,
                 request.IsTimeLog,
+                request.IsViewTimesheet,
                 request.LoginUserId,
                 _dateTimeProvider.UtcNow,
                 cancellationToken)
@@ -2564,6 +2570,8 @@ public class TimesheetProjectService : ITimesheetProjectService
             request.AddedBy,
             minutes);
 
+        await SendProjectSheetSubmittedEmailAsync(submission);
+
         return await ProjectSheetResponseAsync(submission, cancellationToken);
     }
 
@@ -2625,6 +2633,19 @@ public class TimesheetProjectService : ITimesheetProjectService
                 cancellationToken)
             ?? throw NotFoundException.For("Timesheet", request.TimesheetProjectSubmissionId);
 
+        // Only the project's approver reviews its sheets: a live row in
+        // dbo.Timesheet_Approver_setup for this project and user, with
+        // IsTimesheetApprover = 1. Anyone else is refused, whatever the status.
+        if (!await _timesheetProjectRepository.IsProjectTimesheetApproverAsync(
+                submission.ProjectId,
+                request.AddedBy,
+                cancellationToken))
+        {
+            throw new ForbiddenException(
+                $"User '{request.AddedBy}' is not the timesheet approver of project '{submission.ProjectId}', " +
+                "so cannot approve or reject its timesheets.");
+        }
+
         // Only a submitted sheet is waiting for a decision. An approved one is
         // final, and a pending or rejected one is the user's to (re)submit.
         if (submission.StatusId != Constants.TimesheetProjectSubmission.Status.Submitted)
@@ -2659,6 +2680,79 @@ public class TimesheetProjectService : ITimesheetProjectService
             request.AddedBy);
 
         return await ProjectSheetResponseAsync(submission, cancellationToken);
+    }
+
+    /// <summary>
+    /// Emails the project's approver - the live setup in
+    /// <c>dbo.Timesheet_Approver_setup</c> with <c>IsTimesheetApprover</c> = 1 -
+    /// that a sheet was submitted, directly through the email service. Never
+    /// throws: the sheet is submitted by now, and failing the request would
+    /// tell the user it was not. A project with no approver, an approver with
+    /// no email, or a failed send is logged and skipped.
+    /// </summary>
+    private async Task SendProjectSheetSubmittedEmailAsync(TimesheetProjectSubmission submission)
+    {
+        try
+        {
+            // CancellationToken.None throughout: the sheet is already
+            // submitted, so a caller that disconnects now must not cost the
+            // approver their email. The email service's own timeout still
+            // bounds the wait.
+            var approver = (await _timesheetProjectRepository.GetApproverSetupListAsync(
+                    null,
+                    submission.ProjectId,
+                    CancellationToken.None))
+                .FirstOrDefault(setup => setup.IsTimesheetApprover == true);
+
+            if (approver is null || string.IsNullOrWhiteSpace(approver.ApproverEmail))
+            {
+                _logger.LogWarning(
+                    "Timesheet {SheetSubmissionCode} submitted, but project {ProjectId} has no timesheet approver with an email; no email sent.",
+                    submission.SheetSubmissionCode,
+                    submission.ProjectId);
+                return;
+            }
+
+            var employee = await _timesheetProjectRepository.GetUserByIdAsync(submission.UserId, CancellationToken.None);
+            var employeeName = employee?.Name ?? string.Empty;
+
+            var body = await _emailTemplateStore.GetAsync(ProjectSheetSubmittedEmailTemplateName, CancellationToken.None);
+
+            // Every value is HTML-encoded: a name with a '<' in it is text, not markup.
+            var values = new Dictionary<string, string>
+            {
+                ["ApproverName"] = approver.ApproverName ?? string.Empty,
+                ["EmployeeName"] = employeeName,
+                ["Period"] =
+                    $"{submission.PeriodStartDate.ToString("dd MMM yyyy", CultureInfo.InvariantCulture)} - " +
+                    $"{submission.PeriodEndDate.ToString("dd MMM yyyy", CultureInfo.InvariantCulture)}",
+            };
+
+            foreach (var (placeholder, value) in values)
+            {
+                body = body.Replace($"[{placeholder}]", WebUtility.HtmlEncode(value), StringComparison.Ordinal);
+            }
+
+            var result = await _emailSender.SendAsync(
+                new EmailMessage(approver.ApproverEmail, ProjectSheetSubmittedEmailSubject, body),
+                CancellationToken.None);
+
+            if (!result.Succeeded)
+            {
+                _logger.LogWarning(
+                    "Submission email for timesheet {SheetSubmissionCode} to approver {ApproverId} was not sent: {Error}",
+                    submission.SheetSubmissionCode,
+                    approver.ApproverId,
+                    result.Error);
+            }
+        }
+        catch (Exception exception)
+        {
+            _logger.LogError(
+                exception,
+                "Submission email for timesheet {SheetSubmissionCode} could not be built or sent.",
+                submission.SheetSubmissionCode);
+        }
     }
 
     /// <summary>
@@ -3045,4 +3139,211 @@ public class TimesheetProjectService : ITimesheetProjectService
     };
 
     #endregion
+
+    public async Task<IReadOnlyList<TimesheetApproverSetupResponse>> GetApproverSetupListAsync(
+        int? organizationId,
+        int? projectId,
+        CancellationToken cancellationToken = default)
+    {
+        var failures = new Dictionary<string, string[]>();
+
+        if (organizationId < 0)
+        {
+            failures["orgID"] = new[] { "orgID must be greater than 0, or left out." };
+        }
+
+        if (projectId < 0)
+        {
+            failures["projectID"] = new[] { "projectID must be greater than 0, or left out." };
+        }
+
+        // Null and 0 both mean "not filtered". With neither filter the whole
+        // table would come back, across every organisation - refused.
+        var organizationFilter = organizationId is > 0 ? organizationId : null;
+        var projectFilter = projectId is > 0 ? projectId : null;
+
+        if (failures.Count == 0 && organizationFilter is null && projectFilter is null)
+        {
+            failures["orgID"] = new[] { "orgID or projectID is required." };
+        }
+
+        if (failures.Count > 0)
+        {
+            throw new ValidationException(failures);
+        }
+
+        var setups = await _timesheetProjectRepository.GetApproverSetupListAsync(
+            organizationFilter,
+            projectFilter,
+            cancellationToken);
+
+        return setups.Select(setup => setup.ToResponse()).ToList();
+    }
+
+    public async Task<TimesheetApproverSetupResponse> SaveApproverSetupAsync(
+        TimesheetApproverSetupSaveRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        // Every rule is checked here, before anything is written, and every
+        // failure is collected - the caller is told about all of them in one
+        // 400, keyed on the field names it sent.
+        var failures = new Dictionary<string, string[]>();
+
+        if (request.TimesheetApproverSetupId < 0)
+        {
+            failures[nameof(TimesheetApproverSetupSaveRequest.TimesheetApproverSetupId)] = new[]
+            {
+                "TimesheetApproverSetupId must be 0 (or left out) to add a setup, or the id of the setup to edit."
+            };
+        }
+
+        if (request.OrganizationId <= 0)
+        {
+            failures[nameof(TimesheetApproverSetupSaveRequest.OrganizationId)] = new[]
+            {
+                "OrganizationId is required and must be greater than 0."
+            };
+        }
+
+        if (request.ProjectId <= 0)
+        {
+            failures[nameof(TimesheetApproverSetupSaveRequest.ProjectId)] = new[]
+            {
+                "ProjectId is required and must be greater than 0."
+            };
+        }
+
+        if (request.ApproverId <= 0)
+        {
+            failures[nameof(TimesheetApproverSetupSaveRequest.ApproverId)] = new[]
+            {
+                "ApproverId is required and must be greater than 0."
+            };
+        }
+
+        if (request.LoginUserId <= 0)
+        {
+            failures[nameof(TimesheetApproverSetupSaveRequest.LoginUserId)] = new[]
+            {
+                "LoginUserId is required: the row records who created it."
+            };
+        }
+
+        if (failures.Count > 0)
+        {
+            throw new ValidationException(failures);
+        }
+
+        // Then the database. No foreign key protects any of these columns, and
+        // the procedure checks none of them, so a wrong id would be saved as is.
+        var project = await _timesheetProjectRepository.GetByIdAsync(request.ProjectId, cancellationToken);
+
+        if (project is null || project.OrganizationId != request.OrganizationId)
+        {
+            failures[nameof(TimesheetApproverSetupSaveRequest.ProjectId)] = new[]
+            {
+                $"Project '{request.ProjectId}' does not exist in organization '{request.OrganizationId}'."
+            };
+        }
+
+        if (!await _timesheetProjectRepository.UserExistsAsync(request.ApproverId, request.OrganizationId, cancellationToken))
+        {
+            failures[nameof(TimesheetApproverSetupSaveRequest.ApproverId)] = new[]
+            {
+                $"User '{request.ApproverId}' is not a live user of organization '{request.OrganizationId}'."
+            };
+        }
+
+        if (failures.Count > 0)
+        {
+            throw new ValidationException(failures);
+        }
+
+        // Null and 0 both mean "add" - a negative id was refused above.
+        var timesheetApproverSetupId = request.TimesheetApproverSetupId is > 0 ? request.TimesheetApproverSetupId : null;
+
+        // One approver per project. The setup being edited is excluded, so an
+        // edit that keeps its project is not a conflict with itself. The
+        // procedure checks again under a lock, for two saves racing.
+        if (await _timesheetProjectRepository.ApproverSetupExistsForProjectAsync(
+                request.ProjectId,
+                timesheetApproverSetupId ?? 0,
+                cancellationToken))
+        {
+            throw new ConflictException(
+                $"Project '{request.ProjectId}' already has an approver. Edit that setup instead.");
+        }
+
+        // Only an edit can come back empty: the setup it names does not
+        // exist, is deleted, or belongs to another organisation.
+        var saved = await _timesheetProjectRepository.SaveApproverSetupAsync(
+                timesheetApproverSetupId,
+                request.OrganizationId,
+                request.ProjectId,
+                request.ApproverId,
+                request.IsTimesheetApprover,
+                request.LoginUserId,
+                _dateTimeProvider.UtcNow,
+                cancellationToken)
+            ?? throw NotFoundException.For("Approver setup", timesheetApproverSetupId ?? 0);
+
+        _logger.LogInformation(
+            "Approver setup {TimesheetApproverSetupId} {Action} for project {ProjectId} of organization {OrganizationId} by user {LoginUserId}.",
+            saved.TimesheetApproverSetupId,
+            timesheetApproverSetupId is null ? "added" : "updated",
+            request.ProjectId,
+            request.OrganizationId,
+            request.LoginUserId);
+
+        return saved.ToResponse();
+    }
+
+    public async Task DeleteApproverSetupAsync(
+        TimesheetApproverSetupDeleteRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var failures = new Dictionary<string, string[]>();
+
+        if (request.TimesheetApproverSetupId <= 0)
+        {
+            failures[nameof(TimesheetApproverSetupDeleteRequest.TimesheetApproverSetupId)] = new[]
+            {
+                "TimesheetApproverSetupId is required and must be greater than 0."
+            };
+        }
+
+        if (request.DeletedBy <= 0)
+        {
+            failures[nameof(TimesheetApproverSetupDeleteRequest.DeletedBy)] = new[]
+            {
+                "DeletedBy is required: a soft delete records who performed it."
+            };
+        }
+
+        if (failures.Count > 0)
+        {
+            throw new ValidationException(failures);
+        }
+
+        // The repository hides deleted setups, so one deleted already is a
+        // 404 - never re-stamped over the first DeletedDate.
+        var setup = await _timesheetProjectRepository.GetApproverSetupForUpdateAsync(
+                request.TimesheetApproverSetupId,
+                cancellationToken)
+            ?? throw NotFoundException.For("Approver setup", request.TimesheetApproverSetupId);
+
+        // A soft delete, never a DELETE statement: the row stays, and the
+        // entity's query filter and both approver procedures stop returning it.
+        setup.IsDelete = true;
+        setup.DeletedDate = _dateTimeProvider.UtcNow;
+        setup.DeletedBy = request.DeletedBy;
+
+        await _timesheetProjectRepository.UpdateApproverSetupAsync(setup, cancellationToken);
+
+        _logger.LogInformation(
+            "Approver setup {TimesheetApproverSetupId} of project {ProjectId} soft-deleted by user {DeletedBy}.",
+            setup.TimesheetApproverSetupId,
+            setup.ProjectId,
+            request.DeletedBy);
+    }
 }

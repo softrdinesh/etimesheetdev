@@ -491,10 +491,65 @@ public interface ITimesheetProjectService
     /// <exception cref="ETimeSheet.Shared.Exceptions.NotFoundException">
     /// No live sheet has that id.
     /// </exception>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.ForbiddenException">
+    /// <c>AddedBy</c> is not the live approver of the sheet's project with
+    /// <c>IsTimesheetApprover</c> = 1, in <c>dbo.Timesheet_Approver_setup</c>.
+    /// </exception>
     /// <exception cref="ETimeSheet.Shared.Exceptions.ConflictException">
     /// The sheet is not submitted.
     /// </exception>
     Task<TimesheetProjectSheetResponse> UpdateProjectSheetStatusAsync(
         TimesheetProjectSheetStatusUpdateRequest request,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns the live approver setups of an organisation, a project or both,
+    /// via <c>spc_GetTimesheetApproverSetup</c>. A filter that is null or
+    /// <c>0</c> is not applied; at least one must be given. No matching setups
+    /// is an empty list, not a 404.
+    /// </summary>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.ValidationException">
+    /// Neither filter is given, or one is negative.
+    /// </exception>
+    Task<IReadOnlyList<TimesheetApproverSetupResponse>> GetApproverSetupListAsync(
+        int? organizationId,
+        int? projectId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Adds the approver of a project, or edits one - <b>one method for
+    /// both</b>, via <c>spc_AddEditTimesheetApproverSetup</c>. A
+    /// <see cref="TimesheetApproverSetupSaveRequest.TimesheetApproverSetupId"/>
+    /// absent or <c>0</c> adds; any greater value edits that setup.
+    /// </summary>
+    /// <returns>The saved setup, including its <c>TimesheetApproverSetupId</c>.</returns>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.ValidationException">
+    /// Any field fails its rule, names a project that is not in the
+    /// organisation, or an approver who is not a live user of it - every
+    /// failure is reported together.
+    /// </exception>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.NotFoundException">
+    /// An id was sent, but no live setup of this organisation has it.
+    /// </exception>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.ConflictException">
+    /// The project already has another live approver setup.
+    /// </exception>
+    Task<TimesheetApproverSetupResponse> SaveApproverSetupAsync(
+        TimesheetApproverSetupSaveRequest request,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Soft-deletes an approver setup: <c>IsDelete</c>, <c>DeletedDate</c> and
+    /// <c>DeletedBy</c> are stamped and the row is kept.
+    /// </summary>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.ValidationException">
+    /// A <c>TimesheetApproverSetupId</c> or <c>DeletedBy</c> that is not positive.
+    /// </exception>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.NotFoundException">
+    /// No live setup has that id - including one removed already, so removing
+    /// twice is a 404.
+    /// </exception>
+    Task DeleteApproverSetupAsync(
+        TimesheetApproverSetupDeleteRequest request,
         CancellationToken cancellationToken = default);
 }

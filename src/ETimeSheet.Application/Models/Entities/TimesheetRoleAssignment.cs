@@ -46,6 +46,9 @@ public class TimesheetRoleAssignment
     /// <summary>The <c>Mod_IsTimeLog</c> column.</summary>
     public bool? IsTimeLog { get; set; }
 
+    /// <summary>The <c>Mod_IsViewTimesheet</c> column.</summary>
+    public bool? IsViewTimesheet { get; set; }
+
     public DateTime? CreateDate { get; set; }
 
     public int? CreatedBy { get; set; }

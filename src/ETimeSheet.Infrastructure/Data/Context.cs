@@ -157,6 +157,13 @@ public class Context : DbContext
     public DbSet<TimesheetRoleAssignment> Timesheet_role_assignment { get; set; } = null!;
 
     /// <summary>
+    /// The <c>dbo.Timesheet_Approver_setup</c> table - the timesheet approvers
+    /// of each project. Rows with <c>IsDelete</c> = 1 are hidden by a query
+    /// filter.
+    /// </summary>
+    public DbSet<TimesheetApproverSetup> Timesheet_Approver_setup { get; set; } = null!;
+
+    /// <summary>
     /// The <c>dbo.TimesheetProjectSubmission</c> table - one sheet per user,
     /// project and submission period. Rows with <c>IsDelete</c> = 1 are hidden
     /// by a query filter.
@@ -357,6 +364,18 @@ public class Context : DbContext
     /// assignment.
     /// </summary>
     public DbSet<TimesheetRoleAssignmentSaveDetail> spc_AddEditUserAccessSetup { get; set; } = null!;
+
+    /// <summary>
+    /// Result set of <c>dbo.spc_GetTimesheetApproverSetup</c> - the live
+    /// approver setups of an organisation, a project or both.
+    /// </summary>
+    public DbSet<TimesheetApproverSetupDetail> spc_GetTimesheetApproverSetup { get; set; } = null!;
+
+    /// <summary>
+    /// Result set of <c>dbo.spc_AddEditTimesheetApproverSetup</c> - the setup
+    /// just added or edited, or no row when an edit names a missing setup.
+    /// </summary>
+    public DbSet<TimesheetApproverSetupSaveDetail> spc_AddEditTimesheetApproverSetup { get; set; } = null!;
 
     // dbo.spc_GetUsersTaskList has NO DbSet, deliberately. It returns two
     // result sets and EF Core materialises only the first, so
@@ -912,7 +931,7 @@ public class Context : DbContext
             assignment.ToView(null);
 
             // Aliased by the procedure: Signup.Name AS UserName, the Mod_
-            // columns AS IsClientSetup .. IsTimeLog, Updatedby AS UpdatedBy.
+            // columns AS IsClientSetup .. IsViewTimesheet, Updatedby AS UpdatedBy.
             assignment.Property(row => row.AssignmentId).HasColumnName("AssignmentID");
             assignment.Property(row => row.UserId).HasColumnName("UserID");
             assignment.Property(row => row.UserName).HasColumnName("UserName");
@@ -926,6 +945,7 @@ public class Context : DbContext
             assignment.Property(row => row.IsRoleSetup).HasColumnName("IsRoleSetup");
             assignment.Property(row => row.IsUserSetup).HasColumnName("IsUserSetup");
             assignment.Property(row => row.IsTimeLog).HasColumnName("IsTimeLog");
+            assignment.Property(row => row.IsViewTimesheet).HasColumnName("IsViewTimesheet");
             assignment.Property(row => row.CreateDate).HasColumnName("CreateDate").HasColumnType("datetime");
             assignment.Property(row => row.CreatedBy).HasColumnName("CreatedBy");
             assignment.Property(row => row.UpdatedDate).HasColumnName("UpdatedDate").HasColumnType("datetime");
@@ -951,10 +971,51 @@ public class Context : DbContext
             assignment.Property(row => row.IsRoleSetup).HasColumnName("IsRoleSetup");
             assignment.Property(row => row.IsUserSetup).HasColumnName("IsUserSetup");
             assignment.Property(row => row.IsTimeLog).HasColumnName("IsTimeLog");
+            assignment.Property(row => row.IsViewTimesheet).HasColumnName("IsViewTimesheet");
             assignment.Property(row => row.CreateDate).HasColumnName("CreateDate").HasColumnType("datetime");
             assignment.Property(row => row.CreatedBy).HasColumnName("CreatedBy");
             assignment.Property(row => row.UpdatedDate).HasColumnName("UpdatedDate").HasColumnType("datetime");
             assignment.Property(row => row.UpdatedBy).HasColumnName("UpdatedBy");
+        });
+
+        modelBuilder.Entity<TimesheetApproverSetupDetail>(setup =>
+        {
+            setup.HasNoKey();
+            setup.ToView(null);
+
+            // Aliased by the procedure: OrgID AS OrganizationID, Code AS ProjectCode,
+            // Projectname AS ProjectName, Signup.Name AS ApproverName, Signup.Email
+            // AS ApproverEmail.
+            setup.Property(row => row.TimesheetApproverSetupId).HasColumnName("TimesheetApproverSetupID");
+            setup.Property(row => row.OrganizationId).HasColumnName("OrganizationID");
+            setup.Property(row => row.ProjectId).HasColumnName("ProjectID");
+            setup.Property(row => row.ProjectCode).HasColumnName("ProjectCode");
+            setup.Property(row => row.ProjectName).HasColumnName("ProjectName");
+            setup.Property(row => row.ApproverId).HasColumnName("ApproverID");
+            setup.Property(row => row.ApproverName).HasColumnName("ApproverName");
+            setup.Property(row => row.ApproverEmail).HasColumnName("ApproverEmail");
+            setup.Property(row => row.IsTimesheetApprover).HasColumnName("IsTimesheetApprover");
+            setup.Property(row => row.CreateDate).HasColumnName("CreateDate").HasColumnType("datetime");
+            setup.Property(row => row.CreatedBy).HasColumnName("CreatedBy");
+        });
+
+        modelBuilder.Entity<TimesheetApproverSetupSaveDetail>(setup =>
+        {
+            setup.HasNoKey();
+            setup.ToView(null);
+
+            // The same aliases as spc_GetTimesheetApproverSetup.
+            setup.Property(row => row.TimesheetApproverSetupId).HasColumnName("TimesheetApproverSetupID");
+            setup.Property(row => row.OrganizationId).HasColumnName("OrganizationID");
+            setup.Property(row => row.ProjectId).HasColumnName("ProjectID");
+            setup.Property(row => row.ProjectCode).HasColumnName("ProjectCode");
+            setup.Property(row => row.ProjectName).HasColumnName("ProjectName");
+            setup.Property(row => row.ApproverId).HasColumnName("ApproverID");
+            setup.Property(row => row.ApproverName).HasColumnName("ApproverName");
+            setup.Property(row => row.ApproverEmail).HasColumnName("ApproverEmail");
+            setup.Property(row => row.IsTimesheetApprover).HasColumnName("IsTimesheetApprover");
+            setup.Property(row => row.CreateDate).HasColumnName("CreateDate").HasColumnType("datetime");
+            setup.Property(row => row.CreatedBy).HasColumnName("CreatedBy");
         });
     }
 }

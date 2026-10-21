@@ -2,6 +2,7 @@
     Procedure: dbo.spc_AddEditUserAccessSetup
     Status:    DRAFT for review - not applied to any database.
     Recorded:  2026-10-18 - DRAFT: new procedure.
+    Revised:   2026-10-20 - DRAFT: Mod_IsViewTimesheet added (AS IsViewTimesheet).
 
     Adds a user's module assignment to dbo.Timesheet_role_assignment, or edits
     one, and returns the saved row. Called by
@@ -12,7 +13,7 @@
                             edits that assignment.
       @PUserID              the user the assignment is for.
       @PIsClientSetup ..
-      @PIsTimeLog           1 grants that module, 0 refuses it - one per
+      @PIsViewTimesheet     1 grants that module, 0 refuses it - one per
                             Mod_ column.
       @PLoginUserID         written to CreatedBy on add, Updatedby on edit.
       @PDate                written to CreateDate on add, UpdatedDate on edit
@@ -24,7 +25,7 @@
       it; the new id is read back with SCOPE_IDENTITY().
 
     Edit (@PAssignmentID > 0):
-      Updates UserID and the eight module flags. CreateDate / CreatedBy are
+      Updates UserID and the nine module flags. CreateDate / CreatedBy are
       left as they were.
 
     One assignment per user:
@@ -60,6 +61,7 @@ CREATE OR ALTER PROCEDURE [dbo].[spc_AddEditUserAccessSetup]
     @PIsRoleSetup         BIT,
     @PIsUserSetup         BIT,
     @PIsTimeLog           BIT,
+    @PIsViewTimesheet     BIT,
     @PLoginUserID         INT,
     @PDate                DATETIME
 AS
@@ -92,11 +94,13 @@ BEGIN
             (UserID,
              Mod_IsclientSetup, Mod_Isproject, Mod_IsProjectbudget, Mod_IsProjectCategory,
              Mod_IsStatusSetup, Mod_IsRoleSetup, Mod_IsUsersetup, Mod_IsTimeLog,
+             Mod_IsViewTimesheet,
              CreateDate, CreatedBy)
         VALUES
             (@PUserID,
              @PIsClientSetup, @PIsProject, @PIsProjectBudget, @PIsProjectCategory,
              @PIsStatusSetup, @PIsRoleSetup, @PIsUserSetup, @PIsTimeLog,
+             @PIsViewTimesheet,
              @PDate, @PLoginUserID);
 
         SET @AssignmentID = CAST(SCOPE_IDENTITY() AS INT);
@@ -113,6 +117,7 @@ BEGIN
             Mod_IsRoleSetup       = @PIsRoleSetup,
             Mod_IsUsersetup       = @PIsUserSetup,
             Mod_IsTimeLog         = @PIsTimeLog,
+            Mod_IsViewTimesheet   = @PIsViewTimesheet,
             UpdatedDate           = @PDate,
             Updatedby             = @PLoginUserID
         WHERE AssignmentID = @AssignmentID;
@@ -137,6 +142,7 @@ BEGIN
         tra.Mod_IsRoleSetup         AS IsRoleSetup,
         tra.Mod_IsUsersetup         AS IsUserSetup,
         tra.Mod_IsTimeLog           AS IsTimeLog,
+        tra.Mod_IsViewTimesheet     AS IsViewTimesheet,
         tra.CreateDate              AS CreateDate,
         tra.CreatedBy               AS CreatedBy,
         tra.UpdatedDate             AS UpdatedDate,

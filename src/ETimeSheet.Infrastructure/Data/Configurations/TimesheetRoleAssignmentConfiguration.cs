@@ -43,6 +43,8 @@ public class TimesheetRoleAssignmentConfiguration : IEntityTypeConfiguration<Tim
 
         builder.Property(assignment => assignment.IsTimeLog).HasColumnName("Mod_IsTimeLog");
 
+        builder.Property(assignment => assignment.IsViewTimesheet).HasColumnName("Mod_IsViewTimesheet");
+
         builder.Property(assignment => assignment.CreateDate)
             .HasColumnName("CreateDate")
             .HasColumnType("datetime");

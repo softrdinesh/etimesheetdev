@@ -2,6 +2,7 @@
     Procedure: dbo.spc_GetUserAccessSetup
     Status:    DRAFT for review - not applied to any database.
     Recorded:  2026-10-18 - DRAFT: new procedure.
+    Revised:   2026-10-20 - DRAFT: Mod_IsViewTimesheet added (AS IsViewTimesheet).
 
     Returns the module assignments in dbo.Timesheet_role_assignment, filtered
     by organisation, user or both, for
@@ -37,7 +38,7 @@
       AssignmentID, UserID, UserName (from dbo.Signup.Name), Email,
       OrganizationID (from dbo.Signup), IsClientSetup, IsProject,
       IsProjectBudget, IsProjectCategory, IsStatusSetup, IsRoleSetup,
-      IsUserSetup, IsTimeLog (aliased from the Mod_ columns), CreateDate,
+      IsUserSetup, IsTimeLog, IsViewTimesheet (aliased from the Mod_ columns), CreateDate,
       CreatedBy, UpdatedDate, UpdatedBy (aliased from Updatedby). The aliases
       are what the EF Core result mapping binds to.
 
@@ -74,6 +75,7 @@ BEGIN
         tra.Mod_IsRoleSetup         AS IsRoleSetup,
         tra.Mod_IsUsersetup         AS IsUserSetup,
         tra.Mod_IsTimeLog           AS IsTimeLog,
+        tra.Mod_IsViewTimesheet     AS IsViewTimesheet,
         tra.CreateDate              AS CreateDate,
         tra.CreatedBy               AS CreatedBy,
         tra.UpdatedDate             AS UpdatedDate,
