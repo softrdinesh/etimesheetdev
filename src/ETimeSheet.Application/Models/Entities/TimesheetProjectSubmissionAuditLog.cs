@@ -11,8 +11,15 @@ public class TimesheetProjectSubmissionAuditLog
     /// <summary>The <c>TimesheetProjectSubmissionAuditLogID</c> column - <c>IDENTITY(1,1)</c>, the primary key.</summary>
     public int TimesheetProjectSubmissionAuditLogId { get; set; }
 
-    /// <summary>The sheet that changed. No foreign key.</summary>
+    /// <summary>The sheet that changed. No foreign key in the database.</summary>
     public int TimesheetProjectSubmissionId { get; set; }
+
+    /// <summary>
+    /// The sheet that changed, set when the sheet is inserted in the same save
+    /// as this row: EF Core inserts the sheet first and copies its new
+    /// identity into <see cref="TimesheetProjectSubmissionId"/>. Never loaded.
+    /// </summary>
+    public TimesheetProjectSubmission? Submission { get; set; }
 
     /// <summary>The status the sheet moved to - see <c>Constants.TimesheetProjectSubmission.Status</c>.</summary>
     public int StatusId { get; set; }

@@ -5265,54 +5265,56 @@ success: `User access setup '2' was not found.`
 Endpoints 49–54 share one model. Read this once; the sections below refer to it.
 
 **A sheet** is one user's timesheet for one project over one **submission
-period**, a row in `dbo.TimesheetProjectSubmission`. Time entries
-(`dbo.TimesheetProjectTimeLog`) belong to a sheet. A sheet with no entries is
-valid: a user can submit a period they logged nothing in.
+period**, a row in `dbo.TimesheetProjectSubmission`. **It exists only once
+the period is submitted.** Time entries (`dbo.TimesheetProjectTimeLog`) do not
+point to a sheet: a sheet's time is the user's entries on the project whose
+`LogDate` falls in its period. A sheet with no time is valid: a user can
+submit a period they logged nothing in.
 
-**Periods** come from the project's `StartDate` and `SubmissionFrequency`, and
-are never sent:
+**Periods** come from the project's `StartDate` and `SubmissionFrequency`:
 
-| `SubmissionFrequency` | Periods |
+| `SubmissionFrequency` | Periods | Can be submitted from |
+|---|---|---|
+| `1` Weekly | 7-day blocks counted from the project's start date | The 7th day |
+| `2` Every 15 days | 15-day blocks counted from the project's start date | The 15th day |
+| `3` Monthly | Calendar months from the start **day**: a project starting on the 10th has periods from the 10th to the 9th. Each period is counted from the start date itself, so a start on the 31st does not drift after February | The last day (the 9th, in that example) |
+
+Both period dates are inclusive. A period can be submitted **on its last day
+or any day after**, judged on the user's own date — the time zone of their
+`dbo.TimesheetMasterSetup` (UTC when they have none, or it is not
+recognised). A project with no `StartDate` or no `SubmissionFrequency` has no
+periods, so time can be neither logged nor submitted on it.
+
+**Sheet codes** run `PSHT0001`, `PSHT0002` … in one sequence: the next code is
+the highest in `dbo.TimesheetProjectTimeLog` and
+`dbo.TimesheetProjectSubmission` together, plus 1, deleted rows included.
+After `PSHT9999` the number simply grows a digit, to `PSHT10000`. One user,
+project and period has **one code**, shared by all its time-log days and its
+sheet:
+
+| How a period gets its code | When |
 |---|---|
-| `1` Weekly | 7-day blocks counted from the project's start date |
-| `2` Every 15 days | 15-day blocks counted from the project's start date |
-| `3` Monthly | Calendar months from the start **day**: a project starting on the 10th has periods from the 10th to the 9th. Each period is counted from the start date itself, so a start on the 31st does not drift after February |
-
-Both period dates are inclusive. A project with no `StartDate` or no
-`SubmissionFrequency` has no periods, so time can be neither logged nor
-submitted on it.
-
-**Sheet codes** run `PSHT0001`, `PSHT0002` … across the whole table. The next
-code is the highest existing one plus 1, including codes of deleted sheets.
-After `PSHT9999` the number simply grows a digit, to `PSHT10000`. A code is
-never sent in by the client except to name a sheet at submit.
-
-| How a sheet gets a row | When |
-|---|---|
-| The first time entry in a period | [Add / Edit Project Time Log](#50-add--edit-project-time-log) creates the sheet as Pending with the next code; every later entry in that period shares it |
-| A submit of a period with no row | [Submit Project Timesheet](#53-submit-project-timesheet) creates the sheet and submits it with zero time |
-
-**Calculated sheets.** [Project Timesheet List](#52-project-timesheet-list)
-also lists every period, up to the current one, that has no row yet, with
-`isCalculated: true` and the code it is **predicted** to get. Predictions are
-numbered across the whole organisation, oldest period first, then project
-name, then user. That way a sheet shows the same predicted code whichever
-filter lists it, and no two users are shown the same one. **A predicted code
-is not reserved.** When anyone in the organisation opens a sheet, every
-prediction after it moves on by one. See [Known gaps](#known-gaps) 58.
+| The first day logged in it | [Add / Edit Project Time Log](#50-add--edit-project-time-log) gives the day the next code; every later day of that user and project in the period shares it, even one logged after a removal |
+| A blank sheet submitted | [Submit Project Timesheet](#53-submit-project-timesheet) gives the new sheet the next code. Time logged on the period later, after a rejection, takes the sheet's code |
 
 **Statuses** — see [`TimesheetProjectSubmissionStatus`](#timesheetprojectsubmissionstatus--the-statusid-column-of-dbotimesheetprojectsubmission):
 
 ```
-Pending (0) ──submit──▶ Submitted (1) ──approve──▶ Approved (2)   (final)
-                              │
-                              └────reject───▶ Rejected (3) ──submit──▶ Submitted (1)
+(no row) ──submit──▶ Submitted (1) ──approve──▶ Approved (2)   (final)
+                          │
+                          └────reject───▶ Rejected (3) ──submit──▶ Submitted (1)
 ```
 
-Time on a **Submitted** or **Approved** sheet cannot be added, edited, moved or
-removed. A **Rejected** sheet is open again. Every submit, approve and reject
-writes one row to `dbo.TimesheetProjectSubmissionAuditLog`, in the same save as
-the change.
+The first submit **creates** the period's one row, already Submitted; a
+resubmit after rejection updates that same row. Pending (0) appears only on
+rows written before this rule, and such a sheet can still be submitted.
+
+While a period is **Submitted** or **Approved**, its time cannot be logged,
+added to or removed. Once **Rejected** it is open again: the time log changes
+as usual, but the sheet itself is not touched — its totals and
+`submittedDate` are refreshed when it is resubmitted. Every submit, approve and
+reject writes one row to `dbo.TimesheetProjectSubmissionAuditLog`, in the same
+save as the change.
 
 **`userId` and `addedBy`.** On the writes, `userId` says **whose** entry or
 sheet it is and is checked against it. `addedBy` says **who is acting** and is
@@ -5326,9 +5328,8 @@ the token once authentication is on.
 
 `GET /api/v1/TimesheetProject/get-timesheet-project-time-log?userID={userID}&projectID={projectID}&fromDate={fromDate}&toDate={toDate}`
 
-**Purpose** — A user's time entries on projects, from
-`dbo.TimesheetProjectTimeLog`, each with the sheet it is on from
-`dbo.TimesheetProjectSubmission`. Read by the API through EF Core; no stored
+**Purpose** — A user's time on projects, from `dbo.TimesheetProjectTimeLog`:
+**one entry per project per day**. Read by the API through EF Core; no stored
 procedure.
 
 #### Query parameters
@@ -5343,35 +5344,29 @@ procedure.
 #### Example request
 
 ```
-GET /api/v1/TimesheetProject/get-timesheet-project-time-log?userID=7&projectID=12&fromDate=2026-10-13&toDate=2026-10-19
+GET /api/v1/TimesheetProject/get-timesheet-project-time-log?userID=7&projectID=12&fromDate=2026-10-19&toDate=2026-10-25
 ```
 
 #### Success response — `200 OK`
 
 `data` is an array of `TimesheetProjectTimeLogResponse`, ordered by
-`logDate`, then `startTime`. Deleted entries, and entries on deleted sheets,
-are not included.
+`logDate`, then `projectId`. Deleted entries are not included.
 
 | Field | Type | Notes |
 |---|---|---|
-| `timesheetProjectTimeLogId` | int | The id the edit and remove take |
-| `timesheetProjectSubmissionId` | int | The sheet the entry is on |
-| `sheetSubmissionCode` | string | The sheet's code, e.g. `PSHT0004` |
-| `submissionStatusId` | int | The sheet's status — 0 Pending, 1 Submitted, 2 Approved, 3 Rejected |
-| `periodStartDate` | datetime | First day of the sheet's period |
-| `periodEndDate` | datetime | Last day of the sheet's period, inclusive |
+| `timesheetProjectTimeLogId` | int | The id remove takes |
 | `userId` | int | |
 | `projectId` | int | |
+| `organizationId` | int | The project's organisation |
+| `sheetSubmissionCode` | string | The code of the day's submission period, shared by every day of this user and project in it |
+| `periodStartDate` | datetime \| null | First day of that period, from the project's start date and frequency. `null` only if the project has since lost either |
+| `periodEndDate` | datetime \| null | Last day of that period, inclusive |
 | `logDate` | datetime | The day worked; time part always `00:00:00` |
-| `startTime` | string \| null | `hh:mm:ss`, 24-hour clock |
-| `endTime` | string \| null | `hh:mm:ss`, 24-hour clock |
-| `durationMinutes` | int | Worked out from the two times |
-| `durationHours` | decimal | `durationMinutes` / 60, rounded to 2 places |
-| `description` | string \| null | |
-| `status` | int | 1 Save, 2 Draft — see [`TimesheetProjectTimeLogStatus`](#timesheetprojecttimelogstatus--the-status-column-of-dbotimesheetprojecttimelog) |
-| `createDate` | datetime | UTC |
+| `hoursLogged` | int | The day's total on the project, in whole hours |
+| `description` | string \| null | Each log's description, one per line |
+| `createDate` | datetime | UTC — the first log of the day |
 | `createdBy` | int | |
-| `updateDate` | datetime \| null | `null` until the first edit |
+| `updateDate` | datetime \| null | UTC — the latest log that added hours; `null` after only one |
 | `updatedBy` | int \| null | |
 
 #### Example response
@@ -5383,24 +5378,19 @@ are not included.
   "data": [
     {
       "timesheetProjectTimeLogId": 15,
-      "timesheetProjectSubmissionId": 4,
-      "sheetSubmissionCode": "PSHT0004",
-      "submissionStatusId": 0,
-      "periodStartDate": "2026-10-13T00:00:00",
-      "periodEndDate": "2026-10-19T00:00:00",
       "userId": 7,
       "projectId": 12,
-      "logDate": "2026-10-14T00:00:00",
-      "startTime": "13:00:00",
-      "endTime": "14:30:00",
-      "durationMinutes": 90,
-      "durationHours": 1.5,
-      "description": "Sprint planning",
-      "status": 1,
-      "createDate": "2026-10-14T09:12:40.117",
+      "organizationId": 3,
+      "sheetSubmissionCode": "PSHT0004",
+      "periodStartDate": "2026-10-19T00:00:00",
+      "periodEndDate": "2026-10-25T00:00:00",
+      "logDate": "2026-10-22T00:00:00",
+      "hoursLogged": 7,
+      "description": "Sprint planning\nCode review",
+      "createDate": "2026-10-22T04:12:40.117",
       "createdBy": 7,
-      "updateDate": null,
-      "updatedBy": null
+      "updateDate": "2026-10-22T11:30:02.540",
+      "updatedBy": 7
     }
   ],
   "errors": []
@@ -5416,8 +5406,7 @@ No matching entries is `data: []`, a 200.
 **400** — `userID` missing or `<= 0` (`userID: userID is required and must be
 greater than 0.`), `projectID` negative, or `toDate` before `fromDate`.
 
-**500** — unhandled defect, or the tables have not been created in the
-database yet.
+**500** — unhandled defect.
 
 ---
 
@@ -5425,66 +5414,67 @@ database yet.
 
 `POST /api/v1/TimesheetProject/add-edit-timesheet-project-time-log`
 
-**Purpose** — Log time on a project, or edit an entry — **one endpoint for
-both**. `timesheetProjectTimeLogId` `0` (or absent) adds; an existing id edits
-that entry, which must be `userId`'s. An edit overwrites every field, so send
-the whole entry. Written by the API through EF Core; no stored procedure.
+**Purpose** — Log hours on a project for one day. Written by the API through
+EF Core; no stored procedure.
 
-No sheet code, period or duration is sent:
+A user has **one entry per project per calendar day**, found by the date —
+no id is sent:
 
-- The entry goes on `userId`'s sheet for the period of `projectId` that
-  contains `logDate` — see
-  [periods and sheet codes](#project-timesheets-periods-and-sheet-codes). The
-  period's first entry creates that sheet with the next code.
-- `durationMinutes` is worked out as the whole minutes from `startTime` to
-  `endTime`. Seconds short of a minute are dropped: `13:00:00`–`14:30:45` is 90.
-- The sheet's `TotalMinutesLogged` and `TotalHoursLogged` are recalculated in
-  the same save as the entry.
-- An edit that moves the entry to another period or project moves it to that
-  sheet, and both sheets' totals are recalculated.
+- Any day of the project may be logged, past days included: with monthly
+  submission, logging days 1–20 on the 20th is allowed.
+- The first log of the day creates the entry with `hoursLogged`.
+- Every later log of the same day **adds** its `hoursLogged` to that entry, and
+  its `description` (if any) on a new line. 3 hours in the morning, then 4,
+  is one entry of **7**.
+- The day's total may not exceed the user's `maxLogHoursPerDay` on the project
+  (`Max_log_hour_day` in `dbo.Timesheet_Users_Project_setup`, set through
+  [Edit Timesheet User](#37-edit-timesheet-user)). When it is not set, the cap
+  is 24.
+- No start time, end time or duration is sent.
+- The day takes the **sheet code of its submission period** — see
+  [periods and sheet codes](#project-timesheets-periods-and-sheet-codes).
+  Every day of the user on the project in one period shares one code. The
+  first day logged in the period, whichever day it is, takes the next `PSHT`
+  code; a removed day still holds its period's code, and a period submitted
+  blank and then rejected passes on its sheet's code.
+- A period that is **Submitted** or **Approved** cannot be logged on; once
+  **Rejected** it can, and the sheet is left as it is until resubmitted.
+- **No timesheet submission is created.**
 
 #### Request body — `TimesheetProjectTimeLogSaveRequest` (JSON)
 
 | Field | Type | Required | Rules |
 |---|---|---|---|
-| `timesheetProjectTimeLogId` | int | no | `0` / absent to add; `> 0` to edit a live entry of `userId` |
 | `userId` | int | yes | `> 0`. Whose time it is; must be assigned to `projectId` |
 | `projectId` | int | yes | `> 0`. Must exist and have a `StartDate`, a `SubmissionFrequency` and an organisation |
-| `logDate` | date | yes | Only the date part is used. Not before the project's `StartDate`, not after its `EndDate` |
-| `startTime` | string | yes | `hh:mm:ss`, **24-hour clock**: `00:00:00` to `23:59:59`. No AM/PM, no `9:00`, no `24:00:00` |
-| `endTime` | string | yes | `hh:mm:ss`, 24-hour clock, on the same day and at least one minute after `startTime` |
+| `logDate` | date | yes | Only the date part is used. Not before the project's `StartDate`, not after its `EndDate` (when set) |
+| `hoursLogged` | int | yes | `1`–`24`, whole hours. Added to the day's total |
 | `description` | string \| null | no | Free text, no length limit |
-| `status` | int | yes | `1` Save or `2` Draft |
-| `addedBy` | int | yes | `> 0`. Written to `CreatedBy` on add, `UpdatedBy` on edit. Temporary — from the token once authentication is on |
+| `addedBy` | int | yes | `> 0`. Written to `CreatedBy` on the first log of the day, `UpdatedBy` on later ones. Temporary — from the token once authentication is on |
 
 #### Example request
 
 ```json
 {
-  "timesheetProjectTimeLogId": 0,
   "userId": 7,
   "projectId": 12,
-  "logDate": "2026-10-14",
-  "startTime": "13:00:00",
-  "endTime": "14:30:00",
+  "logDate": "2026-10-22",
+  "hoursLogged": 3,
   "description": "Sprint planning",
-  "status": 1,
   "addedBy": 7
 }
 ```
 
 #### Success response — `200 OK`
 
-`data` is the saved entry, in the same shape as
-[Project Time Log List](#49-project-time-log-list) — including the sheet's id,
-code and period — with `"message": "Time log saved."`.
+`data` is the day's entry with its new total, sheet code and period, in the
+same shape as [Project Time Log List](#49-project-time-log-list), with
+`"message": "Time log saved."`.
 
 #### Error responses
 
 **400** — validation; every failing payload field is listed together, e.g.
-`StartTime: StartTime is required, as a time of day in hh:mm:ss format - for example "09:00:00".`,
-`EndTime: EndTime must be after StartTime, on the same day.`,
-`Status: Status must be 1 (Save) or 2 (Draft).`,
+`HoursLogged: HoursLogged is required and must be greater than 0.`,
 `AddedBy: AddedBy is required: the entry records who created or last updated it.`
 
 Also a 400, one at a time, after the payload passes:
@@ -5495,14 +5485,11 @@ Also a 400, one at a time, after the payload passes:
 | Project not set up | `Project '12' needs a start date, a submission frequency and an organization before time can be logged or submitted on it.` |
 | Date outside the project | `LogDate: LogDate must not be before the project's start date, 2026-10-01.` (or after its end date) |
 | User not on the project | `ProjectId: User '7' is not assigned to project '12'.` |
-| Entry is another user's | `Time log '15' does not belong to user '7', so it cannot be changed as theirs.` |
-| Sheet locked — the entry's current sheet, or the one it would move to | `Timesheet 'PSHT0004' has already been submitted, so its time can no longer be added to or changed.` |
+| Over the day's cap (8, with 7 logged, adding 2) | `HoursLogged: You can log a maximum of 8 hours per day on this project. 7 hours are already logged on 2026-10-22, so you can log only 1 hour more.` |
+| Day already full | `HoursLogged: You can log a maximum of 8 hours per day on this project. 8 hours are already logged on 2026-10-22, so no more hours can be logged on that day.` |
+| Period submitted or approved | `Timesheet 'PSHT0004' for 2026-10-19 to 2026-10-25 is submitted, so its time can no longer be added to, changed or removed.` A rejected period is open again |
 
-**404** — a `timesheetProjectTimeLogId` was sent, but no live entry has it:
-`Time log '15' was not found.`
-
-**500** — unhandled defect, or the tables have not been created in the
-database yet.
+**500** — unhandled defect.
 
 ---
 
@@ -5510,18 +5497,16 @@ database yet.
 
 `POST /api/v1/TimesheetProject/remove-timesheet-project-time-log`
 
-**Purpose** — Soft-delete a time entry by its id. The row stays, stamped with
-`IsDelete = 1`, `DeletedDate` and `DeletedBy`. Its sheet's totals drop by its
-minutes in the same save. The sheet itself stays, even when it is left empty:
-an empty Pending sheet is still owed. By the API through EF Core; no stored
-procedure.
+**Purpose** — Soft-delete a day's entry by its id. The row stays, stamped with
+`IsDelete = 1`, `DeletedDate` and `DeletedBy`. The next log of that day then
+starts a new entry. By the API through EF Core; no stored procedure.
 
 #### Request body — `TimesheetProjectTimeLogDeleteRequest` (JSON)
 
 | Field | Type | Required | Rules |
 |---|---|---|---|
 | `timesheetProjectTimeLogId` | int | yes | `> 0` |
-| `userId` | int | yes | `> 0`. The entry's owner — checked against the entry's sheet |
+| `userId` | int | yes | `> 0`. The entry's owner — checked against the entry's `UserID` |
 | `addedBy` | int | yes | `> 0`. Written to `DeletedBy`. Temporary — from the token once authentication is on |
 
 #### Example request
@@ -5539,8 +5524,9 @@ procedure.
 #### Error responses
 
 **400** — any id `<= 0` (every failure is listed); the entry is another
-user's; or its sheet is Submitted or Approved:
-`Timesheet 'PSHT0004' has already been submitted, so its time can no longer be added to or changed.`
+user's: `Time log '15' does not belong to user '7', so it cannot be removed as theirs.`;
+or its period is submitted or approved (the same message as on
+[Add / Edit](#50-add--edit-project-time-log)).
 
 **404** — no live entry has that id. Removing one twice is **not** a silent
 success: `Time log '15' was not found.`
@@ -5553,17 +5539,15 @@ success: `Time log '15' was not found.`
 
 `GET /api/v1/TimesheetProject/get-timesheet-project-sheet?userID={userID}&projectID={projectID}&orgID={orgID}`
 
-**Purpose** — Project timesheets, one per user, project and period, with the
-time on each. This is the list the UI submits from, and the one an approver
-reviews. Read by the API through EF Core; no stored procedure.
+**Purpose** — The **submitted** project timesheets, one per user, project and
+period, with the time on each — Submitted, Approved and Rejected. A period
+that has not been submitted has no sheet and is not listed. This is the list an
+approver reviews. Read by the API through EF Core; no stored procedure.
 
-Two kinds of row — see
-[periods and sheet codes](#project-timesheets-periods-and-sheet-codes):
-
-| Kind | Which periods | Code, count and time |
-|---|---|---|
-| **Stored** (`isCalculated: false`) | Every sheet with a row: time was logged on it, or it was submitted | Code, `timeLogCount` and `totalMinutesLogged` from the sheet's live entries in `dbo.TimesheetProjectTimeLog`. A sheet with no live entry, such as one submitted with no time, keeps its own code |
-| **Calculated** (`isCalculated: true`) | Every period with no row, for each live assignment, from the period the user joined the project in up to and including the current one, and not after the project's `EndDate` | The **predicted** code; zero time; `timesheetProjectSubmissionId: null`; status Pending |
+`timeLogCount` and `totalMinutesLogged` are counted live from the user's
+entries on the project in `dbo.TimesheetProjectTimeLog` whose `logDate` falls
+in the period — see
+[periods and sheet codes](#project-timesheets-periods-and-sheet-codes).
 
 #### Query parameters
 
@@ -5573,15 +5557,8 @@ Two kinds of row — see
 | `projectID` | int \| absent | `>= 0`. Absent or `0` = not filtered by project |
 | `orgID` | int \| absent | `>= 0`. Absent or `0` = not filtered by organisation |
 
-Any combination works; the filters are ANDed.
-
-| Sent | Returns |
-|---|---|
-| `userID` only | Every sheet of the user, in every organisation they have projects in |
-| `projectID` only | Every user's sheets on the project |
-| `orgID` only | Every sheet of every user on every project of the organisation |
-| any combination | The sheets matching all of them |
-| none | **400** — the whole table is never returned |
+Any combination works; the filters are ANDed. Sending none is a **400** — the
+whole table is never returned.
 
 #### Example request
 
@@ -5596,20 +5573,18 @@ GET /api/v1/TimesheetProject/get-timesheet-project-sheet?userID=7&projectID=12
 
 | Field | Type | Notes |
 |---|---|---|
-| `timesheetProjectSubmissionId` | int \| null | The sheet's id; `null` for a calculated sheet |
-| `sheetSubmissionCode` | string | The real code, or the predicted one for a calculated sheet |
-| `isCalculated` | bool | `true` for a period with no row yet |
-| `isPeriodEnded` | bool | `false` only for the period still running |
-| `statusId` | int | 0 Pending, 1 Submitted, 2 Approved, 3 Rejected. A calculated sheet is `0` |
-| `statusName` | string | `Pending`, `Submitted`, `Approved` or `Rejected` |
+| `timesheetProjectSubmissionId` | int | The sheet's id — what approve / reject takes |
+| `sheetSubmissionCode` | string | The period's code, shared with its time-log days |
+| `statusId` | int | 1 Submitted, 2 Approved, 3 Rejected (0 Pending only on a row older than this rule) |
+| `statusName` | string | `Submitted`, `Approved`, `Rejected` (or `Pending`) |
 | `userId` | int | |
 | `projectId` | int | |
 | `projectCode` | string \| null | |
 | `projectName` | string \| null | |
 | `periodStartDate` | datetime | First day of the period |
 | `periodEndDate` | datetime | Last day of the period, inclusive |
-| `timeLogCount` | int | Live entries on the sheet |
-| `totalMinutesLogged` | int | Their minutes |
+| `timeLogCount` | int | Live time-log days in the period |
+| `totalMinutesLogged` | int | Their hours, as minutes |
 | `totalHoursLogged` | decimal | Minutes / 60, rounded to 2 places |
 | `submittedBy` | int \| null | |
 | `submittedDate` | datetime \| null | UTC |
@@ -5619,8 +5594,7 @@ GET /api/v1/TimesheetProject/get-timesheet-project-sheet?userID=7&projectID=12
 | `rejectedDate` | datetime \| null | UTC |
 | `rejectionReason` | string \| null | |
 
-Every field is always present; a calculated sheet carries the `…By` / `…Date`
-fields as `null`.
+Every field is always present.
 
 #### Example response
 
@@ -5630,47 +5604,21 @@ fields as `null`.
   "message": "",
   "data": [
     {
-      "timesheetProjectSubmissionId": null,
-      "sheetSubmissionCode": "PSHT0011",
-      "isCalculated": true,
-      "isPeriodEnded": true,
-      "statusId": 0,
-      "statusName": "Pending",
-      "userId": 7,
-      "projectId": 12,
-      "projectCode": "PR0012",
-      "projectName": "Website redesign",
-      "periodStartDate": "2026-10-06T00:00:00",
-      "periodEndDate": "2026-10-12T00:00:00",
-      "timeLogCount": 0,
-      "totalMinutesLogged": 0,
-      "totalHoursLogged": 0,
-      "submittedBy": null,
-      "submittedDate": null,
-      "approvedBy": null,
-      "approvedDate": null,
-      "rejectedBy": null,
-      "rejectedDate": null,
-      "rejectionReason": null
-    },
-    {
       "timesheetProjectSubmissionId": 4,
       "sheetSubmissionCode": "PSHT0004",
-      "isCalculated": false,
-      "isPeriodEnded": false,
-      "statusId": 0,
-      "statusName": "Pending",
+      "statusId": 1,
+      "statusName": "Submitted",
       "userId": 7,
       "projectId": 12,
       "projectCode": "PR0012",
       "projectName": "Website redesign",
-      "periodStartDate": "2026-10-13T00:00:00",
-      "periodEndDate": "2026-10-19T00:00:00",
+      "periodStartDate": "2026-10-19T00:00:00",
+      "periodEndDate": "2026-10-25T00:00:00",
       "timeLogCount": 3,
-      "totalMinutesLogged": 450,
-      "totalHoursLogged": 7.5,
-      "submittedBy": null,
-      "submittedDate": null,
+      "totalMinutesLogged": 1200,
+      "totalHoursLogged": 20,
+      "submittedBy": 7,
+      "submittedDate": "2026-10-25T12:04:51.330",
       "approvedBy": null,
       "approvedDate": null,
       "rejectedBy": null,
@@ -5684,16 +5632,14 @@ fields as `null`.
 
 #### Empty result
 
-No matching sheets is `data: []`, a 200. So is a project with no `StartDate` or
-`SubmissionFrequency`, which has no periods.
+No matching sheets is `data: []`, a 200.
 
 #### Error responses
 
 **400** — no filter sent (`userID: userID, projectID or orgID is required.`),
 or one is negative.
 
-**500** — unhandled defect, or the tables have not been created in the
-database yet.
+**500** — unhandled defect.
 
 ---
 
@@ -5701,28 +5647,27 @@ database yet.
 
 `POST /api/v1/TimesheetProject/submit-timesheet-project-sheet`
 
-**Purpose** — Submit a project timesheet, **with or without time logged**. No
-period is sent; it is worked out from the code, or from the project's start
-date and frequency:
+**Purpose** — Submit a user's timesheet for one period of a project, **with or
+without time logged**. The period is named by its code or by a day in it:
 
-| `sheetSubmissionCode` sent | What is submitted |
+| Sent | Period |
 |---|---|
-| The code of a stored sheet | That sheet. It must be `userId`'s, on `projectId` |
-| A calculated code from [Project Timesheet List](#52-project-timesheet-list) | The period that code is predicted for, worked out exactly as the list works it out. The sheet is created, as Pending with the next code, and submitted with zero time |
-| Absent | The **most recent** Pending or Rejected period of `projectId`, stored or calculated, up to the current one |
+| `sheetSubmissionCode` | The period the code belongs to — a rejected sheet's, or the one its time-log days carry. It must be `userId`'s on `projectId` |
+| `periodDate` | The period containing that day. This is how a **blank** sheet is submitted: a period with no time logged has no code yet |
+| both | As the code; `periodDate` must fall in that period |
 
-Then the totals are taken from the time log at that moment, the sheet becomes
-**Submitted** with `SubmittedBy` / `SubmittedDate`, and a row is written to
-`dbo.TimesheetProjectSubmissionAuditLog`. A Pending sheet can be submitted, and
-a Rejected one resubmitted. The period still running can be submitted too, and
-nothing more can be logged on it after that.
+Then:
 
-**Reload the list right before submitting a calculated code.** Predicted codes
-move when anyone in the organisation opens a sheet, so a code fetched earlier
-can now point to a different period of the same project — see
-[Known gaps](#known-gaps) 58. A code that matches no sheet any more is a 400
-that says to reload. The response always carries the period and code actually
-submitted, and the message names the code.
+1. **The period must have reached its last day** — the 7th day of a weekly
+   period, the 15th of a 15-day one, the last day of a monthly one — on the
+   user's own date (their `dbo.TimesheetMasterSetup` time zone; UTC when none).
+   Submitting on that day or any day after is allowed.
+2. **First submit:** the period's **one** row is created, directly as
+   **Submitted**, with its audit row in the same save. Its code is the one the
+   period's time-log days carry; for a blank sheet, the next code.
+3. **Resubmit after rejection:** the same row goes back to Submitted.
+4. The totals are taken from the time log at that moment, with `SubmittedBy` /
+   `SubmittedDate`, and the period's time is locked until a rejection.
 
 **The project's approver is emailed.** After the submit is saved, the live
 approver of the project with `isTimesheetApprover` true (see
@@ -5736,75 +5681,51 @@ approver, no email address, or a failed send is only logged — see
 
 | Field | Type | Required | Rules |
 |---|---|---|---|
-| `sheetSubmissionCode` | string \| null | no | A code from the list. Absent = the most recent unsubmitted period |
+| `sheetSubmissionCode` | string \| null | one of the two | The period's code |
+| `periodDate` | date \| null | one of the two | Any day in the period. Not before the project's `StartDate`; its period not after the project's `EndDate` |
 | `userId` | int | yes | `> 0`. Whose sheet it is |
 | `projectId` | int | yes | `> 0` |
 | `addedBy` | int | yes | `> 0`. Written to `SubmittedBy` and the audit log. Temporary — from the token once authentication is on |
 
-#### Example request
+#### Example requests
 
 ```json
-{ "sheetSubmissionCode": "PSHT0011", "userId": 7, "projectId": 12, "addedBy": 7 }
+{ "sheetSubmissionCode": "PSHT0004", "userId": 7, "projectId": 12, "addedBy": 7 }
+```
+
+A blank sheet:
+
+```json
+{ "periodDate": "2026-10-12", "userId": 7, "projectId": 12, "addedBy": 7 }
 ```
 
 #### Success response — `200 OK`
 
 `data` is the submitted sheet, in the same shape as
-[Project Timesheet List](#52-project-timesheet-list), with `isCalculated: false`:
-
-```json
-{
-  "success": true,
-  "message": "Timesheet PSHT0011 submitted.",
-  "data": {
-    "timesheetProjectSubmissionId": 11,
-    "sheetSubmissionCode": "PSHT0011",
-    "isCalculated": false,
-    "isPeriodEnded": true,
-    "statusId": 1,
-    "statusName": "Submitted",
-    "userId": 7,
-    "projectId": 12,
-    "projectCode": "PR0012",
-    "projectName": "Website redesign",
-    "periodStartDate": "2026-10-06T00:00:00",
-    "periodEndDate": "2026-10-12T00:00:00",
-    "timeLogCount": 0,
-    "totalMinutesLogged": 0,
-    "totalHoursLogged": 0,
-    "submittedBy": 7,
-    "submittedDate": "2026-10-20T10:04:51.330",
-    "approvedBy": null,
-    "approvedDate": null,
-    "rejectedBy": null,
-    "rejectedDate": null,
-    "rejectionReason": null
-  },
-  "errors": []
-}
-```
+[Project Timesheet List](#52-project-timesheet-list), with
+`"message": "Timesheet PSHT0004 submitted."`.
 
 #### Error responses
 
-**400** — `userId`, `projectId` or `addedBy` `<= 0` (every failure is
-listed), or one of these, one at a time:
+**400** — `userId`, `projectId` or `addedBy` `<= 0`, or neither
+`sheetSubmissionCode` nor `periodDate` sent (every failure is listed), or one
+of these, one at a time:
 
 | Cause | Message |
 |---|---|
 | No such project | `ProjectId: Project '12' does not exist.` |
 | Project not set up | `Project '12' needs a start date, a submission frequency and an organization before time can be logged or submitted on it.` |
 | Code is another user's or project's sheet | `Timesheet 'PSHT0004' is not user '7''s timesheet for project '12', so it cannot be submitted as theirs.` |
-| Code matches no sheet (any more) | `SheetSubmissionCode: SheetSubmissionCode 'PSHT0011' is not a timesheet of user '7' on project '12'. Codes of unsaved timesheets move when another timesheet is opened - get the timesheets again and submit the code returned.` |
-| User not on the project | `User '7' is not assigned to project '12'.` (also `... (or the assignment was removed), so they have no timesheets on it to submit.` with no code) |
-| Project has not started (no code sent) | `Project '12' starts on 2026-11-01; its first timesheet period has not begun yet.` |
+| Code matches nothing of this user on this project | `SheetSubmissionCode: SheetSubmissionCode 'PSHT0011' is not a timesheet of user '7' on project '12'.` |
+| `periodDate` not in the code's period | `PeriodDate: PeriodDate 2026-10-12 is not in the period of timesheet 'PSHT0004'.` |
+| Date outside the project | `PeriodDate: PeriodDate must not be before the project's start date, 2026-10-01.` (or after its end date) |
+| **Period not yet at its last day** | `The timesheet for 2026-10-19 to 2026-10-25 can be submitted from 2026-10-25, the period's last day. Today is 2026-10-23 (Asia/Kolkata).` |
+| User not on the project (first submit) | `User '7' is not assigned to project '12', so they have no timesheet on it to submit.` |
 
-**409** — the sheet is already submitted or approved
-(`Timesheet 'PSHT0004' is already Submitted.`), or, with no code, every
-period of the project is:
-`Every timesheet of user '7' on project '12' is already submitted or approved.`
+**409** — the period is already submitted or approved:
+`Timesheet 'PSHT0004' is already Submitted.`
 
-**500** — unhandled defect, or the tables have not been created in the
-database yet.
+**500** — unhandled defect.
 
 ---
 
@@ -6147,17 +6068,6 @@ the values are persisted, so they must stay stable.
 [Approve / Reject Project Timesheet](#54-approve--reject-project-timesheet)
 accepts only `2` and `3`.
 
-### `TimesheetProjectTimeLogStatus` — the `Status` column of `dbo.TimesheetProjectTimeLog`
-
-| Name | Value | Meaning |
-|---|---|---|
-| `Save` | `1` | A saved entry |
-| `Draft` | `2` | A draft entry |
-
-Sent and received as the **number** — unlike `TimeLogStatus`, which uses the
-name. Declared in code as `Constants.TimesheetProjectTimeLog.Status`. Both
-values count towards the sheet's totals.
-
 ### `RoleType`
 
 | Name | Value |
@@ -6223,11 +6133,11 @@ authentication is off.
 | 46 | User Access Setup List | GET | `/api/v1/TimesheetProject/get-user-access-setup?orgID=&userID=` | Module access of live users of an organisation, a user or both | query params (at least one) | `TimesheetRoleAssignmentResponse[]` | 400, 500 |
 | 47 | Add / Edit User Access Setup | POST | `/api/v1/TimesheetProject/add-edit-user-access-setup` | Add a user's module access (`assignmentId` 0 / absent) or edit it; one setup per user | `TimesheetRoleAssignmentSaveRequest` | `TimesheetRoleAssignmentResponse` | 400, 404, 409, 500 |
 | 48 | Remove User Access Setup | POST | `/api/v1/TimesheetProject/remove-user-access-setup` | Hard-delete a user access setup by its id | `TimesheetRoleAssignmentDeleteRequest` | `null` | 400, 404, 500 |
-| 49 | Project Time Log List | GET | `/api/v1/TimesheetProject/get-timesheet-project-time-log?userID=&projectID=&fromDate=&toDate=` | A user's project time entries, each with its sheet's code, status and period | query params (`userID` required) | `TimesheetProjectTimeLogResponse[]` | 400, 500 |
-| 50 | Add / Edit Project Time Log | POST | `/api/v1/TimesheetProject/add-edit-timesheet-project-time-log` | Log time (`timesheetProjectTimeLogId` 0 / absent) or edit an entry; 24-hour `startTime`/`endTime`, duration worked out; sheet (`PSHT0001`…) opened for the period on its first entry | `TimesheetProjectTimeLogSaveRequest` | `TimesheetProjectTimeLogResponse` | 400, 404, 500 |
-| 51 | Remove Project Time Log | POST | `/api/v1/TimesheetProject/remove-timesheet-project-time-log` | Soft-delete a time entry; its sheet's totals drop | `TimesheetProjectTimeLogDeleteRequest` | `null` | 400, 404, 500 |
-| 52 | Project Timesheet List | GET | `/api/v1/TimesheetProject/get-timesheet-project-sheet?userID=&projectID=&orgID=` | Sheets per user, project and period — stored ones with logged time, and calculated ones with a predicted code | query params (at least one) | `TimesheetProjectSheetResponse[]` | 400, 500 |
-| 53 | Submit Project Timesheet | POST | `/api/v1/TimesheetProject/submit-timesheet-project-sheet` | Submit a sheet by code, or the most recent unsubmitted one; a period with no time is created and submitted empty; audit logged | `TimesheetProjectSheetSubmitRequest` | `TimesheetProjectSheetResponse` | 400, 409, 500 |
+| 49 | Project Time Log List | GET | `/api/v1/TimesheetProject/get-timesheet-project-time-log?userID=&projectID=&fromDate=&toDate=` | A user's project time, one entry per project per day | query params (`userID` required) | `TimesheetProjectTimeLogResponse[]` | 400, 500 |
+| 50 | Add / Edit Project Time Log | POST | `/api/v1/TimesheetProject/add-edit-timesheet-project-time-log` | Log `hoursLogged` on a day: the first log adds the day's entry, later ones add to it, capped at `Max_log_hour_day`; no submission opened | `TimesheetProjectTimeLogSaveRequest` | `TimesheetProjectTimeLogResponse` | 400, 500 |
+| 51 | Remove Project Time Log | POST | `/api/v1/TimesheetProject/remove-timesheet-project-time-log` | Soft-delete a day's time entry | `TimesheetProjectTimeLogDeleteRequest` | `null` | 400, 404, 500 |
+| 52 | Project Timesheet List | GET | `/api/v1/TimesheetProject/get-timesheet-project-sheet?userID=&projectID=&orgID=` | Submitted sheets per user, project and period, with the time logged in each | query params (at least one) | `TimesheetProjectSheetResponse[]` | 400, 500 |
+| 53 | Submit Project Timesheet | POST | `/api/v1/TimesheetProject/submit-timesheet-project-sheet` | Submit one period, by code or `periodDate`, on or after its last day (user's time zone); first submit creates the row as Submitted with the time log's code; audit logged | `TimesheetProjectSheetSubmitRequest` | `TimesheetProjectSheetResponse` | 400, 409, 500 |
 | 54 | Approve / Reject Project Timesheet | POST | `/api/v1/TimesheetProject/update-timesheet-project-sheet-status` | Approve (2) or reject (3, with reason) a submitted sheet; audit logged | `TimesheetProjectSheetStatusUpdateRequest` | `TimesheetProjectSheetResponse` | 400, 403, 404, 409, 500 |
 | 55 | Approver Setup List | GET | `/api/v1/TimesheetProject/get-timesheet-approver-setup?orgID=&projectID=` | Live approver setups of an organisation, a project or both | query params (at least one) | `TimesheetApproverSetupResponse[]` | 400, 500 |
 | 56 | Add / Edit Approver Setup | POST | `/api/v1/TimesheetProject/add-edit-timesheet-approver-setup` | Add a project's approver (`timesheetApproverSetupId` 0 / absent) or edit one; one approver per project | `TimesheetApproverSetupSaveRequest` | `TimesheetApproverSetupResponse` | 400, 404, 409, 500 |
@@ -6462,35 +6372,25 @@ Documented so nobody has to rediscover them:
 56. **User access setup reads depend on `dbo.Signup`**, which is not recorded
     (see 6). `spc_GetUserAccessSetup` and `spc_AddEditUserAccessSetup` join it
     for the user's name, email and organisation.
-57. **`maxLogHoursPerDay` is stored but never enforced.** The assignment's
-    `Max_log_hour_day` is saved and returned, and nothing reads it: the daily
-    cap [Save Time Log](#3-save-time-log-add--edit) actually applies is the
-    **user's** `dbo.TimesheetMasterSetup.MaxTimeInHrs`, which is per user, not
-    per project. A user on two projects has one effective cap across both, and
-    the two numbers can disagree with nothing to reconcile them. Until the time
-    log reads it, treat it as a number for a client to display.
-58. **A predicted sheet code is not reserved.** [Project Timesheet
-    List](#52-project-timesheet-list) predicts the code each calculated sheet
-    would get. When anyone in the organisation opens a sheet — by logging the
-    first entry of a period, or by submitting — every prediction after it moves
-    on by one. A calculated code fetched earlier can then point to a
-    **different period of the same project**, and
-    [Submit Project Timesheet](#53-submit-project-timesheet) submits that
-    period. Reload the list right before submitting, and check the period in
-    the response. Only a code that matches nothing at all is refused.
+57. **Two daily caps, not reconciled.** The assignment's `Max_log_hour_day`
+    caps [Add / Edit Project Time Log](#50-add--edit-project-time-log), per
+    project. [Save Time Log](#3-save-time-log-add--edit) caps `dbo.TimeLog` by
+    the **user's** `dbo.TimesheetMasterSetup.MaxTimeInHrs` instead. Neither
+    looks at the other, and a user on two projects can log up to each
+    project's cap on the same day.
+58. *(Resolved 2026-10-23.)* The sheet list no longer predicts codes for
+    unsubmitted periods: it lists submitted sheets only, and a period's code
+    is given by its first time-log day or its submit.
 59. **Nothing in the database keeps sheets and codes unique.** No unique
-    constraint was reported on `dbo.TimesheetProjectSubmission.SheetSubmissionCode`
-    or on (`UserID`, `ProjectID`, `PeriodStartDate`). Two requests opening the
-    same sheet at the same moment can create two sheets for one period, or two
-    sheets with one code. Unique indexes on both — the second filtered
-    `WHERE IsDelete = 0` — added by the owner, would close this.
-60. **The timesheet list builds a whole organisation per call.** Calculated
-    codes must agree across every filter, so the list is built for every user
-    and project of the organisation and filtered afterwards — even for one
-    user. A large organisation with long-running weekly projects makes it slow.
-61. **Project time entries are not checked against each other or a cap.** Two
-    entries may overlap, `Max_log_hour_day` (see 57) is not applied, and a
-    future `logDate` is accepted.
+    constraint was reported on `SheetSubmissionCode` or on (`UserID`,
+    `ProjectID`, `PeriodStartDate`). The API keeps one sheet per period and one
+    code per period, but two requests at the same moment — two first submits
+    of one period, or two first logs of different periods — can still create
+    two sheets for one period, or give two periods one code.
+60. *(Resolved 2026-10-23.)* The timesheet list reads only the stored,
+    submitted sheets matching its filters.
+61. **A future `logDate` is accepted.** The time log checks the project's
+    dates and the day's cap (see 57), not today's date.
 62. **Project timesheet writes trust `userId` and `addedBy`.** With
     authentication off, any caller can log, edit, remove or submit time as any
     user. The status update does check that `addedBy` is the project's
@@ -6532,3 +6432,16 @@ Documented so nobody has to rediscover them:
     never reports whether the approver was emailed: no approver, no address,
     or a failed send is only logged. The subject is fixed in code
     (`Timesheet Submitted for Approval`), not configuration.
+72. *(Resolved 2026-10-23.)* The time log and the submit draw codes from one
+    sequence across both tables.
+73. **A rejected sheet's totals go stale until resubmitted.** Time changed
+    after a rejection is not written to the sheet's `TotalHoursLogged` /
+    `TotalMinutesLogged` columns until the next submit. The list's
+    `timeLogCount` and `totalMinutesLogged` are counted live, so they already
+    show it.
+74. **The day's entry can only grow.** Logging adds hours; there is no way to
+    lower a day's total except to remove the entry and log the day again.
+75. **The submit window follows the user's time zone, the sheet's dates do
+    not.** "The period's last day has come" is judged on the user's date in
+    their `dbo.TimesheetMasterSetup` zone; `submittedDate`, `approvedDate` and
+    `rejectedDate` are stored in UTC.

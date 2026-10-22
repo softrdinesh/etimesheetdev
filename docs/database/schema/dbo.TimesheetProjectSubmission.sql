@@ -16,8 +16,14 @@
       POST api/v1/TimesheetProject/update-timesheet-project-sheet-status)
 
     Column quirks worth knowing:
-      - SheetSubmissionCode is the display code, in the form PSHTnnnn.
-      - StatusID: 0 Pending, 1 Submitted, 2 Approved, 3 Rejected.
+      - One row per UserID + ProjectID + period, created by the period's first
+        submit with StatusID 1 - no row exists before. A resubmit after a
+        rejection updates the same row. Nothing in the database enforces it.
+      - SheetSubmissionCode is the display code, in the form PSHTnnnn: the
+        code the period's dbo.TimesheetProjectTimeLog rows carry, or the next
+        in the sequence shared with that table for a blank sheet.
+      - StatusID: 0 Pending, 1 Submitted, 2 Approved, 3 Rejected. Since
+        2026-10-23 the API no longer writes 0.
       - UserID, ProjectID and OrganizationID are presumably dbo.Signup.UserID,
         dbo.TimesheetProject.ProjectID and the organization id. No foreign key
         was supplied for any of them.
