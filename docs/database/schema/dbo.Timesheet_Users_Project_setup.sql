@@ -43,9 +43,10 @@
         was reported for either.
       - Cost_rate_per_hour and Billable_rate_per_hour are decimal(18,2).
       - Max_log_hour_day is a whole number of HOURS, nullable: NULL means this
-        assignment sets no cap of its own. Nothing in the API enforces it yet -
-        the daily cap the time log actually applies is
-        dbo.TimesheetMasterSetup.MaxTimeInHrs, per user. The two are not
+        assignment sets no cap of its own. Since 2026-10-22 it caps the day's
+        total in dbo.TimesheetProjectTimeLog (add-edit-timesheet-project-time-log;
+        24 when NULL). dbo.TimeLog's daily cap is still
+        dbo.TimesheetMasterSetup.MaxTimeInHrs, per user - the two are not
         reconciled.
       - IsDelete is an int, nullable, as on dbo.Signup - not a bit.
         spc_Signup_timesheet_user writes 0 and the API's soft delete writes 1;

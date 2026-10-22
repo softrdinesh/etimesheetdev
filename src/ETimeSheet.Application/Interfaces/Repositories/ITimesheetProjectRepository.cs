@@ -488,11 +488,11 @@ public interface ITimesheetProjectRepository
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// The live time entries of a user on live sheets, ordered by date, then
-    /// start time. A null filter matches anything; the dates are inclusive.
+    /// The live time log days of a user, <b>untracked</b>, ordered by date,
+    /// then project. A null filter matches anything; the dates are inclusive.
     /// Empty when none match.
     /// </summary>
-    Task<IReadOnlyList<TimesheetProjectTimeLogDetail>> GetProjectTimeLogListAsync(
+    Task<IReadOnlyList<TimesheetProjectTimeLog>> GetProjectTimeLogListAsync(
         int userId,
         int? projectId,
         DateTime? fromDate,
@@ -500,11 +500,55 @@ public interface ITimesheetProjectRepository
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Returns a live time entry, <b>tracked</b> for an edit or a soft delete;
+    /// Returns a live time log day, <b>tracked</b> for a soft delete;
     /// <see langword="null"/> when it does not exist or is deleted.
     /// </summary>
     Task<TimesheetProjectTimeLog?> GetProjectTimeLogForUpdateAsync(
         int timesheetProjectTimeLogId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns the user's live time log for a project on one day,
+    /// <b>tracked</b> so hours can be added to it; <see langword="null"/> when
+    /// nothing is logged that day.
+    /// </summary>
+    Task<TimesheetProjectTimeLog?> GetProjectTimeLogForDayForUpdateAsync(
+        int userId,
+        int projectId,
+        DateTime logDate,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The sheet code already on a user's time on a project between the two
+    /// dates, both inclusive - <b>deleted days included</b>, since their code
+    /// is spent; <see langword="null"/> when no day in the range has one.
+    /// </summary>
+    Task<string?> GetProjectTimeLogSheetCodeForPeriodAsync(
+        int userId,
+        int projectId,
+        DateTime periodStartDate,
+        DateTime periodEndDate,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The highest generated <c>PSHT</c> sheet code in either
+    /// <c>dbo.TimesheetProjectTimeLog</c> or
+    /// <c>dbo.TimesheetProjectSubmission</c> - deleted rows included, because
+    /// their codes are spent - or <see langword="null"/> when there is none.
+    /// Longer codes rank higher, so <c>PSHT10000</c> outranks <c>PSHT9999</c>.
+    /// </summary>
+    Task<string?> GetLatestProjectSheetCodeAsync(
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The most hours a day the user may log on the project:
+    /// <c>Max_log_hour_day</c> of their live assignment in
+    /// <c>dbo.Timesheet_Users_Project_setup</c>. <see langword="null"/> when
+    /// the assignment sets no cap.
+    /// </summary>
+    Task<int?> GetUserProjectMaxLogHoursPerDayAsync(
+        int userId,
+        int projectId,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -527,54 +571,65 @@ public interface ITimesheetProjectRepository
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// The highest generated <c>PSHT</c> sheet code - deleted sheets included,
-    /// because their codes are spent - or <see langword="null"/> when there is
-    /// none. Longer codes rank higher, so <c>PSHT10000</c> outranks
-    /// <c>PSHT9999</c>.
+    /// The minutes logged by a user on a project from
+    /// <paramref name="periodStartDate"/> to <paramref name="periodEndDate"/>,
+    /// both inclusive; 0 when there are none.
     /// </summary>
-    Task<string?> GetLatestProjectSubmissionCodeAsync(
+    Task<int> GetProjectLoggedMinutesForPeriodAsync(
+        int userId,
+        int projectId,
+        DateTime periodStartDate,
+        DateTime periodEndDate,
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// The minutes of every live entry on a sheet except
-    /// <paramref name="excludedTimesheetProjectTimeLogId"/>; 0 when there are none.
+    /// Inserts a new sheet together with its first audit row, in one save, so
+    /// a sheet is never written without its record. Returns the sheet with its
+    /// <c>TimesheetProjectSubmissionId</c>.
     /// </summary>
-    Task<int> GetProjectSubmissionLoggedMinutesAsync(
-        int timesheetProjectSubmissionId,
-        int excludedTimesheetProjectTimeLogId,
-        CancellationToken cancellationToken = default);
-
-    /// <summary>Inserts a new sheet and returns it with its <c>TimesheetProjectSubmissionId</c>.</summary>
     Task<TimesheetProjectSubmission> AddProjectSubmissionAsync(
         TimesheetProjectSubmission submission,
+        TimesheetProjectSubmissionAuditLog auditLog,
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Inserts <paramref name="timeLog"/> when it is new, and saves it together
-    /// with every change made to the tracked sheets - their totals - in one
-    /// save, so the entry and the totals are written together or not at all.
+    /// The live sheet of a user and project whose period contains
+    /// <paramref name="date"/>, <b>untracked</b>; <see langword="null"/> when
+    /// that period has not been submitted.
+    /// </summary>
+    Task<TimesheetProjectSubmission?> GetProjectSubmissionForDateAsync(
+        int userId,
+        int projectId,
+        DateTime date,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// A log date of a user's time on a project that carries
+    /// <paramref name="sheetSubmissionCode"/> - deleted days included - or
+    /// <see langword="null"/> when none does. Any one will do: every day with
+    /// the code is in the same period.
+    /// </summary>
+    Task<DateTime?> GetProjectTimeLogDateForCodeAsync(
+        int userId,
+        int projectId,
+        string sheetSubmissionCode,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The IANA time zone of the user's live timesheet setup in
+    /// <c>dbo.TimesheetMasterSetup</c>; <see langword="null"/> when they have
+    /// no setup or it names no zone.
+    /// </summary>
+    Task<string?> GetUserTimeZoneAsync(
+        int userId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Inserts <paramref name="timeLog"/> when it is new, or saves the changes
+    /// made to it when it was loaded tracked.
     /// </summary>
     Task<TimesheetProjectTimeLog> SaveProjectTimeLogAsync(
         TimesheetProjectTimeLog timeLog,
-        CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// The live project assignments matching every filter given,
-    /// <b>untracked</b>. A null filter matches anything;
-    /// <paramref name="organizationId"/> matches on the project's organisation.
-    /// </summary>
-    Task<IReadOnlyList<TimesheetUserProjectSetup>> GetUserProjectSetupListAsync(
-        int? userId,
-        int? projectId,
-        int? organizationId,
-        CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// The organisations a user has project sheets in: those of the projects
-    /// they are on now, and those of their stored sheets.
-    /// </summary>
-    Task<IReadOnlyList<int>> GetUserProjectOrganizationIdsAsync(
-        int userId,
         CancellationToken cancellationToken = default);
 
     /// <summary>The projects with these ids, <b>untracked</b>. An id with no project is left out.</summary>
@@ -583,8 +638,9 @@ public interface ITimesheetProjectRepository
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// The live sheets matching every filter given - a null filter matches
-    /// anything - each with the code, count and minutes of its live entries in
+    /// The live sheets - every submitted period - matching every filter given;
+    /// a null filter matches anything. Each comes with the count and minutes
+    /// of the user's live days on the project within its period, from
     /// <c>dbo.TimesheetProjectTimeLog</c>.
     /// </summary>
     Task<IReadOnlyList<TimesheetProjectSheetDetail>> GetProjectSheetListAsync(

@@ -59,6 +59,7 @@ docs/database/
 │   ├── dbo.TimesheetProjectBudget.sql
 │   ├── dbo.TimesheetProjectCategory.sql
 │   ├── dbo.TimesheetProjectStatus.sql
+│   ├── dbo.TimesheetProjectSubmissionStatus.sql
 │   ├── dbo.TimesheetSubmission.sql
 │   ├── dbo.TimeSheetSubmissionAuditLog.sql
 │   └── dbo.TimesheetUserRole.sql

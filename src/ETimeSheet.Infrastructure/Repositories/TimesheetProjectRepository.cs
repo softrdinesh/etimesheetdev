@@ -612,44 +612,22 @@ public class TimesheetProjectRepository : ITimesheetProjectRepository
                 user => user.UserId == userId && user.OrganizationId == organizationId && user.IsDelete == 0,
                 cancellationToken);
 
-    public async Task<IReadOnlyList<TimesheetProjectTimeLogDetail>> GetProjectTimeLogListAsync(
+    public async Task<IReadOnlyList<TimesheetProjectTimeLog>> GetProjectTimeLogListAsync(
         int userId,
         int? projectId,
         DateTime? fromDate,
         DateTime? toDate,
         CancellationToken cancellationToken = default) =>
-        // Both query filters apply, so a deleted entry, or an entry on a
-        // deleted sheet, is not listed.
-        await (
-                from timeLog in _db.TimesheetProjectTimeLog.AsNoTracking()
-                join submission in _db.TimesheetProjectSubmission.AsNoTracking()
-                    on timeLog.TimesheetProjectSubmissionId equals submission.TimesheetProjectSubmissionId
-                where submission.UserId == userId
-                      && (projectId == null || submission.ProjectId == projectId)
-                      && (fromDate == null || timeLog.LogDate >= fromDate)
-                      && (toDate == null || timeLog.LogDate <= toDate)
-                orderby timeLog.LogDate, timeLog.StartTime, timeLog.TimesheetProjectTimeLogId
-                select new TimesheetProjectTimeLogDetail
-                {
-                    TimesheetProjectTimeLogId = timeLog.TimesheetProjectTimeLogId,
-                    TimesheetProjectSubmissionId = submission.TimesheetProjectSubmissionId,
-                    SheetSubmissionCode = submission.SheetSubmissionCode,
-                    SubmissionStatusId = submission.StatusId,
-                    PeriodStartDate = submission.PeriodStartDate,
-                    PeriodEndDate = submission.PeriodEndDate,
-                    UserId = submission.UserId,
-                    ProjectId = submission.ProjectId,
-                    LogDate = timeLog.LogDate,
-                    StartTime = timeLog.StartTime,
-                    EndTime = timeLog.EndTime,
-                    DurationMinutes = timeLog.DurationMinutes,
-                    Description = timeLog.Description,
-                    Status = timeLog.Status,
-                    CreateDate = timeLog.CreateDate,
-                    CreatedBy = timeLog.CreatedBy,
-                    UpdateDate = timeLog.UpdateDate,
-                    UpdatedBy = timeLog.UpdatedBy,
-                })
+        // The query filter leaves deleted days out.
+        await _db.TimesheetProjectTimeLog
+            .AsNoTracking()
+            .Where(timeLog => timeLog.UserId == userId
+                              && (projectId == null || timeLog.ProjectId == projectId)
+                              && (fromDate == null || timeLog.LogDate >= fromDate)
+                              && (toDate == null || timeLog.LogDate <= toDate))
+            .OrderBy(timeLog => timeLog.LogDate)
+            .ThenBy(timeLog => timeLog.ProjectId)
+            .ThenBy(timeLog => timeLog.TimesheetProjectTimeLogId)
             .ToListAsync(cancellationToken);
 
     public async Task<TimesheetProjectTimeLog?> GetProjectTimeLogForUpdateAsync(
@@ -661,6 +639,77 @@ public class TimesheetProjectRepository : ITimesheetProjectRepository
             .FirstOrDefaultAsync(
                 timeLog => timeLog.TimesheetProjectTimeLogId == timesheetProjectTimeLogId,
                 cancellationToken);
+
+    public async Task<TimesheetProjectTimeLog?> GetProjectTimeLogForDayForUpdateAsync(
+        int userId,
+        int projectId,
+        DateTime logDate,
+        CancellationToken cancellationToken = default) =>
+        // Tracked on purpose - the hours are added to it. Oldest first, should
+        // duplicates ever exist: nothing in the database stops two rows for one
+        // day.
+        await _db.TimesheetProjectTimeLog
+            .Where(timeLog => timeLog.UserId == userId
+                              && timeLog.ProjectId == projectId
+                              && timeLog.LogDate == logDate.Date)
+            .OrderBy(timeLog => timeLog.TimesheetProjectTimeLogId)
+            .FirstOrDefaultAsync(cancellationToken);
+
+    public async Task<string?> GetProjectTimeLogSheetCodeForPeriodAsync(
+        int userId,
+        int projectId,
+        DateTime periodStartDate,
+        DateTime periodEndDate,
+        CancellationToken cancellationToken = default) =>
+        await _db.TimesheetProjectTimeLog
+            .AsNoTracking()
+            // A deleted day has still given the period its code, so the filter
+            // is ignored on purpose: skipping it would give the period a second.
+            .IgnoreQueryFilters()
+            .Where(timeLog => timeLog.UserId == userId
+                              && timeLog.ProjectId == projectId
+                              && timeLog.LogDate >= periodStartDate.Date
+                              && timeLog.LogDate <= periodEndDate.Date
+                              && timeLog.SheetSubmissionCode != "")
+            // The first day logged in the period set the code.
+            .OrderBy(timeLog => timeLog.TimesheetProjectTimeLogId)
+            .Select(timeLog => timeLog.SheetSubmissionCode)
+            .FirstOrDefaultAsync(cancellationToken);
+
+    public async Task<string?> GetLatestProjectSheetCodeAsync(
+        CancellationToken cancellationToken = default) =>
+        // Both tables hand out codes from one sequence; deleted rows have
+        // spent theirs, so neither query filter applies.
+        await GeneratedSheetCodes(_db.TimesheetProjectTimeLog
+                .IgnoreQueryFilters()
+                .Select(timeLog => timeLog.SheetSubmissionCode))
+            .Concat(GeneratedSheetCodes(_db.TimesheetProjectSubmission
+                .IgnoreQueryFilters()
+                .Select(submission => submission.SheetSubmissionCode)))
+            // Longest first, then greatest: PSHT10000 outranks PSHT9999.
+            .OrderByDescending(code => code.Length)
+            .ThenByDescending(code => code)
+            .FirstOrDefaultAsync(cancellationToken);
+
+    /// <summary>
+    /// The codes of the shape the sequence generates - "PSHT followed by
+    /// digits and nothing else" - evaluated in SQL Server, so a hand-entered
+    /// code cannot break the sequence.
+    /// </summary>
+    private static IQueryable<string> GeneratedSheetCodes(IQueryable<string> codes) =>
+        codes.Where(code => EF.Functions.Like(code, "PSHT[0-9]%")
+                            && !EF.Functions.Like(code.Substring(4), "%[^0-9]%"));
+
+    public async Task<int?> GetUserProjectMaxLogHoursPerDayAsync(
+        int userId,
+        int projectId,
+        CancellationToken cancellationToken = default) =>
+        // The query filter hides deleted assignments. Nothing stops a user
+        // being assigned to a project twice, so the strictest cap wins; Min
+        // over no non-null value is null - no cap.
+        await _db.Timesheet_Users_Project_setup
+            .Where(setup => setup.UserId == userId && setup.ProjectId == projectId)
+            .MinAsync(setup => setup.MaxLogHoursPerDay, cancellationToken);
 
     public async Task<TimesheetProjectSubmission?> GetProjectSubmissionForUpdateAsync(
         int timesheetProjectSubmissionId,
@@ -684,44 +733,82 @@ public class TimesheetProjectRepository : ITimesheetProjectRepository
             .OrderBy(submission => submission.TimesheetProjectSubmissionId)
             .FirstOrDefaultAsync(cancellationToken);
 
-    public async Task<string?> GetLatestProjectSubmissionCodeAsync(
+    public async Task<int> GetProjectLoggedMinutesForPeriodAsync(
+        int userId,
+        int projectId,
+        DateTime periodStartDate,
+        DateTime periodEndDate,
         CancellationToken cancellationToken = default) =>
-        await _db.TimesheetProjectSubmission
-            .AsNoTracking()
-            // A deleted sheet has still spent its code, so the filter is
-            // ignored on purpose: skipping it would reissue that code.
-            .IgnoreQueryFilters()
-            // "PSHT followed by digits and nothing else", evaluated in SQL
-            // Server, so a hand-entered code cannot break the sequence.
-            .Where(submission => EF.Functions.Like(submission.SheetSubmissionCode, "PSHT[0-9]%")
-                                 && !EF.Functions.Like(submission.SheetSubmissionCode.Substring(4), "%[^0-9]%"))
-            // Longest first, then greatest: PSHT10000 outranks PSHT9999.
-            .OrderByDescending(submission => submission.SheetSubmissionCode.Length)
-            .ThenByDescending(submission => submission.SheetSubmissionCode)
-            .Select(submission => submission.SheetSubmissionCode)
-            .FirstOrDefaultAsync(cancellationToken);
-
-    public async Task<int> GetProjectSubmissionLoggedMinutesAsync(
-        int timesheetProjectSubmissionId,
-        int excludedTimesheetProjectTimeLogId,
-        CancellationToken cancellationToken = default) =>
-        // Summed in the database. The query filter leaves deleted entries out.
+        // Summed in the database. The query filter leaves deleted days out.
         await _db.TimesheetProjectTimeLog
-            .Where(timeLog => timeLog.TimesheetProjectSubmissionId == timesheetProjectSubmissionId
-                              && timeLog.TimesheetProjectTimeLogId != excludedTimesheetProjectTimeLogId)
-            .SumAsync(timeLog => timeLog.DurationMinutes, cancellationToken);
+            .Where(timeLog => timeLog.UserId == userId
+                              && timeLog.ProjectId == projectId
+                              && timeLog.LogDate >= periodStartDate.Date
+                              && timeLog.LogDate <= periodEndDate.Date)
+            .SumAsync(timeLog => timeLog.HoursLogged * 60, cancellationToken);
 
     public async Task<TimesheetProjectSubmission> AddProjectSubmissionAsync(
         TimesheetProjectSubmission submission,
+        TimesheetProjectSubmissionAuditLog auditLog,
         CancellationToken cancellationToken = default)
     {
-        await _db.TimesheetProjectSubmission.AddAsync(submission, cancellationToken);
+        // Linked through the model-only relationship, so one SaveChanges
+        // inserts the sheet, then the audit row with the sheet's new identity -
+        // one transaction, no explicit one to wrap in the retry strategy.
+        auditLog.Submission = submission;
+
+        _db.TimesheetProjectSubmission.Add(submission);
+        _db.TimesheetProjectSubmissionAuditLog.Add(auditLog);
+
         await _db.SaveChangesAsync(cancellationToken);
 
-        // TimesheetProjectSubmissionID is an identity column, so it is only
-        // populated after the save.
         return submission;
     }
+
+    public async Task<TimesheetProjectSubmission?> GetProjectSubmissionForDateAsync(
+        int userId,
+        int projectId,
+        DateTime date,
+        CancellationToken cancellationToken = default) =>
+        // The stored period, not one worked out again: a project's start date
+        // or frequency changed since the submit cannot unlock it. Oldest first,
+        // should two rows ever overlap.
+        await _db.TimesheetProjectSubmission
+            .AsNoTracking()
+            .Where(submission => submission.UserId == userId
+                                 && submission.ProjectId == projectId
+                                 && submission.PeriodStartDate <= date.Date
+                                 && submission.PeriodEndDate >= date.Date)
+            .OrderBy(submission => submission.TimesheetProjectSubmissionId)
+            .FirstOrDefaultAsync(cancellationToken);
+
+    public async Task<DateTime?> GetProjectTimeLogDateForCodeAsync(
+        int userId,
+        int projectId,
+        string sheetSubmissionCode,
+        CancellationToken cancellationToken = default) =>
+        await _db.TimesheetProjectTimeLog
+            .AsNoTracking()
+            // A deleted day still marks its period's code.
+            .IgnoreQueryFilters()
+            .Where(timeLog => timeLog.UserId == userId
+                              && timeLog.ProjectId == projectId
+                              && timeLog.SheetSubmissionCode == sheetSubmissionCode)
+            .OrderBy(timeLog => timeLog.TimesheetProjectTimeLogId)
+            .Select(timeLog => (DateTime?)timeLog.LogDate)
+            .FirstOrDefaultAsync(cancellationToken);
+
+    public async Task<string?> GetUserTimeZoneAsync(
+        int userId,
+        CancellationToken cancellationToken = default) =>
+        // The query filter hides deleted setups. Ordered, because nothing
+        // stops a user having two.
+        await _db.TimesheetMasterSetup
+            .AsNoTracking()
+            .Where(setup => setup.UserId == userId)
+            .OrderBy(setup => setup.SetupId)
+            .Select(setup => setup.TimeZone)
+            .FirstOrDefaultAsync(cancellationToken);
 
     public async Task<TimesheetProjectTimeLog> SaveProjectTimeLogAsync(
         TimesheetProjectTimeLog timeLog,
@@ -732,47 +819,9 @@ public class TimesheetProjectRepository : ITimesheetProjectRepository
             await _db.TimesheetProjectTimeLog.AddAsync(timeLog, cancellationToken);
         }
 
-        // One SaveChanges: the entry and the tracked sheets' totals go in one
-        // transaction.
         await _db.SaveChangesAsync(cancellationToken);
 
         return timeLog;
-    }
-
-    public async Task<IReadOnlyList<TimesheetUserProjectSetup>> GetUserProjectSetupListAsync(
-        int? userId,
-        int? projectId,
-        int? organizationId,
-        CancellationToken cancellationToken = default) =>
-        // The query filter hides deleted assignments. The table has no
-        // organisation of its own, so that filter goes through the project.
-        await _db.Timesheet_Users_Project_setup
-            .AsNoTracking()
-            .Where(setup => setup.ProjectId != null
-                            && (userId == null || setup.UserId == userId)
-                            && (projectId == null || setup.ProjectId == projectId)
-                            && (organizationId == null
-                                || _db.TimesheetProject.Any(project => project.ProjectId == setup.ProjectId
-                                                                       && project.OrganizationId == organizationId)))
-            .ToListAsync(cancellationToken);
-
-    public async Task<IReadOnlyList<int>> GetUserProjectOrganizationIdsAsync(
-        int userId,
-        CancellationToken cancellationToken = default)
-    {
-        var assigned = _db.Timesheet_Users_Project_setup
-            .Where(setup => setup.UserId == userId)
-            .Join(
-                _db.TimesheetProject.Where(project => project.OrganizationId != null),
-                setup => setup.ProjectId,
-                project => (int?)project.ProjectId,
-                (setup, project) => project.OrganizationId!.Value);
-
-        var submitted = _db.TimesheetProjectSubmission
-            .Where(submission => submission.UserId == userId)
-            .Select(submission => submission.OrganizationId);
-
-        return await assigned.Union(submitted).ToListAsync(cancellationToken);
     }
 
     public async Task<IReadOnlyList<TimesheetProject>> GetListByIdsAsync(
@@ -788,10 +837,11 @@ public class TimesheetProjectRepository : ITimesheetProjectRepository
         int? projectId,
         int? organizationId,
         CancellationToken cancellationToken = default) =>
-        // The code, the count and the minutes come from the time log, one
-        // subquery per sheet; the time log's query filter applies inside them,
-        // so deleted entries do not count. A sheet with no live entry - one
-        // submitted with no time, or emptied by deletes - keeps its own code.
+        // Every stored sheet is a submitted period. The count and the minutes
+        // come from the time log - the user's days on
+        // the project within the sheet's period - one subquery per sheet; the
+        // time log's query filter applies inside them, so deleted days do not
+        // count.
         await _db.TimesheetProjectSubmission
             .AsNoTracking()
             .Where(submission => (userId == null || submission.UserId == userId)
@@ -800,21 +850,23 @@ public class TimesheetProjectRepository : ITimesheetProjectRepository
             .Select(submission => new TimesheetProjectSheetDetail
             {
                 TimesheetProjectSubmissionId = submission.TimesheetProjectSubmissionId,
-                SheetSubmissionCode = _db.TimesheetProjectTimeLog
-                    .Where(timeLog => timeLog.TimesheetProjectSubmissionId == submission.TimesheetProjectSubmissionId)
-                    .OrderBy(timeLog => timeLog.TimesheetProjectTimeLogId)
-                    .Select(timeLog => timeLog.SheetSubmissionCode)
-                    .FirstOrDefault() ?? submission.SheetSubmissionCode,
+                SheetSubmissionCode = submission.SheetSubmissionCode,
                 StatusId = submission.StatusId,
                 UserId = submission.UserId,
                 ProjectId = submission.ProjectId,
                 PeriodStartDate = submission.PeriodStartDate,
                 PeriodEndDate = submission.PeriodEndDate,
                 TimeLogCount = _db.TimesheetProjectTimeLog
-                    .Count(timeLog => timeLog.TimesheetProjectSubmissionId == submission.TimesheetProjectSubmissionId),
+                    .Count(timeLog => timeLog.UserId == submission.UserId
+                                      && timeLog.ProjectId == submission.ProjectId
+                                      && timeLog.LogDate >= submission.PeriodStartDate
+                                      && timeLog.LogDate <= submission.PeriodEndDate),
                 TotalMinutesLogged = _db.TimesheetProjectTimeLog
-                    .Where(timeLog => timeLog.TimesheetProjectSubmissionId == submission.TimesheetProjectSubmissionId)
-                    .Sum(timeLog => timeLog.DurationMinutes),
+                    .Where(timeLog => timeLog.UserId == submission.UserId
+                                      && timeLog.ProjectId == submission.ProjectId
+                                      && timeLog.LogDate >= submission.PeriodStartDate
+                                      && timeLog.LogDate <= submission.PeriodEndDate)
+                    .Sum(timeLog => timeLog.HoursLogged * 60),
                 SubmittedBy = submission.SubmittedBy,
                 SubmittedDate = submission.SubmittedDate,
                 ApprovedBy = submission.ApprovedBy,

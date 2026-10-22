@@ -24,6 +24,13 @@ public class TimesheetProjectSubmissionAuditLogConfiguration : IEntityTypeConfig
 
         builder.Property(auditLog => auditLog.TimesheetProjectSubmissionId).HasColumnName("TimesheetProjectSubmissionID");
 
+        // A relationship in the model only - the database declares no foreign
+        // key. It lets a new sheet and its first audit row go in one save,
+        // the sheet's identity flowing into this row's column.
+        builder.HasOne(auditLog => auditLog.Submission)
+            .WithMany()
+            .HasForeignKey(auditLog => auditLog.TimesheetProjectSubmissionId);
+
         builder.Property(auditLog => auditLog.StatusId).HasColumnName("StatusID");
 
         builder.Property(auditLog => auditLog.CreatedBy).HasColumnName("CreatedBy");

@@ -257,26 +257,6 @@ public static class Constants
         }
     }
 
-    /// <summary>Coded column values for the <c>dbo.TimesheetProjectTimeLog</c> table.</summary>
-    public static class TimesheetProjectTimeLog
-    {
-        /// <summary>
-        /// Values of the <c>dbo.TimesheetProjectTimeLog.Status</c> column.
-        /// <para>
-        /// <b>1 = Save, 2 = Draft.</b> These are persisted, so they can never
-        /// be renumbered.
-        /// </para>
-        /// </summary>
-        public static class Status
-        {
-            /// <summary>A saved entry. Stored as <c>1</c>.</summary>
-            public const int Save = 1;
-
-            /// <summary>A draft entry. Stored as <c>2</c>.</summary>
-            public const int Draft = 2;
-        }
-    }
-
     /// <summary>
     /// The contents of the <c>dbo.EmailType</c> lookup table - reference data,
     /// inserted with the schema and never written by the API.

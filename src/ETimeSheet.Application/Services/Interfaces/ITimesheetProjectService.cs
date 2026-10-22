@@ -374,9 +374,9 @@ public interface ITimesheetProjectService
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Returns the live time entries of a user, optionally narrowed to one
-    /// project and a date range, ordered by date, then start time. No matching
-    /// entries is an empty list, not a 404.
+    /// Returns the live time log days of a user - one per project per day -
+    /// optionally narrowed to one project and a date range, ordered by date,
+    /// then project. No matching days is an empty list, not a 404.
     /// </summary>
     /// <exception cref="ETimeSheet.Shared.Exceptions.ValidationException">
     /// <paramref name="userId"/> is not positive, <paramref name="projectId"/>
@@ -390,35 +390,33 @@ public interface ITimesheetProjectService
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Adds a time entry to a project, or edits one - <b>one method for
-    /// both</b>. A <see cref="TimesheetProjectTimeLogSaveRequest.TimesheetProjectTimeLogId"/>
-    /// of <c>0</c> adds; any greater value edits that entry. The entry is put
-    /// on the user's sheet for the project's submission period containing the
-    /// log date, opening that sheet with the next <c>PSHT</c> code when it does
-    /// not exist yet, and the sheet's totals are kept in step.
+    /// Logs hours on a project for one day. The user has one entry per project
+    /// per day, found by the date: the first log of the day adds it, every
+    /// later one adds its hours to it. The day's total may not exceed the
+    /// assignment's <c>Max_log_hour_day</c> (24 when it has none). A new day
+    /// takes the sheet code of its submission period - its sheet's, or the one
+    /// already on the user's days on the project in that period, deleted ones
+    /// included, or else the next code. No submission is opened. A period that
+    /// is submitted or approved is closed; a rejected one is open, and its
+    /// sheet is left as it is.
     /// </summary>
-    /// <returns>The saved entry, with its sheet.</returns>
+    /// <returns>The day's entry, with its new total, code and period.</returns>
     /// <exception cref="ETimeSheet.Shared.Exceptions.ValidationException">
     /// Any field fails its rule, the project does not exist, the user is not
-    /// assigned to it, or the date is outside the project's dates - every
-    /// failure of the payload itself is reported together.
-    /// </exception>
-    /// <exception cref="ETimeSheet.Shared.Exceptions.NotFoundException">
-    /// An id was sent, but no live entry has it.
+    /// assigned to it, the date is outside the project's dates, or the hours
+    /// would take the day past its cap.
     /// </exception>
     /// <exception cref="ETimeSheet.Shared.Exceptions.BusinessException">
-    /// The entry belongs to another user; the project has no start date,
-    /// submission frequency or organisation; or the sheet the entry is on, or
-    /// is moving to, is submitted or approved.
+    /// The project has no start date, submission frequency or organisation, or
+    /// the day's period is submitted or approved.
     /// </exception>
     Task<TimesheetProjectTimeLogResponse> SaveProjectTimeLogAsync(
         TimesheetProjectTimeLogSaveRequest request,
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Soft-deletes a time entry: <c>IsDelete</c>, <c>DeletedDate</c> and
-    /// <c>DeletedBy</c> are stamped, the row is kept, and its sheet's totals
-    /// drop by its minutes.
+    /// Soft-deletes a time log day: <c>IsDelete</c>, <c>DeletedDate</c> and
+    /// <c>DeletedBy</c> are stamped and the row is kept.
     /// </summary>
     /// <exception cref="ETimeSheet.Shared.Exceptions.ValidationException">
     /// A <c>TimesheetProjectTimeLogId</c> or <c>UserId</c> that is not positive.
@@ -428,7 +426,7 @@ public interface ITimesheetProjectService
     /// twice is a 404.
     /// </exception>
     /// <exception cref="ETimeSheet.Shared.Exceptions.BusinessException">
-    /// The entry belongs to another user, or its sheet is submitted or approved.
+    /// The entry belongs to another user, or its period is submitted or approved.
     /// </exception>
     Task DeleteProjectTimeLogAsync(
         TimesheetProjectTimeLogDeleteRequest request,
@@ -438,12 +436,9 @@ public interface ITimesheetProjectService
     /// Returns the project sheets matching every filter given - a user, a
     /// project, an organisation, or any combination; a filter that is null or
     /// <c>0</c> is not applied, and at least one is required. Ordered by
-    /// period, then project name, then user. Every stored sheet is listed,
-    /// with its code and time from <c>dbo.TimesheetProjectTimeLog</c>; so is
-    /// every period up to the current one of each live assignment that has no
-    /// time logged, as a calculated sheet with no time and the code it is
-    /// predicted to get - predicted across the whole organisation, so no two
-    /// users are given the same one.
+    /// period, then project name, then user. Only submitted periods are
+    /// listed - a sheet has no row until it is submitted - each with its time
+    /// from <c>dbo.TimesheetProjectTimeLog</c>.
     /// </summary>
     /// <exception cref="ETimeSheet.Shared.Exceptions.ValidationException">
     /// No filter is given, or one is negative.
@@ -455,25 +450,28 @@ public interface ITimesheetProjectService
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Submits a project sheet of a project - the one its code names, stored
-    /// or calculated, or with no code the most recent unsubmitted period. The
-    /// period is worked out, never sent. A period with no sheet yet is given
-    /// one and submitted with no time. The totals are taken from the time
-    /// log, and the change is recorded in
+    /// Submits a user's timesheet for one period of a project, named by its
+    /// code or by a day in it. The period comes from the project's start date
+    /// and frequency, and may be submitted on its last day or after, in the
+    /// user's time zone. The first submit creates the sheet's row, already
+    /// Submitted, with the period's time-log code (the next code for a blank
+    /// sheet); a rejected sheet is resubmitted in its row. Totals are taken
+    /// from the time log, and the change is recorded in
     /// <c>dbo.TimesheetProjectSubmissionAuditLog</c>.
     /// </summary>
-    /// <returns>The submitted sheet, with its real code.</returns>
+    /// <returns>The submitted sheet.</returns>
     /// <exception cref="ETimeSheet.Shared.Exceptions.ValidationException">
-    /// No user or project, the project does not exist, or the code is not a
-    /// sheet of this user and project.
+    /// No user, project, code or date; the project does not exist; the code is
+    /// not this user's on this project; the date is outside the project or not
+    /// in the code's period.
     /// </exception>
     /// <exception cref="ETimeSheet.Shared.Exceptions.BusinessException">
-    /// The coded sheet is another user's or project's, the project has no start
-    /// date, frequency or organisation, or the user is not assigned to it.
+    /// The coded sheet is another user's or project's; the project has no start
+    /// date, frequency or organisation; the period has not reached its last
+    /// day; or the user is not assigned to the project.
     /// </exception>
     /// <exception cref="ETimeSheet.Shared.Exceptions.ConflictException">
-    /// The sheet is already submitted or approved, or - with no code - the
-    /// project has no unsubmitted sheet.
+    /// The period is already submitted or approved.
     /// </exception>
     Task<TimesheetProjectSheetResponse> SubmitProjectSheetAsync(
         TimesheetProjectSheetSubmitRequest request,

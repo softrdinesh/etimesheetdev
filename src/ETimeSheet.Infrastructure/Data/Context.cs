@@ -171,8 +171,9 @@ public class Context : DbContext
     public DbSet<TimesheetProjectSubmission> TimesheetProjectSubmission { get; set; } = null!;
 
     /// <summary>
-    /// The <c>dbo.TimesheetProjectTimeLog</c> table - the time entries on each
-    /// project sheet. Rows with <c>IsDelete</c> = 1 are hidden by a query filter.
+    /// The <c>dbo.TimesheetProjectTimeLog</c> table - each user's hours on each
+    /// project, one row per calendar day. Rows with <c>IsDelete</c> = 1 are
+    /// hidden by a query filter.
     /// </summary>
     public DbSet<TimesheetProjectTimeLog> TimesheetProjectTimeLog { get; set; } = null!;
 

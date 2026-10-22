@@ -22,7 +22,11 @@ public class TimesheetProjectTimeLogConfiguration : IEntityTypeConfiguration<Tim
             .HasColumnName("TimesheetProjectTimeLogID")
             .ValueGeneratedOnAdd();
 
-        builder.Property(timeLog => timeLog.TimesheetProjectSubmissionId).HasColumnName("TimesheetProjectSubmissionID");
+        builder.Property(timeLog => timeLog.UserId).HasColumnName("UserID");
+
+        builder.Property(timeLog => timeLog.ProjectId).HasColumnName("ProjectID");
+
+        builder.Property(timeLog => timeLog.OrganizationId).HasColumnName("OrganizationID");
 
         builder.Property(timeLog => timeLog.SheetSubmissionCode)
             .HasColumnName("SheetSubmissionCode")
@@ -33,19 +37,9 @@ public class TimesheetProjectTimeLogConfiguration : IEntityTypeConfiguration<Tim
             .HasColumnName("LogDate")
             .HasColumnType("date");
 
-        builder.Property(timeLog => timeLog.StartTime)
-            .HasColumnName("StartTime")
-            .HasColumnType("time(7)");
-
-        builder.Property(timeLog => timeLog.EndTime)
-            .HasColumnName("EndTime")
-            .HasColumnType("time(7)");
-
-        builder.Property(timeLog => timeLog.DurationMinutes).HasColumnName("DurationMinutes");
+        builder.Property(timeLog => timeLog.HoursLogged).HasColumnName("HoursLogged");
 
         builder.Property(timeLog => timeLog.Description).HasColumnName("Description");
-
-        builder.Property(timeLog => timeLog.Status).HasColumnName("Status");
 
         builder.Property(timeLog => timeLog.IsDelete).HasColumnName("IsDelete");
 

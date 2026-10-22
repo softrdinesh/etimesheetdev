@@ -259,50 +259,25 @@ internal static class TimesheetProjectMappings
         UpdatedBy = assignment.UpdatedBy,
     };
 
-    /// <summary>Projects a time entry row from the time entry list to the time entry response.</summary>
-    internal static TimesheetProjectTimeLogResponse ToResponse(this TimesheetProjectTimeLogDetail timeLog) => new()
-    {
-        TimesheetProjectTimeLogId = timeLog.TimesheetProjectTimeLogId,
-        TimesheetProjectSubmissionId = timeLog.TimesheetProjectSubmissionId,
-        SheetSubmissionCode = timeLog.SheetSubmissionCode,
-        SubmissionStatusId = timeLog.SubmissionStatusId,
-        PeriodStartDate = timeLog.PeriodStartDate,
-        PeriodEndDate = timeLog.PeriodEndDate,
-        UserId = timeLog.UserId,
-        ProjectId = timeLog.ProjectId,
-        LogDate = timeLog.LogDate,
-        StartTime = timeLog.StartTime,
-        EndTime = timeLog.EndTime,
-        DurationMinutes = timeLog.DurationMinutes,
-        DurationHours = ToHours(timeLog.DurationMinutes),
-        Description = timeLog.Description,
-        Status = timeLog.Status,
-        CreateDate = timeLog.CreateDate,
-        CreatedBy = timeLog.CreatedBy,
-        UpdateDate = timeLog.UpdateDate,
-        UpdatedBy = timeLog.UpdatedBy,
-    };
-
-    /// <summary>Projects a saved time entry and the sheet it is on to the time entry response.</summary>
+    /// <summary>
+    /// Projects a user's day on a project, and the submission period it is in,
+    /// to the time log response.
+    /// </summary>
     internal static TimesheetProjectTimeLogResponse ToResponse(
         this TimesheetProjectTimeLog timeLog,
-        TimesheetProjectSubmission submission) => new()
+        DateTime? periodStartDate,
+        DateTime? periodEndDate) => new()
     {
         TimesheetProjectTimeLogId = timeLog.TimesheetProjectTimeLogId,
-        TimesheetProjectSubmissionId = submission.TimesheetProjectSubmissionId,
-        SheetSubmissionCode = submission.SheetSubmissionCode,
-        SubmissionStatusId = submission.StatusId,
-        PeriodStartDate = submission.PeriodStartDate,
-        PeriodEndDate = submission.PeriodEndDate,
-        UserId = submission.UserId,
-        ProjectId = submission.ProjectId,
+        UserId = timeLog.UserId,
+        ProjectId = timeLog.ProjectId,
+        OrganizationId = timeLog.OrganizationId,
+        SheetSubmissionCode = timeLog.SheetSubmissionCode,
+        PeriodStartDate = periodStartDate,
+        PeriodEndDate = periodEndDate,
         LogDate = timeLog.LogDate,
-        StartTime = timeLog.StartTime,
-        EndTime = timeLog.EndTime,
-        DurationMinutes = timeLog.DurationMinutes,
-        DurationHours = ToHours(timeLog.DurationMinutes),
+        HoursLogged = timeLog.HoursLogged,
         Description = timeLog.Description,
-        Status = timeLog.Status,
         CreateDate = timeLog.CreateDate,
         CreatedBy = timeLog.CreatedBy,
         UpdateDate = timeLog.UpdateDate,
@@ -320,7 +295,6 @@ internal static class TimesheetProjectMappings
     {
         TimesheetProjectSubmissionId = sheet.TimesheetProjectSubmissionId,
         SheetSubmissionCode = sheet.SheetSubmissionCode,
-        IsCalculated = false,
         StatusId = sheet.StatusId,
         StatusName = statusName,
         UserId = sheet.UserId,

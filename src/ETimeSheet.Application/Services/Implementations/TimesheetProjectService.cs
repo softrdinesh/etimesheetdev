@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Net;
 using System.Net.Mail;
+using ETimeSheet.Application.Common;
 using ETimeSheet.Application.Common.Mapping;
 using ETimeSheet.Application.Interfaces.Repositories;
 using ETimeSheet.Application.Interfaces.Services;
@@ -1881,13 +1882,6 @@ public class TimesheetProjectService : ITimesheetProjectService
 
     #region Project Time Log
 
-    /// <summary>The values <c>dbo.TimesheetProjectTimeLog.Status</c> accepts.</summary>
-    private static readonly IReadOnlySet<int> ProjectTimeLogStatuses = new HashSet<int>
-    {
-        Constants.TimesheetProjectTimeLog.Status.Save,
-        Constants.TimesheetProjectTimeLog.Status.Draft,
-    };
-
     /// <summary>The prefix of every generated project sheet code.</summary>
     private const string ProjectSheetCodePrefix = "PSHT";
 
@@ -1934,30 +1928,42 @@ public class TimesheetProjectService : ITimesheetProjectService
             toDate?.Date,
             cancellationToken);
 
-        return timeLogs.Select(timeLog => timeLog.ToResponse()).ToList();
+        // Each day's submission period, from its project's start date and
+        // frequency. A project since stripped of either has no period to give.
+        var projects = (await _timesheetProjectRepository.GetListByIdsAsync(
+                timeLogs.Select(timeLog => timeLog.ProjectId).Distinct().ToList(),
+                cancellationToken))
+            .ToDictionary(project => project.ProjectId);
+
+        return timeLogs
+            .Select(timeLog =>
+            {
+                if (projects.TryGetValue(timeLog.ProjectId, out var project)
+                    && project.StartDate is { } projectStartDate
+                    && project.SubmissionFrequency is { } submissionFrequency
+                    && SubmissionFrequencies.Contains(submissionFrequency)
+                    && timeLog.LogDate.Date >= projectStartDate.Date)
+                {
+                    var (periodStartDate, periodEndDate) = SubmissionPeriodOf(
+                        timeLog.LogDate.Date,
+                        projectStartDate.Date,
+                        submissionFrequency);
+
+                    return timeLog.ToResponse(periodStartDate, periodEndDate);
+                }
+
+                return timeLog.ToResponse(null, null);
+            })
+            .ToList();
     }
 
     public async Task<TimesheetProjectTimeLogResponse> SaveProjectTimeLogAsync(
         TimesheetProjectTimeLogSaveRequest request,
         CancellationToken cancellationToken = default)
     {
-        // Both times are required, as hh:mm:ss strings on the 24-hour clock
-        // (00:00:00 to 23:59:59), and are parsed once, here; a missing or
-        // malformed one is a 400 naming the field.
-        var startTime = TimeOfDay.Parse(request.StartTime, nameof(TimesheetProjectTimeLogSaveRequest.StartTime));
-        var endTime = TimeOfDay.Parse(request.EndTime, nameof(TimesheetProjectTimeLogSaveRequest.EndTime));
-
         // Every rule on the payload itself is checked before anything is read,
         // and every failure is reported together.
         var failures = new Dictionary<string, string[]>();
-
-        if (request.TimesheetProjectTimeLogId < 0)
-        {
-            failures[nameof(TimesheetProjectTimeLogSaveRequest.TimesheetProjectTimeLogId)] = new[]
-            {
-                "TimesheetProjectTimeLogId must be 0 (or left out) to add an entry, or the id of the entry to edit."
-            };
-        }
 
         if (request.UserId <= 0)
         {
@@ -1983,11 +1989,18 @@ public class TimesheetProjectService : ITimesheetProjectService
             };
         }
 
-        if (!ProjectTimeLogStatuses.Contains(request.Status))
+        if (request.HoursLogged <= 0)
         {
-            failures[nameof(TimesheetProjectTimeLogSaveRequest.Status)] = new[]
+            failures[nameof(TimesheetProjectTimeLogSaveRequest.HoursLogged)] = new[]
             {
-                "Status must be 1 (Save) or 2 (Draft)."
+                "HoursLogged is required and must be greater than 0."
+            };
+        }
+        else if (request.HoursLogged > MaxLogHoursPerDayMaximum)
+        {
+            failures[nameof(TimesheetProjectTimeLogSaveRequest.HoursLogged)] = new[]
+            {
+                $"HoursLogged must not be greater than {MaxLogHoursPerDayMaximum}: a day holds no more hours."
             };
         }
 
@@ -1999,61 +2012,24 @@ public class TimesheetProjectService : ITimesheetProjectService
             };
         }
 
-        // The duration is never sent: it is the whole minutes from StartTime to
-        // EndTime, on the same day. Seconds short of a minute are dropped.
-        var durationMinutes = (int)(endTime - startTime).TotalMinutes;
-
-        if (endTime <= startTime)
-        {
-            failures[nameof(TimesheetProjectTimeLogSaveRequest.EndTime)] = new[]
-            {
-                "EndTime must be after StartTime, on the same day."
-            };
-        }
-        else if (durationMinutes < 1)
-        {
-            failures[nameof(TimesheetProjectTimeLogSaveRequest.EndTime)] = new[]
-            {
-                "EndTime must be at least one minute after StartTime."
-            };
-        }
-
         if (failures.Count > 0)
         {
             throw new ValidationException(failures);
         }
 
         var logDate = request.LogDate.Date;
-
-        // An edit names the entry it changes, and the sheet it is on now. Both
-        // are loaded first: the entry must be the request user's, and time on
-        // a locked sheet cannot be moved out of it.
-        TimesheetProjectTimeLog? original = null;
-        TimesheetProjectSubmission? originalSubmission = null;
-
-        if (request.TimesheetProjectTimeLogId > 0)
-        {
-            original = await _timesheetProjectRepository.GetProjectTimeLogForUpdateAsync(
-                    request.TimesheetProjectTimeLogId,
-                    cancellationToken)
-                ?? throw NotFoundException.For("Time log", request.TimesheetProjectTimeLogId);
-
-            originalSubmission = await RequireOwnSubmissionAsync(
-                original,
-                request.UserId,
-                cancellationToken);
-
-            RequireSubmissionIsOpen(originalSubmission);
-        }
+        var description = string.IsNullOrWhiteSpace(request.Description) ? null : request.Description.Trim();
 
         var project = await _timesheetProjectRepository.GetByIdAsync(request.ProjectId, cancellationToken)
             ?? throw new ValidationException(
                 nameof(TimesheetProjectTimeLogSaveRequest.ProjectId),
                 $"Project '{request.ProjectId}' does not exist.");
 
+        // The start date and frequency give the submission period the day is
+        // in, and so its sheet code; OrganizationID is NOT NULL on the time log.
         var (projectStartDate, submissionFrequency, organizationId) = RequireSubmissionSetup(project);
 
-        if (logDate < projectStartDate.Date)
+        if (logDate < projectStartDate)
         {
             throw new ValidationException(
                 nameof(TimesheetProjectTimeLogSaveRequest.LogDate),
@@ -2078,110 +2054,107 @@ public class TimesheetProjectService : ITimesheetProjectService
                 $"User '{request.UserId}' is not assigned to project '{request.ProjectId}'.");
         }
 
-        // The sheet the entry belongs on: the user's sheet for this project and
-        // the period containing the date. When it is the sheet the entry is on
-        // already, EF Core hands back the same tracked instance.
-        var (periodStartDate, periodEndDate) = SubmissionPeriodOf(logDate, projectStartDate.Date, submissionFrequency);
-        var now = _dateTimeProvider.UtcNow;
-
-        var submission = await _timesheetProjectRepository.GetProjectSubmissionForPeriodForUpdateAsync(
+        // A submitted or approved period is closed; a rejected one is open
+        // again, and changing it leaves its sheet as it is until resubmitted.
+        var submission = await _timesheetProjectRepository.GetProjectSubmissionForDateAsync(
             request.UserId,
             request.ProjectId,
-            periodStartDate,
+            logDate,
             cancellationToken);
 
-        if (submission is not null)
+        RequireProjectSheetIsOpen(submission);
+
+        // The day's cap is the assignment's Max_log_hour_day; an assignment
+        // with none is capped only by the day itself.
+        var maxHoursPerDay = await _timesheetProjectRepository.GetUserProjectMaxLogHoursPerDayAsync(
+                request.UserId,
+                request.ProjectId,
+                cancellationToken)
+            ?? MaxLogHoursPerDayMaximum;
+
+        // One row per user, project and day: a later log of the same day adds
+        // its hours to the row the first one created.
+        var timeLog = await _timesheetProjectRepository.GetProjectTimeLogForDayForUpdateAsync(
+            request.UserId,
+            request.ProjectId,
+            logDate,
+            cancellationToken);
+
+        var alreadyLogged = timeLog?.HoursLogged ?? 0;
+
+        if (alreadyLogged + request.HoursLogged > maxHoursPerDay)
         {
-            RequireSubmissionIsOpen(submission);
+            var remaining = Math.Max(maxHoursPerDay - alreadyLogged, 0);
+
+            throw new ValidationException(
+                nameof(TimesheetProjectTimeLogSaveRequest.HoursLogged),
+                $"You can log a maximum of {Hours(maxHoursPerDay)} per day on this project. " +
+                $"{Hours(alreadyLogged)} {(alreadyLogged == 1 ? "is" : "are")} already logged on {logDate:yyyy-MM-dd}, " +
+                (remaining > 0
+                    ? $"so you can log only {Hours(remaining)} more."
+                    : "so no more hours can be logged on that day."));
+        }
+
+        var now = _dateTimeProvider.UtcNow;
+        var isNewDay = timeLog is null;
+        var (periodStartDate, periodEndDate) = SubmissionPeriodOf(logDate, projectStartDate, submissionFrequency);
+
+        if (timeLog is null)
+        {
+            timeLog = new TimesheetProjectTimeLog
+            {
+                UserId = request.UserId,
+                ProjectId = request.ProjectId,
+                OrganizationId = organizationId,
+                SheetSubmissionCode = await ProjectTimeLogSheetCodeAsync(
+                    submission,
+                    request.UserId,
+                    request.ProjectId,
+                    periodStartDate,
+                    periodEndDate,
+                    cancellationToken),
+                LogDate = logDate,
+                HoursLogged = request.HoursLogged,
+                Description = description,
+                IsDelete = 0,
+                CreateDate = now,
+                CreatedBy = request.AddedBy,
+            };
         }
         else
         {
-            // The period's first entry opens its sheet, with the next code.
-            // Saved on its own, before the entry: should the entry then fail,
-            // what is left is an empty pending sheet, which is a valid sheet.
-            submission = await _timesheetProjectRepository.AddProjectSubmissionAsync(
-                new TimesheetProjectSubmission
-                {
-                    SheetSubmissionCode = NextProjectSheetCode(
-                        await _timesheetProjectRepository.GetLatestProjectSubmissionCodeAsync(cancellationToken)),
-                    StatusId = Constants.TimesheetProjectSubmission.Status.Pending,
-                    UserId = request.UserId,
-                    ProjectId = request.ProjectId,
-                    OrganizationId = organizationId,
-                    PeriodStartDate = periodStartDate,
-                    PeriodEndDate = periodEndDate,
-                    TotalHoursLogged = 0,
-                    TotalMinutesLogged = 0,
-                    IsDelete = 0,
-                    DateAdded = now,
-                },
-                cancellationToken);
+            timeLog.HoursLogged += request.HoursLogged;
 
-            _logger.LogInformation(
-                "Project sheet {SheetSubmissionCode} opened for user {UserId} on project {ProjectId}, " +
-                "{PeriodStart:yyyy-MM-dd} to {PeriodEnd:yyyy-MM-dd}.",
-                submission.SheetSubmissionCode,
-                request.UserId,
-                request.ProjectId,
-                periodStartDate,
-                periodEndDate);
-        }
+            // Each log's description is kept, one per line, so the morning's
+            // note is not lost to the afternoon's.
+            if (description is not null)
+            {
+                timeLog.Description = string.IsNullOrWhiteSpace(timeLog.Description)
+                    ? description
+                    : timeLog.Description + "\n" + description;
+            }
 
-        var timeLog = original ?? new TimesheetProjectTimeLog
-        {
-            IsDelete = 0,
-            CreateDate = now,
-            CreatedBy = request.AddedBy,
-        };
-
-        timeLog.TimesheetProjectSubmissionId = submission.TimesheetProjectSubmissionId;
-        timeLog.SheetSubmissionCode = submission.SheetSubmissionCode;
-        timeLog.LogDate = logDate;
-        timeLog.StartTime = startTime;
-        timeLog.EndTime = endTime;
-        timeLog.DurationMinutes = durationMinutes;
-        timeLog.Description = request.Description;
-        timeLog.Status = request.Status;
-
-        if (original is not null)
-        {
             timeLog.UpdateDate = now;
             timeLog.UpdatedBy = request.AddedBy;
-        }
-
-        // The totals: every other live entry of the sheet, plus this one. An
-        // entry that moved to another sheet takes its minutes off the old one.
-        await SetSubmissionTotalsAsync(
-            submission,
-            original?.TimesheetProjectTimeLogId ?? 0,
-            durationMinutes,
-            cancellationToken);
-
-        if (originalSubmission is not null
-            && originalSubmission.TimesheetProjectSubmissionId != submission.TimesheetProjectSubmissionId)
-        {
-            await SetSubmissionTotalsAsync(
-                originalSubmission,
-                original!.TimesheetProjectTimeLogId,
-                0,
-                cancellationToken);
         }
 
         var saved = await _timesheetProjectRepository.SaveProjectTimeLogAsync(timeLog, cancellationToken);
 
         _logger.LogInformation(
             "Project time log {TimesheetProjectTimeLogId} {Action} for user {UserId} on project {ProjectId}: " +
-            "{DurationMinutes} minutes on {LogDate:yyyy-MM-dd}, sheet {SheetSubmissionCode}, by user {AddedBy}.",
+            "{HoursAdded} hours added on {LogDate:yyyy-MM-dd}, {HoursLogged} hours in total, sheet " +
+            "{SheetSubmissionCode}, by user {AddedBy}.",
             saved.TimesheetProjectTimeLogId,
-            original is null ? "added" : "updated",
+            isNewDay ? "added" : "updated",
             request.UserId,
             request.ProjectId,
-            durationMinutes,
+            request.HoursLogged,
             logDate,
-            submission.SheetSubmissionCode,
+            saved.HoursLogged,
+            saved.SheetSubmissionCode,
             request.AddedBy);
 
-        return saved.ToResponse(submission);
+        return saved.ToResponse(periodStartDate, periodEndDate);
     }
 
     public async Task DeleteProjectTimeLogAsync(
@@ -2226,87 +2199,101 @@ public class TimesheetProjectService : ITimesheetProjectService
                 cancellationToken)
             ?? throw NotFoundException.For("Time log", request.TimesheetProjectTimeLogId);
 
-        var submission = await RequireOwnSubmissionAsync(timeLog, request.UserId, cancellationToken);
+        if (timeLog.UserId != request.UserId)
+        {
+            throw new BusinessException(
+                $"Time log '{timeLog.TimesheetProjectTimeLogId}' does not belong to user '{request.UserId}', so it " +
+                "cannot be removed as theirs.");
+        }
 
-        RequireSubmissionIsOpen(submission);
+        RequireProjectSheetIsOpen(await _timesheetProjectRepository.GetProjectSubmissionForDateAsync(
+            timeLog.UserId,
+            timeLog.ProjectId,
+            timeLog.LogDate,
+            cancellationToken));
 
         // A soft delete: the row stays, and the query filter stops returning it.
         timeLog.IsDelete = 1;
         timeLog.DeletedDate = _dateTimeProvider.UtcNow;
         timeLog.DeletedBy = request.AddedBy;
 
-        await SetSubmissionTotalsAsync(submission, timeLog.TimesheetProjectTimeLogId, 0, cancellationToken);
-
         await _timesheetProjectRepository.SaveProjectTimeLogAsync(timeLog, cancellationToken);
 
         _logger.LogInformation(
-            "Project time log {TimesheetProjectTimeLogId} on sheet {SheetSubmissionCode} soft-deleted by user {AddedBy}.",
+            "Project time log {TimesheetProjectTimeLogId} of user {UserId} on project {ProjectId} for " +
+            "{LogDate:yyyy-MM-dd} soft-deleted by user {AddedBy}.",
             timeLog.TimesheetProjectTimeLogId,
-            submission.SheetSubmissionCode,
+            timeLog.UserId,
+            timeLog.ProjectId,
+            timeLog.LogDate,
             request.AddedBy);
     }
 
     /// <summary>
-    /// Loads the sheet an entry is on, tracked, and confirms it is the user's.
-    /// The table has no <c>UserID</c> of its own, so the sheet is what says
-    /// whose the entry is.
+    /// The sheet code of a user's time on a project in one submission period:
+    /// the submitted sheet's code when the period has one; else the code
+    /// already on any of their days in the period - a deleted day included,
+    /// since its code is spent; else, for the period's first day or a blank
+    /// sheet, the next code in the sequence. Every day of one user, project and
+    /// period so shares one code with its sheet, whichever came first.
     /// </summary>
-    private async Task<TimesheetProjectSubmission> RequireOwnSubmissionAsync(
-        TimesheetProjectTimeLog timeLog,
+    private async Task<string> ProjectTimeLogSheetCodeAsync(
+        TimesheetProjectSubmission? submission,
         int userId,
-        CancellationToken cancellationToken)
-    {
-        var submission = await _timesheetProjectRepository.GetProjectSubmissionForUpdateAsync(
-                timeLog.TimesheetProjectSubmissionId,
-                cancellationToken)
-            ?? throw new BusinessException(
-                $"Time log '{timeLog.TimesheetProjectTimeLogId}' is on a sheet that no longer exists, so it cannot be changed.");
-
-        if (submission.UserId != userId)
-        {
-            throw new BusinessException(
-                $"Time log '{timeLog.TimesheetProjectTimeLogId}' does not belong to user '{userId}', so it " +
-                "cannot be changed as theirs.");
-        }
-
-        return submission;
-    }
+        int projectId,
+        DateTime periodStartDate,
+        DateTime periodEndDate,
+        CancellationToken cancellationToken) =>
+        submission?.SheetSubmissionCode
+        ?? await _timesheetProjectRepository.GetProjectTimeLogSheetCodeForPeriodAsync(
+            userId,
+            projectId,
+            periodStartDate,
+            periodEndDate,
+            cancellationToken)
+        ?? NextProjectSheetCode(
+            await _timesheetProjectRepository.GetLatestProjectSheetCodeAsync(cancellationToken));
 
     /// <summary>
-    /// Rejects a change to a submitted or approved sheet. A pending sheet is
-    /// open, and so is a rejected one - it is sent back for changes.
+    /// Rejects a change to time in a period whose sheet is submitted or
+    /// approved. No sheet, or a rejected one, is open.
     /// </summary>
-    private static void RequireSubmissionIsOpen(TimesheetProjectSubmission submission)
+    private static void RequireProjectSheetIsOpen(TimesheetProjectSubmission? submission)
     {
-        if (submission.StatusId is Constants.TimesheetProjectSubmission.Status.Submitted
+        if (submission?.StatusId is Constants.TimesheetProjectSubmission.Status.Submitted
             or Constants.TimesheetProjectSubmission.Status.Approved)
         {
             throw new BusinessException(
-                $"Timesheet '{submission.SheetSubmissionCode}' has already been submitted, so its time can no " +
-                "longer be added to or changed.");
+                $"Timesheet '{submission.SheetSubmissionCode}' for {submission.PeriodStartDate:yyyy-MM-dd} to " +
+                $"{submission.PeriodEndDate:yyyy-MM-dd} is {ProjectSheetStatusName(submission.StatusId).ToLowerInvariant()}, " +
+                "so its time can no longer be added to, changed or removed.");
         }
     }
 
     /// <summary>
-    /// Sets a tracked sheet's totals to every other live entry on it plus
-    /// <paramref name="addedMinutes"/>. Written by the next save, together with
-    /// the entry.
+    /// The user's clock, in the time zone of their timesheet setup. No setup,
+    /// or a zone this system does not recognise, falls back to UTC - logged in
+    /// the second case, as <c>TimeLogService</c> does, so the zone gets fixed.
     /// </summary>
-    private async Task SetSubmissionTotalsAsync(
-        TimesheetProjectSubmission submission,
-        int excludedTimesheetProjectTimeLogId,
-        int addedMinutes,
-        CancellationToken cancellationToken)
+    private async Task<EmployeeClock> ClockForUserAsync(int userId, CancellationToken cancellationToken)
     {
-        var minutes = await _timesheetProjectRepository.GetProjectSubmissionLoggedMinutesAsync(
-                submission.TimesheetProjectSubmissionId,
-                excludedTimesheetProjectTimeLogId,
-                cancellationToken)
-            + addedMinutes;
+        var timeZone = await _timesheetProjectRepository.GetUserTimeZoneAsync(userId, cancellationToken);
+        var zone = EmployeeClock.FindZone(timeZone);
 
-        submission.TotalMinutesLogged = minutes;
-        submission.TotalHoursLogged = TimesheetProjectMappings.ToHours(minutes);
+        if (zone is null && !string.IsNullOrWhiteSpace(timeZone))
+        {
+            _logger.LogWarning(
+                "Timesheet setup of user {UserId} names time zone {TimeZone}, which this system does not " +
+                "recognise. Project timesheet periods are judged on UTC.",
+                userId,
+                timeZone);
+        }
+
+        return EmployeeClock.At(_dateTimeProvider.UtcNow, zone);
     }
+
+    /// <summary>A number of hours as words: "1 hour", "7 hours".</summary>
+    private static string Hours(int hours) => hours == 1 ? "1 hour" : $"{hours} hours";
 
     /// <summary>
     /// The project's start date, submission frequency and organisation.
@@ -2440,40 +2427,23 @@ public class TimesheetProjectService : ITimesheetProjectService
             throw new ValidationException(failures);
         }
 
-        // The sheets are built per organisation, whole, and only then
-        // filtered - see BuildProjectSheetListAsync. So first: which
-        // organisations can hold a matching sheet.
-        IReadOnlyList<int> organizationIds;
+        // A sheet exists only once its period is submitted, so the stored rows
+        // are the whole list: nothing is worked out for periods without one.
+        var stored = await _timesheetProjectRepository.GetProjectSheetListAsync(
+            userFilter,
+            projectFilter,
+            organizationFilter,
+            cancellationToken);
 
-        if (organizationFilter is { } orgId)
-        {
-            organizationIds = new[] { orgId };
-        }
-        else if (projectFilter is { } filteredProjectId)
-        {
-            var project = await _timesheetProjectRepository.GetByIdAsync(filteredProjectId, cancellationToken);
+        var projects = (await _timesheetProjectRepository.GetListByIdsAsync(
+                stored.Select(sheet => sheet.ProjectId).Distinct().ToList(),
+                cancellationToken))
+            .ToDictionary(project => project.ProjectId);
 
-            organizationIds = project?.OrganizationId is { } projectOrganizationId
-                ? new[] { projectOrganizationId }
-                : Array.Empty<int>();
-        }
-        else
-        {
-            organizationIds = await _timesheetProjectRepository.GetUserProjectOrganizationIdsAsync(
-                userFilter!.Value,
-                cancellationToken);
-        }
-
-        var sheets = new List<TimesheetProjectSheetResponse>();
-
-        foreach (var listedOrganizationId in organizationIds)
-        {
-            sheets.AddRange(await BuildProjectSheetListAsync(listedOrganizationId, cancellationToken));
-        }
-
-        return sheets
-            .Where(sheet => (userFilter is null || sheet.UserId == userFilter)
-                            && (projectFilter is null || sheet.ProjectId == projectFilter))
+        return stored
+            .Select(sheet => sheet.ToResponse(
+                projects.GetValueOrDefault(sheet.ProjectId),
+                ProjectSheetStatusName(sheet.StatusId)))
             .OrderBy(sheet => sheet.PeriodStartDate)
             .ThenBy(sheet => sheet.ProjectName)
             .ThenBy(sheet => sheet.ProjectId)
@@ -2506,6 +2476,14 @@ public class TimesheetProjectService : ITimesheetProjectService
             };
         }
 
+        if (sheetSubmissionCode is null && request.PeriodDate is null)
+        {
+            failures[nameof(TimesheetProjectSheetSubmitRequest.PeriodDate)] = new[]
+            {
+                "SheetSubmissionCode or PeriodDate is required: either names the period to submit."
+            };
+        }
+
         if (request.AddedBy <= 0)
         {
             failures[nameof(TimesheetProjectSheetSubmitRequest.AddedBy)] = new[]
@@ -2519,57 +2497,181 @@ public class TimesheetProjectService : ITimesheetProjectService
             throw new ValidationException(failures);
         }
 
-        var now = _dateTimeProvider.UtcNow;
+        var project = await _timesheetProjectRepository.GetByIdAsync(request.ProjectId, cancellationToken)
+            ?? throw new ValidationException(
+                nameof(TimesheetProjectSheetSubmitRequest.ProjectId),
+                $"Project '{request.ProjectId}' does not exist.");
 
-        var submission = await ResolveProjectSheetToSubmitAsync(
+        var (projectStartDate, submissionFrequency, organizationId) = RequireSubmissionSetup(project);
+
+        // The period is never sent: it is the one the code belongs to - a
+        // submitted sheet's, for a resubmit, or the time log's - or the one
+        // containing PeriodDate. When both are sent they must agree.
+        TimesheetProjectSubmission? submission = null;
+        DateTime dayInPeriod;
+
+        if (sheetSubmissionCode is not null)
+        {
+            submission = await _timesheetProjectRepository.GetProjectSubmissionByCodeForUpdateAsync(
+                sheetSubmissionCode,
+                cancellationToken);
+
+            if (submission is not null
+                && (submission.UserId != request.UserId || submission.ProjectId != request.ProjectId))
+            {
+                throw new BusinessException(
+                    $"Timesheet '{submission.SheetSubmissionCode}' is not user '{request.UserId}''s timesheet for " +
+                    $"project '{request.ProjectId}', so it cannot be submitted as theirs.");
+            }
+
+            dayInPeriod = submission?.PeriodStartDate.Date
+                ?? await _timesheetProjectRepository.GetProjectTimeLogDateForCodeAsync(
+                    request.UserId,
+                    request.ProjectId,
+                    sheetSubmissionCode,
+                    cancellationToken)
+                ?? throw new ValidationException(
+                    nameof(TimesheetProjectSheetSubmitRequest.SheetSubmissionCode),
+                    $"SheetSubmissionCode '{sheetSubmissionCode}' is not a timesheet of user '{request.UserId}' " +
+                    $"on project '{request.ProjectId}'.");
+
+            if (request.PeriodDate is { } periodDate
+                && (periodDate.Date < projectStartDate
+                    || SubmissionPeriodOf(periodDate.Date, projectStartDate, submissionFrequency).Start
+                    != SubmissionPeriodOf(dayInPeriod, projectStartDate, submissionFrequency).Start))
+            {
+                throw new ValidationException(
+                    nameof(TimesheetProjectSheetSubmitRequest.PeriodDate),
+                    $"PeriodDate {periodDate:yyyy-MM-dd} is not in the period of timesheet '{sheetSubmissionCode}'.");
+            }
+        }
+        else
+        {
+            dayInPeriod = request.PeriodDate!.Value.Date;
+        }
+
+        if (dayInPeriod < projectStartDate)
+        {
+            throw new ValidationException(
+                nameof(TimesheetProjectSheetSubmitRequest.PeriodDate),
+                $"PeriodDate must not be before the project's start date, {projectStartDate:yyyy-MM-dd}.");
+        }
+
+        var (periodStartDate, periodEndDate) = SubmissionPeriodOf(dayInPeriod, projectStartDate, submissionFrequency);
+
+        if (project.EndDate is { } projectEndDate && periodStartDate > projectEndDate.Date)
+        {
+            throw new ValidationException(
+                nameof(TimesheetProjectSheetSubmitRequest.PeriodDate),
+                $"PeriodDate must not be after the project's end date, {projectEndDate:yyyy-MM-dd}.");
+        }
+
+        // A period can be submitted on its last day or any day after - judged
+        // on the user's own clock, so a user ahead of UTC is not held back.
+        var clock = await ClockForUserAsync(request.UserId, cancellationToken);
+
+        if (clock.Today < periodEndDate)
+        {
+            throw new BusinessException(
+                $"The timesheet for {periodStartDate:yyyy-MM-dd} to {periodEndDate:yyyy-MM-dd} can be submitted " +
+                $"from {periodEndDate:yyyy-MM-dd}, the period's last day. Today is {clock.Today:yyyy-MM-dd} " +
+                $"({clock.ZoneName}).");
+        }
+
+        // One row per user, project and period.
+        submission ??= await _timesheetProjectRepository.GetProjectSubmissionForPeriodForUpdateAsync(
             request.UserId,
             request.ProjectId,
-            sheetSubmissionCode,
-            now,
+            periodStartDate,
             cancellationToken);
 
-        // Pending is the first submit; Rejected is a resubmit after changes.
-        if (submission.StatusId is not (Constants.TimesheetProjectSubmission.Status.Pending
-            or Constants.TimesheetProjectSubmission.Status.Rejected))
+        // Pending is a row from before submission created its own rows;
+        // Rejected is a resubmit after changes.
+        if (submission is not null
+            && submission.StatusId is not (Constants.TimesheetProjectSubmission.Status.Pending
+                or Constants.TimesheetProjectSubmission.Status.Rejected))
         {
             throw new ConflictException(
                 $"Timesheet '{submission.SheetSubmissionCode}' is already {ProjectSheetStatusName(submission.StatusId)}.");
         }
 
-        // The totals as they stand in the time log, now. No entries is a
-        // sheet submitted with no time - allowed.
-        var minutes = await _timesheetProjectRepository.GetProjectSubmissionLoggedMinutesAsync(
-            submission.TimesheetProjectSubmissionId,
-            0,
+        var now = _dateTimeProvider.UtcNow;
+
+        // The totals as they stand in the time log, now. No time is a blank
+        // sheet - allowed.
+        var minutes = await _timesheetProjectRepository.GetProjectLoggedMinutesForPeriodAsync(
+            request.UserId,
+            request.ProjectId,
+            periodStartDate,
+            periodEndDate,
             cancellationToken);
 
-        submission.TotalMinutesLogged = minutes;
-        submission.TotalHoursLogged = TimesheetProjectMappings.ToHours(minutes);
-        submission.StatusId = Constants.TimesheetProjectSubmission.Status.Submitted;
-        submission.SubmittedBy = request.AddedBy;
-        submission.SubmittedDate = now;
-
-        await SaveProjectSheetStatusAsync(submission, request.AddedBy, now, cancellationToken);
-
-        if (sheetSubmissionCode is not null
-            && !string.Equals(sheetSubmissionCode, submission.SheetSubmissionCode, StringComparison.OrdinalIgnoreCase))
+        if (submission is null)
         {
-            // A calculated sheet whose predicted code was taken between the
-            // working-out and the insert.
-            _logger.LogInformation(
-                "Timesheet for user {UserId}, project {ProjectId} from {PeriodStart:yyyy-MM-dd} was requested as " +
-                "{RequestedCode} and submitted as {SheetSubmissionCode}.",
-                submission.UserId,
-                submission.ProjectId,
-                submission.PeriodStartDate,
-                sheetSubmissionCode,
-                submission.SheetSubmissionCode);
+            if (!await _timesheetProjectRepository.UserProjectSetupExistsAsync(
+                    request.UserId,
+                    request.ProjectId,
+                    0,
+                    cancellationToken))
+            {
+                throw new BusinessException(
+                    $"User '{request.UserId}' is not assigned to project '{request.ProjectId}', so they have no " +
+                    "timesheet on it to submit.");
+            }
+
+            // The first submit of the period is what creates its row - already
+            // Submitted, with its audit row, in one save. The code is the one
+            // the period's time log carries, or the next one for a blank sheet.
+            submission = await _timesheetProjectRepository.AddProjectSubmissionAsync(
+                new TimesheetProjectSubmission
+                {
+                    SheetSubmissionCode = await ProjectTimeLogSheetCodeAsync(
+                        null,
+                        request.UserId,
+                        request.ProjectId,
+                        periodStartDate,
+                        periodEndDate,
+                        cancellationToken),
+                    StatusId = Constants.TimesheetProjectSubmission.Status.Submitted,
+                    UserId = request.UserId,
+                    ProjectId = request.ProjectId,
+                    OrganizationId = organizationId,
+                    PeriodStartDate = periodStartDate,
+                    PeriodEndDate = periodEndDate,
+                    TotalMinutesLogged = minutes,
+                    TotalHoursLogged = TimesheetProjectMappings.ToHours(minutes),
+                    SubmittedBy = request.AddedBy,
+                    SubmittedDate = now,
+                    IsDelete = 0,
+                    DateAdded = now,
+                },
+                new TimesheetProjectSubmissionAuditLog
+                {
+                    StatusId = Constants.TimesheetProjectSubmission.Status.Submitted,
+                    CreatedBy = request.AddedBy,
+                    CreateDate = now,
+                },
+                cancellationToken);
+        }
+        else
+        {
+            submission.TotalMinutesLogged = minutes;
+            submission.TotalHoursLogged = TimesheetProjectMappings.ToHours(minutes);
+            submission.StatusId = Constants.TimesheetProjectSubmission.Status.Submitted;
+            submission.SubmittedBy = request.AddedBy;
+            submission.SubmittedDate = now;
+
+            await SaveProjectSheetStatusAsync(submission, request.AddedBy, now, cancellationToken);
         }
 
         _logger.LogInformation(
-            "Timesheet {SheetSubmissionCode} of user {UserId} submitted by user {AddedBy} with {Minutes} minutes.",
+            "Timesheet {SheetSubmissionCode} of user {UserId} on project {ProjectId}, {PeriodStart:yyyy-MM-dd} to " +
+            "{PeriodEnd:yyyy-MM-dd}, submitted by user {AddedBy} with {Minutes} minutes.",
             submission.SheetSubmissionCode,
             request.UserId,
+            request.ProjectId,
+            periodStartDate,
+            periodEndDate,
             request.AddedBy,
             minutes);
 
@@ -2758,337 +2860,8 @@ public class TimesheetProjectService : ITimesheetProjectService
         }
     }
 
-    /// <summary>
-    /// Every sheet of one organisation - every user, every project - ordered
-    /// by period, then project name, then user: each stored sheet, and each
-    /// period up to the current one with no row, as a calculated sheet.
-    /// <para>
-    /// The calculated sheets are given the codes they would get if submitted
-    /// now, in that order. That is why the list is always built for the whole
-    /// organisation and filtered afterwards: every filter of the get, and the
-    /// submit, must agree on which period a predicted code belongs to, and on
-    /// no two users being predicted the same code.
-    /// </para>
-    /// </summary>
-    private async Task<List<TimesheetProjectSheetResponse>> BuildProjectSheetListAsync(
-        int organizationId,
-        CancellationToken cancellationToken)
-    {
-        // Every sheet with a row, whatever its period, and every live
-        // assignment - the user-and-project pairs whose periods may have no row.
-        var stored = await _timesheetProjectRepository.GetProjectSheetListAsync(null, null, organizationId, cancellationToken);
-        var assignments = await _timesheetProjectRepository.GetUserProjectSetupListAsync(null, null, organizationId, cancellationToken);
-
-        var projectIds = stored.Select(sheet => sheet.ProjectId)
-            .Concat(assignments.Select(setup => setup.ProjectId!.Value))
-            .Distinct()
-            .ToList();
-
-        var projects = (await _timesheetProjectRepository.GetListByIdsAsync(projectIds, cancellationToken))
-            .ToDictionary(project => project.ProjectId);
-
-        var sheets = stored
-            .Select(sheet => sheet.ToResponse(projects.GetValueOrDefault(sheet.ProjectId), ProjectSheetStatusName(sheet.StatusId)))
-            .ToList();
-
-        var storedPeriods = stored
-            .Select(sheet => (sheet.UserId, sheet.ProjectId, sheet.PeriodStartDate.Date))
-            .ToHashSet();
-
-        var today = _dateTimeProvider.UtcNow.Date;
-
-        // Then every period up to and including the current one that has no
-        // row: nothing was logged on it and it was never submitted. It still
-        // gets a sheet in the list, with a calculated code.
-        foreach (var assignment in assignments.GroupBy(setup => (setup.UserId, ProjectId: setup.ProjectId!.Value)))
-        {
-            if (!projects.TryGetValue(assignment.Key.ProjectId, out var project)
-                || project.StartDate is not { } projectStartDate
-                || project.SubmissionFrequency is not { } submissionFrequency
-                || !SubmissionFrequencies.Contains(submissionFrequency))
-            {
-                // No start date or frequency: there are no periods to owe.
-                continue;
-            }
-
-            // From the period the user joined the project in - or the
-            // project's first, if the assignment has no date or predates it.
-            var joinedOn = assignment.Min(setup => setup.CreateDate)?.Date;
-            var firstDate = joinedOn > projectStartDate.Date ? joinedOn.Value : projectStartDate.Date;
-            var period = SubmissionPeriodOf(firstDate, projectStartDate.Date, submissionFrequency);
-
-            while (period.Start <= today && (project.EndDate is not { } endDate || period.Start <= endDate.Date))
-            {
-                if (!storedPeriods.Contains((assignment.Key.UserId, project.ProjectId, period.Start)))
-                {
-                    sheets.Add(new TimesheetProjectSheetResponse
-                    {
-                        TimesheetProjectSubmissionId = null,
-                        IsCalculated = true,
-                        StatusId = Constants.TimesheetProjectSubmission.Status.Pending,
-                        StatusName = ProjectSheetStatusName(Constants.TimesheetProjectSubmission.Status.Pending),
-                        UserId = assignment.Key.UserId,
-                        ProjectId = project.ProjectId,
-                        ProjectCode = project.Code,
-                        ProjectName = project.ProjectName,
-                        PeriodStartDate = period.Start,
-                        PeriodEndDate = period.End,
-                        TimeLogCount = 0,
-                        TotalMinutesLogged = 0,
-                        TotalHoursLogged = 0,
-                    });
-                }
-
-                period = SubmissionPeriodOf(period.End.AddDays(1), projectStartDate.Date, submissionFrequency);
-            }
-        }
-
-        foreach (var sheet in sheets)
-        {
-            sheet.IsPeriodEnded = sheet.PeriodEndDate.Date < today;
-        }
-
-        sheets = sheets
-            .OrderBy(sheet => sheet.PeriodStartDate)
-            .ThenBy(sheet => sheet.ProjectName)
-            .ThenBy(sheet => sheet.ProjectId)
-            .ThenBy(sheet => sheet.UserId)
-            .ToList();
-
-        // The calculated sheets are given the codes they would get if they
-        // were submitted now, in order, oldest first. A prediction, not a
-        // reservation: any sheet opened in the meantime takes the next code.
-        var code = await _timesheetProjectRepository.GetLatestProjectSubmissionCodeAsync(cancellationToken);
-
-        foreach (var sheet in sheets.Where(sheet => sheet.IsCalculated))
-        {
-            code = NextProjectSheetCode(code);
-            sheet.SheetSubmissionCode = code;
-        }
-
-        return sheets;
-    }
-
-    /// <summary>
-    /// The sheet a submit names, tracked - opened first when it is a calculated
-    /// one. The period is never sent; it comes from the code, or from the
-    /// project and its frequency:
-    /// <list type="bullet">
-    /// <item>A code of a stored sheet: that sheet, which must be this user's
-    /// and this project's.</item>
-    /// <item>Any other code: the calculated sheet of this project the get
-    /// predicts that code for.</item>
-    /// <item>No code: the most recent period of this project, up to the
-    /// current one, that is pending or rejected - stored or calculated.</item>
-    /// </list>
-    /// </summary>
-    private async Task<TimesheetProjectSubmission> ResolveProjectSheetToSubmitAsync(
-        int userId,
-        int projectId,
-        string? sheetSubmissionCode,
-        DateTime now,
-        CancellationToken cancellationToken)
-    {
-        if (sheetSubmissionCode is not null)
-        {
-            var stored = await _timesheetProjectRepository.GetProjectSubmissionByCodeForUpdateAsync(
-                sheetSubmissionCode,
-                cancellationToken);
-
-            if (stored is not null)
-            {
-                if (stored.UserId != userId || stored.ProjectId != projectId)
-                {
-                    throw new BusinessException(
-                        $"Timesheet '{stored.SheetSubmissionCode}' is not user '{userId}''s timesheet for project " +
-                        $"'{projectId}', so it cannot be submitted as theirs.");
-                }
-
-                return stored;
-            }
-        }
-
-        // Worked out exactly as the get works it out - for the project's whole
-        // organisation - so a predicted code names the same period here as it
-        // did there.
-        var project = await _timesheetProjectRepository.GetByIdAsync(projectId, cancellationToken)
-            ?? throw new ValidationException(
-                nameof(TimesheetProjectSheetSubmitRequest.ProjectId),
-                $"Project '{projectId}' does not exist.");
-
-        var (_, _, organizationId) = RequireSubmissionSetup(project);
-
-        var sheets = (await BuildProjectSheetListAsync(organizationId, cancellationToken))
-            .Where(sheet => sheet.UserId == userId && sheet.ProjectId == projectId)
-            .ToList();
-
-        var target = sheetSubmissionCode is not null
-            ? sheets.FirstOrDefault(sheet => sheet.IsCalculated
-                                             && string.Equals(sheet.SheetSubmissionCode, sheetSubmissionCode, StringComparison.OrdinalIgnoreCase))
-              ?? throw new ValidationException(
-                  nameof(TimesheetProjectSheetSubmitRequest.SheetSubmissionCode),
-                  $"SheetSubmissionCode '{sheetSubmissionCode}' is not a timesheet of user '{userId}' on project " +
-                  $"'{projectId}'. Codes of unsaved timesheets move when another timesheet is opened - get the " +
-                  "timesheets again and submit the code returned.")
-            : sheets
-                  .Where(sheet => sheet.StatusId is Constants.TimesheetProjectSubmission.Status.Pending
-                                  or Constants.TimesheetProjectSubmission.Status.Rejected)
-                  .MaxBy(sheet => sheet.PeriodStartDate)
-              ?? throw await NoProjectSheetToSubmitAsync(userId, projectId, sheets.Count, now, cancellationToken);
-
-        return target.TimesheetProjectSubmissionId is { } submissionId
-            ? await _timesheetProjectRepository.GetProjectSubmissionForUpdateAsync(submissionId, cancellationToken)
-              ?? throw NotFoundException.For("Timesheet", submissionId)
-            : await GetOrOpenProjectSheetAsync(userId, projectId, target.PeriodStartDate.Date, now, cancellationToken);
-    }
-
-    /// <summary>
-    /// Why a submit with no code found nothing to submit. The sheet list skips
-    /// a project it cannot work periods out for, so an empty list on its own
-    /// would read as "everything is submitted" when the real reason is the
-    /// setup. Each reason is checked in turn; only when the setup is complete
-    /// and sheets exist is it genuinely "nothing left to submit".
-    /// </summary>
-    private async Task<Exception> NoProjectSheetToSubmitAsync(
-        int userId,
-        int projectId,
-        int sheetCount,
-        DateTime now,
-        CancellationToken cancellationToken)
-    {
-        var project = await _timesheetProjectRepository.GetByIdAsync(projectId, cancellationToken);
-
-        if (project is null)
-        {
-            return new ValidationException(
-                nameof(TimesheetProjectSheetSubmitRequest.ProjectId),
-                $"Project '{projectId}' does not exist.");
-        }
-
-        if (project.StartDate is null
-            || project.SubmissionFrequency is not { } submissionFrequency
-            || !SubmissionFrequencies.Contains(submissionFrequency))
-        {
-            return new BusinessException(
-                $"Project '{projectId}' has no {(project.StartDate is null ? "start date" : "submission frequency")}, " +
-                "so it has no timesheet periods to submit. Set it on the project first.");
-        }
-
-        if (!await _timesheetProjectRepository.UserProjectSetupExistsAsync(userId, projectId, 0, cancellationToken))
-        {
-            return new BusinessException(
-                $"User '{userId}' is not assigned to project '{projectId}' (or the assignment was removed), so " +
-                "they have no timesheets on it to submit.");
-        }
-
-        if (project.StartDate.Value.Date > now.Date)
-        {
-            return new BusinessException(
-                $"Project '{projectId}' starts on {project.StartDate.Value:yyyy-MM-dd}; its first timesheet period " +
-                "has not begun yet.");
-        }
-
-        if (sheetCount == 0)
-        {
-            return new BusinessException(
-                $"User '{userId}' has no timesheet period on project '{projectId}' to submit: the project ended " +
-                "before the user was assigned to it.");
-        }
-
-        return new ConflictException(
-            $"Every timesheet of user '{userId}' on project '{projectId}' is already submitted or approved.");
-    }
-
     /// <summary><c>dbo.TimesheetProjectSubmission.RejectionReason</c> is <c>nvarchar(500)</c>.</summary>
     private const int RejectionReasonMaximumLength = 500;
-
-    /// <summary>
-    /// The user's stored sheet for a project and period, tracked - or, when
-    /// the period has none, a new empty Pending sheet with the next code.
-    /// </summary>
-    /// <exception cref="ValidationException">The project does not exist.</exception>
-    /// <exception cref="BusinessException">
-    /// The project has no start date, frequency or organisation; the date is
-    /// not the start of one of its periods that has begun; or - for a period
-    /// with no sheet yet - the user is not assigned to the project.
-    /// </exception>
-    private async Task<TimesheetProjectSubmission> GetOrOpenProjectSheetAsync(
-        int userId,
-        int projectId,
-        DateTime periodStartDate,
-        DateTime now,
-        CancellationToken cancellationToken)
-    {
-        var project = await _timesheetProjectRepository.GetByIdAsync(projectId, cancellationToken)
-            ?? throw new ValidationException(
-                nameof(TimesheetProjectSheetSubmitRequest.ProjectId),
-                $"Project '{projectId}' does not exist.");
-
-        var (projectStartDate, submissionFrequency, organizationId) = RequireSubmissionSetup(project);
-
-        // Only a real period start: anything else would open a sheet for a
-        // period that does not exist, overlapping the ones that do.
-        var isPeriodStart = periodStartDate >= projectStartDate
-            && SubmissionPeriodOf(periodStartDate, projectStartDate, submissionFrequency).Start == periodStartDate;
-
-        if (!isPeriodStart
-            || periodStartDate > now.Date
-            || (project.EndDate is { } endDate && periodStartDate > endDate.Date))
-        {
-            // Unreachable from the submit, which only passes periods it worked
-            // out itself; kept so no caller can open a sheet for a made-up one.
-            throw new BusinessException(
-                $"{periodStartDate:yyyy-MM-dd} is not the start of a period of project '{projectId}' that has begun.");
-        }
-
-        var submission = await _timesheetProjectRepository.GetProjectSubmissionForPeriodForUpdateAsync(
-            userId,
-            projectId,
-            periodStartDate,
-            cancellationToken);
-
-        if (submission is not null)
-        {
-            return submission;
-        }
-
-        if (!await _timesheetProjectRepository.UserProjectSetupExistsAsync(userId, projectId, 0, cancellationToken))
-        {
-            throw new BusinessException($"User '{userId}' is not assigned to project '{projectId}'.");
-        }
-
-        // Saved on its own, before the status change, so the change has an id
-        // to record in the audit log. Should the submit then fail, what is left
-        // is an empty pending sheet - which the period is owed anyway.
-        submission = await _timesheetProjectRepository.AddProjectSubmissionAsync(
-            new TimesheetProjectSubmission
-            {
-                SheetSubmissionCode = NextProjectSheetCode(
-                    await _timesheetProjectRepository.GetLatestProjectSubmissionCodeAsync(cancellationToken)),
-                StatusId = Constants.TimesheetProjectSubmission.Status.Pending,
-                UserId = userId,
-                ProjectId = projectId,
-                OrganizationId = organizationId,
-                PeriodStartDate = periodStartDate,
-                PeriodEndDate = SubmissionPeriodOf(periodStartDate, projectStartDate, submissionFrequency).End,
-                TotalHoursLogged = 0,
-                TotalMinutesLogged = 0,
-                IsDelete = 0,
-                DateAdded = now,
-            },
-            cancellationToken);
-
-        _logger.LogInformation(
-            "Project sheet {SheetSubmissionCode} opened for user {UserId} on project {ProjectId} to be submitted " +
-            "with no time logged, {PeriodStart:yyyy-MM-dd} to {PeriodEnd:yyyy-MM-dd}.",
-            submission.SheetSubmissionCode,
-            userId,
-            projectId,
-            submission.PeriodStartDate,
-            submission.PeriodEndDate);
-
-        return submission;
-    }
 
     /// <summary>
     /// Saves a status change made to a tracked sheet, with its row in
@@ -3124,11 +2897,8 @@ public class TimesheetProjectService : ITimesheetProjectService
             .First(detail => detail.TimesheetProjectSubmissionId == submission.TimesheetProjectSubmissionId);
 
         var project = await _timesheetProjectRepository.GetByIdAsync(submission.ProjectId, cancellationToken);
-        var response = sheet.ToResponse(project, ProjectSheetStatusName(sheet.StatusId));
 
-        response.IsPeriodEnded = response.PeriodEndDate.Date < _dateTimeProvider.UtcNow.Date;
-
-        return response;
+        return sheet.ToResponse(project, ProjectSheetStatusName(sheet.StatusId));
     }
 
     /// <summary>The name of a <c>dbo.TimesheetProjectSubmission.StatusID</c>.</summary>

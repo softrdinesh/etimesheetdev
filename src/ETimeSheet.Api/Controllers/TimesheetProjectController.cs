@@ -653,9 +653,8 @@ public class TimesheetProjectController : ControllerBase
     #region Project Time Log
 
     /// <summary>
-    /// Returns a user's time entries on projects, from
-    /// <c>dbo.TimesheetProjectTimeLog</c>, each with the sheet it is on from
-    /// <c>dbo.TimesheetProjectSubmission</c>. Ordered by date, then start time.
+    /// Returns a user's time on projects, from <c>dbo.TimesheetProjectTimeLog</c>
+    /// - one entry per project per day. Ordered by date, then project.
     /// <para>
     /// <c>projectID</c>, <c>fromDate</c> and <c>toDate</c> narrow the list; one
     /// left out (or <c>projectID</c> sent as <c>0</c>) is not applied. The
@@ -689,35 +688,39 @@ public class TimesheetProjectController : ControllerBase
     }
 
     /// <summary>
-    /// Logs time on a project, or edits an entry - <b>one endpoint for
-    /// both</b>.
+    /// Logs hours on a project for one day. Send <c>userId</c>,
+    /// <c>projectId</c>, <c>logDate</c>, <c>hoursLogged</c> (whole hours) and
+    /// <c>addedBy</c>; no start or end time.
     /// <para>
-    /// Send <c>timesheetProjectTimeLogId</c> as <c>0</c> (or leave it out) to
-    /// add an entry. Send an existing entry's id to edit it; it must be
-    /// <c>userId</c>'s. An edit overwrites every field, so send the whole entry.
+    /// A user has <b>one entry per project per day</b>, found by the date, not
+    /// by an id. The first log of the day creates it; every later log of the
+    /// same day adds its hours to it - 3 hours, then 4, is one entry of 7. A
+    /// description sent with a later log is added to the entry's on a new line.
+    /// Any day of the project may be logged, past days included.
     /// </para>
     /// <para>
-    /// No sheet code is sent. The entry goes on the user's sheet for the
-    /// project's submission period that contains <c>logDate</c> - periods of 7
-    /// days, 15 days or a month, counted from the project's start date. The
-    /// period's first entry opens its sheet with the next code in the sequence
-    /// PSHT0001, PSHT0002 ...; every later entry in the period shares it. The
-    /// sheet's total hours and minutes are kept in step.
+    /// The day gets the <c>sheetSubmissionCode</c> of its submission period -
+    /// worked out from the project's start date and submission frequency, and
+    /// returned with <c>periodStartDate</c> and <c>periodEndDate</c>. Every day
+    /// of the user on the project in one period shares one code: the first day
+    /// logged in it takes the next <c>PSHT</c> code, whichever day that is.
     /// </para>
     /// <para>
-    /// <c>startTime</c> and <c>endTime</c> are both required, as
-    /// <c>hh:mm:ss</c> on the 24-hour clock (<c>00:00:00</c> to
-    /// <c>23:59:59</c>), on the same day. No duration is sent:
-    /// <c>durationMinutes</c> is worked out from the two and returned.
+    /// The day's total may not exceed the user's <c>maxLogHoursPerDay</c> on
+    /// the project (<c>Max_log_hour_day</c> in
+    /// <c>dbo.Timesheet_Users_Project_setup</c>; 24 when it is not set). With a
+    /// cap of 8 and 7 already logged, adding 2 is refused with how many hours
+    /// are left.
+    /// </para>
+    /// <para>
+    /// Logging time does not open a timesheet submission.
     /// </para>
     /// </summary>
-    /// <response code="200">The saved entry, with its sheet's id, code and period.</response>
-    /// <response code="400">The payload failed validation, the user is not on the project, the date is outside the project's dates, the project is missing its start date or frequency, the entry is another user's, or the sheet is already submitted.</response>
-    /// <response code="404">A <c>timesheetProjectTimeLogId</c> was sent, but no live entry has it.</response>
+    /// <response code="200">The day's entry, with its new total.</response>
+    /// <response code="400">The payload failed validation, the user is not on the project, the date is outside the project's dates, the project has no start date, submission frequency or organization, the hours would take the day past its cap, or the day's period is submitted or approved.</response>
     [HttpPost("add-edit-timesheet-project-time-log")]
     [ProducesResponseType(typeof(ApiResponse<TimesheetProjectTimeLogResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> AddEditTimesheetProjectTimeLog(
         [FromBody] TimesheetProjectTimeLogSaveRequest request,
         CancellationToken cancellationToken)
@@ -729,15 +732,14 @@ public class TimesheetProjectController : ControllerBase
     /// <summary>
     /// Soft-deletes a time entry, by <c>timesheetProjectTimeLogId</c>. The row
     /// is kept, stamped with <c>IsDelete</c> = 1, <c>DeletedDate</c> and
-    /// <c>DeletedBy</c>, and its sheet's totals drop by its minutes. The sheet
-    /// itself stays, even when it is left empty.
+    /// <c>DeletedBy</c>.
     /// <para>
     /// A POST rather than an HTTP DELETE, matching the other removes here:
     /// every argument in this API travels in the payload.
     /// </para>
     /// </summary>
     /// <response code="200">The entry was removed.</response>
-    /// <response code="400">An id that is not greater than zero, the entry is another user's, or its sheet is already submitted.</response>
+    /// <response code="400">An id that is not greater than zero, the entry is another user's, or its period is submitted or approved.</response>
     /// <response code="404">No live entry has that id; removing one twice is not a silent success.</response>
     [HttpPost("remove-timesheet-project-time-log")]
     [ProducesResponseType(typeof(ApiResponse<object?>), StatusCodes.Status200OK)]
@@ -757,27 +759,17 @@ public class TimesheetProjectController : ControllerBase
 
     /// <summary>
     /// Returns project timesheets, ordered by period, then project name, then
-    /// user - one per user, project and submission period.
+    /// user - one per user, project and <b>submitted</b> period.
     /// <para>
     /// Filter by user, by project, by organisation, or any combination. A
     /// filter left out or sent as <c>0</c> is not applied; at least one is
     /// required.
     /// </para>
     /// <para>
-    /// A period with time logged is listed with the code, entry count and
-    /// time from <c>dbo.TimesheetProjectTimeLog</c>. A period with no time
-    /// logged - of each user on each project, from the period they joined it
-    /// in up to the current one - is listed with <c>isCalculated</c> = true, no
-    /// <c>timesheetProjectSubmissionId</c>, zero time, and the code it is
-    /// predicted to get, in the sequence after the latest PSHT code. Codes are
-    /// predicted across the whole organisation, so a sheet shows the same code
-    /// whichever filter lists it, and no two users are shown the same one. A
-    /// sheet submitted with no time keeps the code it was submitted with.
-    /// </para>
-    /// <para>
-    /// <c>isPeriodEnded</c> is false only for the period still running. A
-    /// predicted code is not reserved: if another sheet is opened before this
-    /// one is submitted, the codes after it move on by one.
+    /// A sheet exists only once its period is submitted, so a period that has
+    /// not been submitted is not listed. Each sheet carries its status
+    /// (Submitted, Approved or Rejected), and the entry count and time from
+    /// <c>dbo.TimesheetProjectTimeLog</c> within its period.
     /// </para>
     /// </summary>
     /// <param name="userID">The user whose sheets to list. Optional when <c>projectID</c> or <c>orgID</c> is sent.</param>
@@ -800,34 +792,31 @@ public class TimesheetProjectController : ControllerBase
     }
 
     /// <summary>
-    /// Submits a project timesheet. Send <c>userId</c> (whose sheet),
-    /// <c>projectId</c>, <c>addedBy</c> (who is submitting) and, optionally, a
-    /// <c>sheetSubmissionCode</c> from
-    /// <c>get-timesheet-project-sheet</c>. No period is sent: it is worked out
-    /// from the code, or from the project's start date and frequency.
-    /// <list type="bullet">
-    /// <item><b>A code with time logged</b> (or already saved): that sheet.</item>
-    /// <item><b>A calculated code</b>: the period the get predicted it for. The
-    /// sheet is created and submitted with no time.</item>
-    /// <item><b>No code</b>: the most recent pending or rejected period of the
-    /// project, up to the current one.</item>
-    /// </list>
+    /// Submits a user's project timesheet for one period. Send <c>userId</c>,
+    /// <c>projectId</c>, <c>addedBy</c> and the period: its
+    /// <c>sheetSubmissionCode</c> (from the time log, or a rejected sheet), or
+    /// <c>periodDate</c> - any day in it. A period with no time logged has no
+    /// code, so its blank sheet is submitted by <c>periodDate</c>.
     /// <para>
-    /// A calculated code moves when any timesheet is opened before it is
-    /// submitted, so get the sheets again right before submitting one; a code
-    /// that no longer matches is a 400 rather than a guess. The response
-    /// carries the period and code actually submitted.
+    /// The period comes from the project's start date and submission
+    /// frequency, and can be submitted on its <b>last day or any day after</b>
+    /// - the 7th day of a weekly period, the 15th of a 15-day one, the day
+    /// before the next month's start day for a monthly one - judged in the
+    /// user's time zone (<c>dbo.TimesheetMasterSetup.TimeZone</c>; UTC when
+    /// they have none).
     /// </para>
     /// <para>
-    /// The totals are taken from the time log at the moment of submitting, and
-    /// the submit is recorded in <c>dbo.TimesheetProjectSubmissionAuditLog</c>.
-    /// A pending sheet can be submitted, and a rejected one resubmitted; once
-    /// submitted, its time can no longer be changed.
+    /// The first submit creates the period's one row, already Submitted, with
+    /// the code its time log carries (the next code for a blank sheet). A
+    /// rejected sheet is resubmitted in that row. The totals are taken from the
+    /// time log, and the submit is recorded in
+    /// <c>dbo.TimesheetProjectSubmissionAuditLog</c>. Once submitted, the
+    /// period's time cannot be changed until the sheet is rejected.
     /// </para>
     /// </summary>
-    /// <response code="200">The submitted sheet, with its period and real code.</response>
-    /// <response code="400">No user or project, the code is not a sheet of this user and project, the project is not set up for submission, or the user is not on it.</response>
-    /// <response code="409">The sheet is already submitted or approved, or with no code there is nothing left to submit.</response>
+    /// <response code="200">The submitted sheet.</response>
+    /// <response code="400">A field is missing; the code is not this user's on this project; the date is outside the project or not in the code's period; the project is not set up for submission; the period has not reached its last day; or the user is not on the project.</response>
+    /// <response code="409">The period is already submitted or approved.</response>
     [HttpPost("submit-timesheet-project-sheet")]
     [ProducesResponseType(typeof(ApiResponse<TimesheetProjectSheetResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
