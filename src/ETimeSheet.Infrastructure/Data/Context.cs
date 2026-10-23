@@ -809,7 +809,9 @@ public class Context : DbContext
             // Billable_rate_per_hour AS BillRate, WorklocationRange AS
             // WorkLocationRange, ProjectlocLatitude / ProjectlocLongtitude AS
             // ProjectLocationLatitude / ProjectLocationLongitude,
-            // Max_log_hour_day AS MaxLogHoursPerDay.
+            // Max_log_hour_day AS MaxLogHoursPerDay. Country, address and
+            // currency are the user's, from dbo.Signup, dbo.Country and
+            // dbo.CountryCurrency.
             user.Property(row => row.TimesheetUserProjectSetupId).HasColumnName("TimesheetUserProjectSetupID");
             user.Property(row => row.UserId).HasColumnName("UserID");
             user.Property(row => row.Name).HasColumnName("Name");
@@ -827,6 +829,12 @@ public class Context : DbContext
             user.Property(row => row.ProjectLocationLatitude).HasColumnName("ProjectLocationLatitude");
             user.Property(row => row.ProjectLocationLongitude).HasColumnName("ProjectLocationLongitude");
             user.Property(row => row.MaxLogHoursPerDay).HasColumnName("MaxLogHoursPerDay");
+            user.Property(row => row.CountryId).HasColumnName("CountryID");
+            user.Property(row => row.CountryName).HasColumnName("CountryName");
+            user.Property(row => row.Address).HasColumnName("Address");
+            user.Property(row => row.CurrencyId).HasColumnName("CurrencyID");
+            user.Property(row => row.CurrencyName).HasColumnName("CurrencyName");
+            user.Property(row => row.CurrencySymbol).HasColumnName("CurrencySymbol");
         });
 
         modelBuilder.Entity<TimesheetHolidaySetupDetail>(holiday =>

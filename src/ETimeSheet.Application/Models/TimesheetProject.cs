@@ -966,10 +966,34 @@ public class TimesheetUserListResponse
 
     /// <summary>
     /// The <c>Max_log_hour_day</c> column - the most hours a day this
-    /// assignment may log. Null when it sets no cap. Stored only; nothing
-    /// enforces it.
+    /// assignment may log. Null when it sets no cap.
     /// </summary>
     public int? MaxLogHoursPerDay { get; set; }
+
+    /// <summary>The user's country - <c>dbo.Signup.CountryID</c>. Null when they have none.</summary>
+    /// <example>103</example>
+    public int? CountryId { get; set; }
+
+    /// <summary>The country's name. Null when the user has no country, or it is unknown.</summary>
+    /// <example>India</example>
+    public string? CountryName { get; set; }
+
+    /// <summary>The user's address - <c>dbo.Signup.Address</c>.</summary>
+    public string? Address { get; set; }
+
+    /// <summary>
+    /// The currency of the user's country, from <c>dbo.CountryCurrency</c>.
+    /// Null when the user has no country, or it has no currency.
+    /// </summary>
+    /// <example>103</example>
+    public int? CurrencyId { get; set; }
+
+    /// <example>Indian rupee</example>
+    public string? CurrencyName { get; set; }
+
+    /// <summary>Not unique - "$" is shared by many currencies; show it beside <see cref="CurrencyName"/>.</summary>
+    /// <example>₹</example>
+    public string? CurrencySymbol { get; set; }
 }
 
 /// <summary>
@@ -1013,6 +1037,18 @@ public class TimesheetUserListDetail
     public string? ProjectLocationLongitude { get; set; }
 
     public int? MaxLogHoursPerDay { get; set; }
+
+    public int? CountryId { get; set; }
+
+    public string? CountryName { get; set; }
+
+    public string? Address { get; set; }
+
+    public int? CurrencyId { get; set; }
+
+    public string? CurrencyName { get; set; }
+
+    public string? CurrencySymbol { get; set; }
 }
 
 /// <summary>
