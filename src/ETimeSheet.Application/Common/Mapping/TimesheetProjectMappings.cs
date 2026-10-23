@@ -129,6 +129,12 @@ internal static class TimesheetProjectMappings
         ProjectLocationLatitude = user.ProjectLocationLatitude,
         ProjectLocationLongitude = user.ProjectLocationLongitude,
         MaxLogHoursPerDay = user.MaxLogHoursPerDay,
+        CountryId = user.CountryId,
+        CountryName = user.CountryName,
+        Address = user.Address,
+        CurrencyId = user.CurrencyId,
+        CurrencyName = user.CurrencyName,
+        CurrencySymbol = user.CurrencySymbol,
     };
 
     /// <summary>Projects a holiday row from <c>spc_GetTimesheetHolidaySetup</c> to the holiday response.</summary>

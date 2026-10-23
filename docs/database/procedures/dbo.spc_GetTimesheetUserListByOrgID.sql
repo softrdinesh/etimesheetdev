@@ -4,6 +4,10 @@
     Recorded:  2026-10-17 - DRAFT: new procedure.
     Revised:   2026-10-18 - DRAFT: MaxLogHoursPerDay added, for the
                Max_log_hour_day column the owner added to the table.
+    Revised:   2026-10-23 - DRAFT, to be applied by the owner: CountryID,
+               CountryName, Address, CurrencyID, CurrencyName and
+               CurrencySymbol added as the last columns. The API reads them,
+               so get-timesheet-user-by-orgID fails until this is applied.
 
     Returns the timesheet users of one organisation - every live project
     assignment in dbo.Timesheet_Users_Project_setup of every live user of the
@@ -33,8 +37,16 @@
       WorklocationRange), ProjectLocationLatitude (aliased from
       ProjectlocLatitude), ProjectLocationLongitude (aliased from
       ProjectlocLongtitude - the database's spelling), MaxLogHoursPerDay
-      (aliased from Max_log_hour_day). The aliases are what the EF Core
-      result mapping binds to.
+      (aliased from Max_log_hour_day), CountryID (dbo.Signup.CountryID),
+      CountryName (dbo.Country.Name), Address (dbo.Signup.Address),
+      CurrencyID, CurrencyName and CurrencySymbol (dbo.CountryCurrency). The
+      aliases are what the EF Core result mapping binds to.
+
+      Country, address and currency are the USER's, from dbo.Signup - not
+      the project's or its client's. The currency is the country's: the
+      lowest CurrencyID in dbo.CountryCurrency for it, the same rule
+      spc_AddEditClientSetup uses for a client. A user with no country, or
+      a country with no currency, still gets a row, with NULLs.
 
       ProjectCode / ProjectName and ProjectRoleName come from LEFT JOINs, so
       an assignment whose project or role is NULL, unknown or deleted is
@@ -59,6 +71,8 @@
       ../schema/dbo.Timesheet_Users_Project_setup.sql
       ../schema/dbo.TimesheetProject.sql
       ../schema/dbo.TimesheetUserRole.sql
+      ../schema/dbo.Country.sql
+      ../schema/dbo.CountryCurrency.sql
     NOT RECORDED - dbo.Signup; the test container builds it from the EF
     mapping (SignupConfiguration).
 */
@@ -86,7 +100,13 @@ BEGIN
         tups.WorklocationRange              AS WorkLocationRange,
         tups.ProjectlocLatitude             AS ProjectLocationLatitude,
         tups.ProjectlocLongtitude           AS ProjectLocationLongitude,
-        tups.Max_log_hour_day               AS MaxLogHoursPerDay
+        tups.Max_log_hour_day               AS MaxLogHoursPerDay,
+        s.CountryID                         AS CountryID,
+        c.Name                              AS CountryName,
+        s.Address                           AS Address,
+        cc.CurrencyID                       AS CurrencyID,
+        cc.CurrencyName                     AS CurrencyName,
+        cc.CurrencySymbol                   AS CurrencySymbol
     FROM dbo.Timesheet_Users_Project_setup tups
     INNER JOIN dbo.Signup s
         ON s.UserID = tups.UserID
@@ -95,6 +115,16 @@ BEGIN
     LEFT JOIN dbo.TimesheetUserRole tur
         ON tur.RoleID = tups.ProjectRoleID
        AND ISNULL(tur.IsDelete, 0) = 0
+    LEFT JOIN dbo.Country c
+        ON c.ID = s.CountryID
+    -- The country's currency: the lowest CurrencyID, should it have several.
+    OUTER APPLY
+    (
+        SELECT TOP (1) currency.CurrencyID, currency.CurrencyName, currency.CurrencySymbol
+        FROM dbo.CountryCurrency currency
+        WHERE currency.CountryID = s.CountryID
+        ORDER BY currency.CurrencyID
+    ) cc
     WHERE s.OrganizationID = @POrgID
       AND s.IsDelete = 0
       AND ISNULL(tups.IsDelete, 0) = 0

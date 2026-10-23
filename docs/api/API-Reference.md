@@ -4533,8 +4533,8 @@ removed already: `User '58' is not on project '4'.`
 **Purpose** — The timesheet users of one organisation: every live project
 assignment in `dbo.Timesheet_Users_Project_setup` of every live user in
 `dbo.Signup` of the organisation, with the user's name and email, the
-project's code and name, and the project role's name. Read through
-`dbo.spc_GetTimesheetUserListByOrgID`.
+project's code and name, the project role's name, and the user's country,
+address and currency. Read through `dbo.spc_GetTimesheetUserListByOrgID`.
 
 One row per **assignment**, not per user: a user on three projects is three
 rows, and a user with no live assignment is **not** listed. The organisation is
@@ -4575,7 +4575,13 @@ GET /api/v1/TimesheetProject/get-timesheet-user-by-orgID/12
 | `workLocationRange` | int \| null | |
 | `projectLocationLatitude` | string \| null | Text, as stored |
 | `projectLocationLongitude` | string \| null | Text, as stored |
-| `maxLogHoursPerDay` | int \| null | The most hours a day this assignment may log; `null` when it sets no cap. **Stored only — nothing enforces it** |
+| `maxLogHoursPerDay` | int \| null | The most hours a day this assignment may log; `null` when it sets no cap (the time log then caps the day at 24) |
+| `countryId` | int \| null | The **user's** country — `dbo.Signup.CountryID` |
+| `countryName` | string \| null | `dbo.Country.Name`; `null` when the user has no country or it is unknown |
+| `address` | string \| null | The user's `dbo.Signup.Address` |
+| `currencyId` | int \| null | The currency of the user's country, from `dbo.CountryCurrency` (the lowest `CurrencyID` for it, as client setup does); `null` when the user has no country or it has no currency |
+| `currencyName` | string \| null | |
+| `currencySymbol` | string \| null | Not unique — show it beside `currencyName` |
 
 #### Example response
 
@@ -4601,7 +4607,13 @@ GET /api/v1/TimesheetProject/get-timesheet-user-by-orgID/12
       "workLocationRange": 200,
       "projectLocationLatitude": "23.0225",
       "projectLocationLongitude": null,
-      "maxLogHoursPerDay": 8
+      "maxLogHoursPerDay": 8,
+      "countryId": 103,
+      "countryName": "India",
+      "address": "12 MG Road, Ahmedabad",
+      "currencyId": 103,
+      "currencyName": "Indian rupee",
+      "currencySymbol": "₹"
     }
   ],
   "errors": []
@@ -4617,8 +4629,10 @@ An organisation with no timesheet users — or no such organisation — is
 
 **400** — `orgID <= 0`: `orgID: orgID is required and must be greater than 0.`
 
-**500** — unhandled defect, or the procedure has not been created in the
-database yet.
+**500** — unhandled defect, or the procedure in the database is older than
+the API: the API reads `CountryID`, `CountryName`, `Address`, `CurrencyID`,
+`CurrencyName` and `CurrencySymbol` from it, so the 2026-10-23 revision of
+`dbo.spc_GetTimesheetUserListByOrgID` must be applied first.
 
 ---
 
@@ -6127,7 +6141,7 @@ authentication is off.
 | 36 | Create Timesheet User | POST | `/api/v1/TimesheetProject/create-timesheet-user` | Sign a user up and put them on a project; an existing user of the organisation gets the assignment only | `TimesheetUserCreateRequest` | `TimesheetUserCreateResponse` | 400, 409, 500 |
 | 37 | Edit Timesheet User | POST | `/api/v1/TimesheetProject/edit-timesheet-user` | Edit an assignment; name/email saved to `dbo.Signup` when changed | `TimesheetUserUpdateRequest` | `TimesheetUserResponse` | 400, 404, 409, 500 |
 | 38 | Remove Timesheet User | POST | `/api/v1/TimesheetProject/remove-timesheet-user` | Take a user off a project by `userId` + `projectId` (soft delete); the user is not touched | `TimesheetUserDeleteRequest` | `null` | 400, 404, 500 |
-| 39 | Organisation Timesheet User List | GET | `/api/v1/TimesheetProject/get-timesheet-user-by-orgID/{orgID}` | Every live project assignment of every live user of an organisation, with project and role name | route param | `TimesheetUserListResponse[]` | 400, 500 |
+| 39 | Organisation Timesheet User List | GET | `/api/v1/TimesheetProject/get-timesheet-user-by-orgID/{orgID}` | Every live project assignment of every live user of an organisation, with project and role name, and the user's country, address and currency | route param | `TimesheetUserListResponse[]` | 400, 500 |
 | 40 | Holiday List | GET | `/api/v1/TimesheetProject/get-timesheet-holiday-setup?orgID=&projectID=` | Live holidays of an organisation, a project or both, by date, with country, client and project names | query params (at least one) | `TimesheetHolidaySetupResponse[]` | 400, 500 |
 | 41 | Add / Edit Holiday | POST | `/api/v1/TimesheetProject/add-edit-timesheet-holiday-setup` | Add a holiday (`timesheetHolidaySetupId` 0 / absent) or edit one, with its description | `TimesheetHolidaySetupSaveRequest` | `TimesheetHolidaySetupResponse` | 400, 404, 500 |
 | 42 | Remove Holiday | POST | `/api/v1/TimesheetProject/remove-timesheet-holiday-setup` | Soft-delete a holiday of an organisation | `TimesheetHolidaySetupDeleteRequest` | `null` | 400, 404, 500 |
