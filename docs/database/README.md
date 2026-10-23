@@ -62,7 +62,8 @@ docs/database/
 │   ├── dbo.TimesheetProjectSubmissionStatus.sql
 │   ├── dbo.TimesheetSubmission.sql
 │   ├── dbo.TimeSheetSubmissionAuditLog.sql
-│   └── dbo.TimesheetUserRole.sql
+│   ├── dbo.TimesheetUserRole.sql
+│   └── dbo.TimesheetUsersProjectSetupJobType.sql
 ├── procedures/                  one file per stored procedure / function
 │   ├── dbo.spc_AddEditClientSetup.sql
 │   ├── dbo.spc_AddEditTimesheetHolidaySetup.sql

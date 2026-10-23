@@ -6,6 +6,8 @@
               ProjectID and OrganizationID added (int NOT NULL); HoursLogged
               (int NOT NULL) added in place of DurationMinutes. A time log no
               longer belongs to a submission.
+    Revised:  2026-10-23 - APPLIED by the owner: IsRemoteLog int NULL added as
+              the last column.
 
     A user's time on one project for one calendar day: the whole hours worked
     and a description. The API keeps one live row per UserID + ProjectID +
@@ -37,6 +39,9 @@
       - HoursLogged is whole hours, the day's total; it is capped per day by
         dbo.Timesheet_Users_Project_setup.Max_log_hour_day (24 when NULL).
       - Description is nvarchar(max).
+      - IsRemoteLog is an int, nullable, used as a flag: the API writes 1
+        (remote) or 0, or leaves it NULL when the log does not say. One value
+        per day: a later log that sends it replaces it.
       - IsDelete is an int, NOT NULL - not a bit. 1 = deleted, 0 = live.
       - CreateDate, UpdateDate and DeletedDate are plain datetime.
 
@@ -65,6 +70,7 @@ CREATE TABLE dbo.TimesheetProjectTimeLog
     UpdatedBy                    int             NULL,
     DeletedDate                  datetime        NULL,
     DeletedBy                    int             NULL,
+    IsRemoteLog                  int             NULL,
     CONSTRAINT PK_TimesheetProjectTimeLog
         PRIMARY KEY CLUSTERED (TimesheetProjectTimeLogID)
 );

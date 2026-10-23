@@ -61,6 +61,11 @@ public class TimesheetProjectTimeLogConfiguration : IEntityTypeConfiguration<Tim
 
         builder.Property(timeLog => timeLog.DeletedBy).HasColumnName("DeletedBy");
 
+        // An int column holding a flag: 1 = remote, 0 = not, NULL = not said.
+        builder.Property(timeLog => timeLog.IsRemoteLog)
+            .HasColumnName("IsRemoteLog")
+            .HasConversion<int?>();
+
         builder.HasQueryFilter(timeLog => timeLog.IsDelete != 1);
     }
 }

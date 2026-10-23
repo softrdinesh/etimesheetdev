@@ -1698,6 +1698,10 @@ public class TimesheetProjectTimeLogResponse
     /// <example>7</example>
     public int HoursLogged { get; set; }
 
+    /// <summary>Whether the day was worked remotely. Null when it was never said.</summary>
+    /// <example>true</example>
+    public bool? IsRemoteLog { get; set; }
+
     public string? Description { get; set; }
 
     public DateTime CreateDate { get; set; }
@@ -1749,6 +1753,13 @@ public class TimesheetProjectTimeLogSaveRequest
     /// </summary>
     /// <example>3</example>
     public int HoursLogged { get; set; }
+
+    /// <summary>
+    /// Whether the work was done remotely. Optional. On a day already logged,
+    /// a value sent replaces the day's; left out, the day keeps the one it has.
+    /// </summary>
+    /// <example>true</example>
+    public bool? IsRemoteLog { get; set; }
 
     /// <summary>
     /// What was done. Optional. On a day already logged, it is added to the

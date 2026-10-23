@@ -277,6 +277,7 @@ internal static class TimesheetProjectMappings
         PeriodEndDate = periodEndDate,
         LogDate = timeLog.LogDate,
         HoursLogged = timeLog.HoursLogged,
+        IsRemoteLog = timeLog.IsRemoteLog,
         Description = timeLog.Description,
         CreateDate = timeLog.CreateDate,
         CreatedBy = timeLog.CreatedBy,
