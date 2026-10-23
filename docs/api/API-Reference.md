@@ -5363,6 +5363,7 @@ GET /api/v1/TimesheetProject/get-timesheet-project-time-log?userID=7&projectID=1
 | `periodEndDate` | datetime \| null | Last day of that period, inclusive |
 | `logDate` | datetime | The day worked; time part always `00:00:00` |
 | `hoursLogged` | int | The day's total on the project, in whole hours |
+| `isRemoteLog` | bool \| null | Whether the day was worked remotely; `null` when no log said |
 | `description` | string \| null | Each log's description, one per line |
 | `createDate` | datetime | UTC — the first log of the day |
 | `createdBy` | int | |
@@ -5386,6 +5387,7 @@ GET /api/v1/TimesheetProject/get-timesheet-project-time-log?userID=7&projectID=1
       "periodEndDate": "2026-10-25T00:00:00",
       "logDate": "2026-10-22T00:00:00",
       "hoursLogged": 7,
+      "isRemoteLog": true,
       "description": "Sprint planning\nCode review",
       "createDate": "2026-10-22T04:12:40.117",
       "createdBy": 7,
@@ -5449,6 +5451,7 @@ no id is sent:
 | `projectId` | int | yes | `> 0`. Must exist and have a `StartDate`, a `SubmissionFrequency` and an organisation |
 | `logDate` | date | yes | Only the date part is used. Not before the project's `StartDate`, not after its `EndDate` (when set) |
 | `hoursLogged` | int | yes | `1`–`24`, whole hours. Added to the day's total |
+| `isRemoteLog` | bool \| null | no | Whether the work was remote. On a day already logged, a value sent replaces the day's; left out, the day keeps its value |
 | `description` | string \| null | no | Free text, no length limit |
 | `addedBy` | int | yes | `> 0`. Written to `CreatedBy` on the first log of the day, `UpdatedBy` on later ones. Temporary — from the token once authentication is on |
 
@@ -5460,6 +5463,7 @@ no id is sent:
   "projectId": 12,
   "logDate": "2026-10-22",
   "hoursLogged": 3,
+  "isRemoteLog": true,
   "description": "Sprint planning",
   "addedBy": 7
 }

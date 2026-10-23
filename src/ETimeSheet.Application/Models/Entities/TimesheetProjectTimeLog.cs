@@ -55,4 +55,11 @@ public class TimesheetProjectTimeLog
     public DateTime? DeletedDate { get; set; }
 
     public int? DeletedBy { get; set; }
+
+    /// <summary>
+    /// The <c>IsRemoteLog</c> column - an <c>int</c>, NULL allowed, read and
+    /// written as 1 = remote, 0 = not remote. <see langword="null"/> when the
+    /// log never said.
+    /// </summary>
+    public bool? IsRemoteLog { get; set; }
 }

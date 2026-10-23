@@ -2115,6 +2115,7 @@ public class TimesheetProjectService : ITimesheetProjectService
                     cancellationToken),
                 LogDate = logDate,
                 HoursLogged = request.HoursLogged,
+                IsRemoteLog = request.IsRemoteLog,
                 Description = description,
                 IsDelete = 0,
                 CreateDate = now,
@@ -2124,6 +2125,13 @@ public class TimesheetProjectService : ITimesheetProjectService
         else
         {
             timeLog.HoursLogged += request.HoursLogged;
+
+            // One flag for the day: the latest log that says replaces it, and
+            // one that does not say leaves it.
+            if (request.IsRemoteLog is not null)
+            {
+                timeLog.IsRemoteLog = request.IsRemoteLog;
+            }
 
             // Each log's description is kept, one per line, so the morning's
             // note is not lost to the afternoon's.
