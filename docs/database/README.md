@@ -42,8 +42,8 @@ and `procedures/` only.
 docs/database/
 ├── schema/                      one file per table, as it exists today
 │   ├── dbo.Country.sql
-│   ├── dbo.CountryCurrency.sql
-│   ├── dbo.DayMaster.sql
+│   ├── dbo.CountryCurrency_Lookup.sql
+│   ├── dbo.DayMaster_Lookup.sql
 │   ├── dbo.EmailQueue.sql
 │   ├── dbo.EmailType.sql
 │   ├── dbo.SchedulerConfiguration.sql
@@ -63,7 +63,7 @@ docs/database/
 │   ├── dbo.TimesheetSubmission.sql
 │   ├── dbo.TimeSheetSubmissionAuditLog.sql
 │   ├── dbo.TimesheetUserRole.sql
-│   └── dbo.TimesheetUsersProjectSetupJobType.sql
+│   └── dbo.TimesheetUsersProjectSetupJobType_Lookup.sql
 ├── procedures/                  one file per stored procedure / function
 │   ├── dbo.spc_AddEditClientSetup.sql
 │   ├── dbo.spc_AddEditTimesheetHolidaySetup.sql
@@ -99,7 +99,7 @@ docs/database/
 │   └── dbo.spc_Signup_timesheet_user.sql
 └── data/                        one-off data scripts, run by hand, never by the tests
     ├── dbo.Country_UpdateTimeZone.sql
-    ├── dbo.CountryCurrency_Insert.sql
+    ├── dbo.CountryCurrency_Lookup_Insert.sql
     └── dbo.TimesheetProjectStatus_Insert.sql
 ```
 

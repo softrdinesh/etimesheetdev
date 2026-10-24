@@ -6,6 +6,7 @@
               integration fixture builds.
               Differs from the draft: FirstName / LastName (NULL placeholders)
               replaced by one column, Name, read from dbo.Signup.name.
+    Revised:   2026-10-25 - joins dbo.DayMaster_Lookup (table renamed from dbo.DayMaster).
 
     Returns the submitted timesheets for one organisation, one row per
     dbo.TimesheetSubmission row - every user's, or one user's.
@@ -31,7 +32,7 @@
     (2 and 3, FirstName / LastName, were resolved as the single Name column.)
 
     The week, per sheet:
-      WeekStartDate is the setup's StartDay (dbo.DayMaster.DayID, 1 = Monday
+      WeekStartDate is the setup's StartDay (dbo.DayMaster_Lookup.DayID, 1 = Monday
       ... 7 = Sunday) on or before the sheet's EARLIEST live entry - the same
       anchor the time log save uses to share one SheetCode across a week, and
       the same Monday fallback when there is no usable StartDay.
@@ -59,7 +60,7 @@
       ../schema/dbo.TimesheetSubmission.sql
       ../schema/dbo.TimesheetMasterSetup.sql
       ../schema/dbo.TimeLog.sql
-      ../schema/dbo.DayMaster.sql
+      ../schema/dbo.DayMaster_Lookup.sql
       dbo.Signup - NOT currently recorded.
 */
 
@@ -123,8 +124,8 @@ BEGIN
         ORDER BY x.SetupID
     ) tms
 
-    LEFT JOIN DayMaster sd ON sd.DayID = tms.StartDay
-    LEFT JOIN DayMaster ed ON ed.DayID = tms.EndDay
+    LEFT JOIN DayMaster_Lookup sd ON sd.DayID = tms.StartDay
+    LEFT JOIN DayMaster_Lookup ed ON ed.DayID = tms.EndDay
 
     -- The sheet's earliest live entry, which dates the week.
     OUTER APPLY

@@ -1,7 +1,7 @@
 namespace ETimeSheet.Application.Models.Entities;
 
 /// <summary>
-/// The seven days of the week, mapped onto the existing <c>dbo.DayMaster</c>
+/// The seven days of the week, mapped onto the existing <c>dbo.DayMaster_Lookup</c>
 /// lookup table. This is a persistence/domain model and is never returned from a
 /// controller.
 /// <para>

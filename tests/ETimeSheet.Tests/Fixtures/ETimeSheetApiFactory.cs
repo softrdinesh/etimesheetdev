@@ -554,8 +554,8 @@ public class ETimeSheetApiFactory : WebApplicationFactory<Program>
     /// Lookup tables, whose rows are fixed reference data inserted by the schema
     /// script rather than arranged by a test.
     /// <para>
-    /// <c>dbo.CountryCurrency</c> is one: its 248 rows come from the INSERT in
-    /// <c>docs/database/schema/dbo.CountryCurrency.sql</c>, and the client
+    /// <c>dbo.CountryCurrency_Lookup</c> is one: its 248 rows come from the INSERT in
+    /// <c>docs/database/schema/dbo.CountryCurrency_Lookup.sql</c>, and the client
     /// add/edit derives every currency from them.
     /// </para>
     /// <para>
@@ -565,7 +565,7 @@ public class ETimeSheetApiFactory : WebApplicationFactory<Program>
     /// </para>
     /// </summary>
     private static readonly IReadOnlySet<string> LookupTables =
-        new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "DayMaster", "CountryCurrency" };
+        new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "DayMaster_Lookup", "CountryCurrency_Lookup" };
 
     /// <summary>
     /// Tables a test can seed that are <b>not</b> in the EF model, and so cannot

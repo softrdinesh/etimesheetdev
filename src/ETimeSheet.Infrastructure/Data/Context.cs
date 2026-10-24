@@ -47,11 +47,11 @@ public class Context : DbContext
     public DbSet<TimesheetMasterSetup> TimesheetMasterSetup { get; set; } = null!;
 
     /// <summary>
-    /// The <c>dbo.DayMaster</c> lookup table - the seven days of the week.
+    /// The <c>dbo.DayMaster_Lookup</c> lookup table - the seven days of the week.
     /// <b>Read-only:</b> its rows are fixed reference data, so nothing adds,
     /// edits or deletes one through this context.
     /// </summary>
-    public DbSet<DayMaster> DayMaster { get; set; } = null!;
+    public DbSet<DayMaster> DayMaster_Lookup { get; set; } = null!;
 
     /// <summary>
     /// The <c>dbo.Country</c> lookup table. <b>Read-only:</b> its rows,
@@ -94,10 +94,10 @@ public class Context : DbContext
     public DbSet<TimesheetClientSetup> TimesheetClientSetup { get; set; } = null!;
 
     /// <summary>
-    /// The <c>dbo.CountryCurrency</c> lookup - one currency per country.
+    /// The <c>dbo.CountryCurrency_Lookup</c> lookup - one currency per country.
     /// <b>Read-only:</b> its rows are maintained by hand in SQL Server.
     /// </summary>
-    public DbSet<CountryCurrency> CountryCurrency { get; set; } = null!;
+    public DbSet<CountryCurrency> CountryCurrency_Lookup { get; set; } = null!;
 
     /// <summary>
     /// The <c>dbo.TimesheetUserRole</c> table - the roles defined per
@@ -589,7 +589,7 @@ public class Context : DbContext
             // The procedure aliases the table's mixed-convention columns
             // (Clientname, payment_terms_days, tax_identifier) to these
             // PascalCase names, and Currencycode to CurrencyID - what it holds.
-            // CurrencyName / CurrencySymbol are joined from dbo.CountryCurrency.
+            // CurrencyName / CurrencySymbol are joined from dbo.CountryCurrency_Lookup.
             client.Property(row => row.ClientId).HasColumnName("ClientID");
             client.Property(row => row.ClientCode).HasColumnName("ClientCode");
             client.Property(row => row.ClientName).HasColumnName("ClientName");
@@ -818,7 +818,7 @@ public class Context : DbContext
             // ProjectLocationLatitude / ProjectLocationLongitude,
             // Max_log_hour_day AS MaxLogHoursPerDay. Country, address and
             // currency are the user's, from dbo.Signup, dbo.Country and
-            // dbo.CountryCurrency.
+            // dbo.CountryCurrency_Lookup.
             user.Property(row => row.TimesheetUserProjectSetupId).HasColumnName("TimesheetUserProjectSetupID");
             user.Property(row => row.UserId).HasColumnName("UserID");
             user.Property(row => row.Name).HasColumnName("Name");

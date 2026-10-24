@@ -74,7 +74,7 @@ public class ClientSaveRequest
 
     /// <summary>
     /// Required, greater than 0, and a country with a currency in
-    /// <c>dbo.CountryCurrency</c>. The client's currency is <b>derived from
+    /// <c>dbo.CountryCurrency_Lookup</c>. The client's currency is <b>derived from
     /// this</b> - it is not sent - so changing a client's country on edit
     /// changes its currency too.
     /// </summary>
@@ -134,19 +134,19 @@ public class ClientResponse
     public int PaymentTermsDays { get; set; }
 
     /// <summary>
-    /// The client's <c>dbo.CountryCurrency.CurrencyID</c>, derived from its
+    /// The client's <c>dbo.CountryCurrency_Lookup.CurrencyID</c>, derived from its
     /// country. Stored in the <c>Currencycode</c> column.
     /// </summary>
     public int CurrencyId { get; set; }
 
     /// <summary>
-    /// From <c>dbo.CountryCurrency</c> - <c>"Indian Rupee"</c>. Null only for a
+    /// From <c>dbo.CountryCurrency_Lookup</c> - <c>"Indian Rupee"</c>. Null only for a
     /// client saved before currencies were derived, whose id names no row.
     /// </summary>
     public string? CurrencyName { get; set; }
 
     /// <summary>
-    /// From <c>dbo.CountryCurrency</c> - <c>"₹"</c>. Not unique: <c>"$"</c> is
+    /// From <c>dbo.CountryCurrency_Lookup</c> - <c>"₹"</c>. Not unique: <c>"$"</c> is
     /// shared by many currencies, so show it beside <see cref="CurrencyName"/>.
     /// </summary>
     public string? CurrencySymbol { get; set; }

@@ -48,7 +48,7 @@
         hours), the same as dbo.TimesheetProjectBudget.AllocatedHours. It was
         time(7) until 2026-10-13, which capped it at 23:59:59.
       - StartDate and EndDate are plain datetime - local or UTC is not stated.
-      - CurrencyCode is an int, so presumably dbo.CountryCurrency.CurrencyID
+      - CurrencyCode is an int, so presumably dbo.CountryCurrency_Lookup.CurrencyID
         (as Currencycode is on dbo.Timesheetclientsetup), not an ISO code.
         No foreign key was reported.
       - OrganizationID is presumably dbo.Organization's id; no foreign key

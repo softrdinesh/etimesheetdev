@@ -421,7 +421,7 @@ public class TimeLogService : ITimeLogService
     /// span - an exception day included - still belong to it.
     /// <para>
     /// A setup without a usable <c>StartDay</c> falls back to Monday, the first
-    /// day in <c>dbo.DayMaster</c>. The working-day rule imposes no constraint
+    /// day in <c>dbo.DayMaster_Lookup</c>. The working-day rule imposes no constraint
     /// in that case either; the code still needs a week to belong to.
     /// </para>
     /// </summary>
@@ -675,11 +675,11 @@ public class TimeLogService : ITimeLogService
     /// Sunday-to-Thursday week is normal in some of this data - and
     /// <c>Exceptionday</c> is allowed <b>in addition</b> to it, as a day this
     /// contract works that the ordinary week does not cover. All three are
-    /// <c>dbo.DayMaster.DayID</c> values.
+    /// <c>dbo.DayMaster_Lookup.DayID</c> values.
     /// </para>
     /// <para>
     /// A week that is not configured, or is configured with day ids outside the
-    /// seven in <c>dbo.DayMaster</c>, imposes no constraint. Refusing to log
+    /// seven in <c>dbo.DayMaster_Lookup</c>, imposes no constraint. Refusing to log
     /// time because someone left the setup half-filled would block the employee
     /// for a mistake they cannot fix.
     /// </para>

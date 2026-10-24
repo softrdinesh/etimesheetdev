@@ -8,6 +8,7 @@
                CountryName, Address, CurrencyID, CurrencyName and
                CurrencySymbol added as the last columns. The API reads them,
                so get-timesheet-user-by-orgID fails until this is applied.
+    Revised:   2026-10-25 - reads dbo.CountryCurrency_Lookup (table renamed from dbo.CountryCurrency).
 
     Returns the timesheet users of one organisation - every live project
     assignment in dbo.Timesheet_Users_Project_setup of every live user of the
@@ -39,12 +40,12 @@
       ProjectlocLongtitude - the database's spelling), MaxLogHoursPerDay
       (aliased from Max_log_hour_day), CountryID (dbo.Signup.CountryID),
       CountryName (dbo.Country.Name), Address (dbo.Signup.Address),
-      CurrencyID, CurrencyName and CurrencySymbol (dbo.CountryCurrency). The
+      CurrencyID, CurrencyName and CurrencySymbol (dbo.CountryCurrency_Lookup). The
       aliases are what the EF Core result mapping binds to.
 
       Country, address and currency are the USER's, from dbo.Signup - not
       the project's or its client's. The currency is the country's: the
-      lowest CurrencyID in dbo.CountryCurrency for it, the same rule
+      lowest CurrencyID in dbo.CountryCurrency_Lookup for it, the same rule
       spc_AddEditClientSetup uses for a client. A user with no country, or
       a country with no currency, still gets a row, with NULLs.
 
@@ -72,7 +73,7 @@
       ../schema/dbo.TimesheetProject.sql
       ../schema/dbo.TimesheetUserRole.sql
       ../schema/dbo.Country.sql
-      ../schema/dbo.CountryCurrency.sql
+      ../schema/dbo.CountryCurrency_Lookup.sql
     NOT RECORDED - dbo.Signup; the test container builds it from the EF
     mapping (SignupConfiguration).
 */
@@ -121,7 +122,7 @@ BEGIN
     OUTER APPLY
     (
         SELECT TOP (1) currency.CurrencyID, currency.CurrencyName, currency.CurrencySymbol
-        FROM dbo.CountryCurrency currency
+        FROM dbo.CountryCurrency_Lookup currency
         WHERE currency.CountryID = s.CountryID
         ORDER BY currency.CurrencyID
     ) cc

@@ -6,15 +6,15 @@ namespace ETimeSheet.Infrastructure.Data.Configurations;
 
 /// <summary>
 /// Database mapping for <see cref="CountryCurrency"/> onto the existing
-/// <c>dbo.CountryCurrency</c> lookup table, per
-/// <c>docs/database/schema/dbo.CountryCurrency.sql</c>. No query filter - the
+/// <c>dbo.CountryCurrency_Lookup</c> lookup table, per
+/// <c>docs/database/schema/dbo.CountryCurrency_Lookup.sql</c>. No query filter - the
 /// table has no soft-delete column.
 /// </summary>
 public class CountryCurrencyConfiguration : IEntityTypeConfiguration<CountryCurrency>
 {
     public void Configure(EntityTypeBuilder<CountryCurrency> builder)
     {
-        builder.ToTable("CountryCurrency");
+        builder.ToTable("CountryCurrency_Lookup");
 
         builder.HasKey(currency => currency.CurrencyId);
 

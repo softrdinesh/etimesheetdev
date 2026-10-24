@@ -11,7 +11,7 @@
 
     Not here, deliberately:
       - EF entities (Models/Entities/) map one-to-one to a TABLE, not to a
-        controller. dbo.DayMaster belongs to no controller at all, and
+        controller. dbo.DayMaster_Lookup belongs to no controller at all, and
         dbo.TimesheetMasterSetup is read by two of them.
       - Validators, mappings and services keep their own files; this is the
         model, not the module.
@@ -249,12 +249,12 @@ public class TimesheetMasterSetupResponse
     public int? ContractType { get; init; }
 
     /// <summary>
-    /// First day of the timesheet week - a <c>DayMaster.DayID</c>: 1 = Monday
+    /// First day of the timesheet week - a <c>DayMaster_Lookup.DayID</c>: 1 = Monday
     /// through 7 = Sunday. It was a two-character code until 2026-09-17.
     /// </summary>
     public int? StartDay { get; init; }
 
-    /// <summary>Last day of the timesheet week. A <c>DayMaster.DayID</c>, as <see cref="StartDay"/>.</summary>
+    /// <summary>Last day of the timesheet week. A <c>DayMaster_Lookup.DayID</c>, as <see cref="StartDay"/>.</summary>
     public int? EndDay { get; init; }
 
     /// <summary>
@@ -436,13 +436,13 @@ public class TimesheetMasterSetupDetail
     public int? ContractType { get; set; }
 
     /// <summary>
-    /// First day of the timesheet week - a <c>dbo.DayMaster.DayID</c> (1 = Monday
+    /// First day of the timesheet week - a <c>dbo.DayMaster_Lookup.DayID</c> (1 = Monday
     /// ... 7 = Sunday). The procedure selects the column straight through, so it
     /// returns whatever type the column has: an <c>int</c> since 2026-09-17.
     /// </summary>
     public int? StartDay { get; set; }
 
-    /// <summary>Last day of the timesheet week. A <c>DayMaster.DayID</c>, as <see cref="StartDay"/>.</summary>
+    /// <summary>Last day of the timesheet week. A <c>DayMaster_Lookup.DayID</c>, as <see cref="StartDay"/>.</summary>
     public int? EndDay { get; set; }
 
     /// <summary>

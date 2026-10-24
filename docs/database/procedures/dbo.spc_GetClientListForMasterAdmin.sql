@@ -3,10 +3,11 @@
     Recorded:  2026-10-11 (applied by the database owner)
     Revised:   2026-10-11 - DRAFT, NOT YET RE-APPLIED: CurrencyCode is now
                returned as CurrencyID, with CurrencyName and CurrencySymbol
-               joined from dbo.CountryCurrency.
+               joined from dbo.CountryCurrency_Lookup.
     Revised:   2026-10-14 - DRAFT: OrganizationID added to the result.
     Revised:   2026-10-14 - DRAFT, NOT YET APPLIED: @POrgID added; only that
                organisation's clients are returned.
+    Revised:   2026-10-25 - reads dbo.CountryCurrency_Lookup (table renamed from dbo.CountryCurrency).
 
     Returns the live clients of one organisation in dbo.TimesheetClientSetup,
     for the Master Admin client list
@@ -24,7 +25,7 @@
       conventions: Clientname -> ClientName, payment_terms_days ->
       PaymentTermsDays, tax_identifier -> TaxIdentifier, OrganizationID. Currencycode comes
       back as CurrencyID, because that is what it holds:
-      dbo.CountryCurrency.CurrencyID.
+      dbo.CountryCurrency_Lookup.CurrencyID.
       The aliases are what an EF Core result mapping binds to.
 
     Order:
@@ -36,7 +37,7 @@
 
     The tables are recorded at:
       ../schema/dbo.Timesheetclientsetup.sql
-      ../schema/dbo.CountryCurrency.sql
+      ../schema/dbo.CountryCurrency_Lookup.sql
 */
 
 CREATE OR ALTER PROCEDURE [dbo].[spc_GetClientListForMasterAdmin]
@@ -64,9 +65,9 @@ BEGIN
         tcs.OrganizationID        AS OrganizationID
     FROM dbo.TimesheetClientSetup tcs
     -- LEFT: a client saved before currencies were derived may hold a
-    -- Currencycode with no CountryCurrency row; it is still listed, with a
+    -- Currencycode with no CountryCurrency_Lookup row; it is still listed, with a
     -- null name and symbol.
-    LEFT JOIN dbo.CountryCurrency cc ON cc.CurrencyID = tcs.Currencycode
+    LEFT JOIN dbo.CountryCurrency_Lookup cc ON cc.CurrencyID = tcs.Currencycode
     WHERE tcs.OrganizationID = @POrgID
       AND tcs.IsDeleted = 0
     ORDER BY tcs.Clientname, tcs.ClientID;

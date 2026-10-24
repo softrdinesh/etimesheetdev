@@ -15,13 +15,14 @@
     Revised:   2026-10-24 - DRAFT: country and currency split in two. The
                USER's CountryID, CountryName and currency are the user's own
                again - dbo.Signup.CountryID, dbo.Country, and that country's
-               dbo.CountryCurrency. Each PROJECT gets its own
+               dbo.CountryCurrency_Lookup. Each PROJECT gets its own
                ProjectCountryID, ProjectCountryName and ProjectCurrency* -
-               dbo.TimesheetProject.CurrencyCode in dbo.CountryCurrency, and
+               dbo.TimesheetProject.CurrencyCode in dbo.CountryCurrency_Lookup, and
                that currency's country.
     Revised:   2026-10-24 - DRAFT: ClientCurrencyID, ClientCurrencyName and
                ClientCurrencySymbol dropped - each project shows one currency,
-               its own - and the join to dbo.CountryCurrency for them with it.
+               its own - and the join to dbo.CountryCurrency_Lookup for them with it.
+    Revised:   2026-10-25 - reads dbo.CountryCurrency_Lookup (table renamed from dbo.CountryCurrency).
 
     Returns one timesheet user - their basic details, and every live project
     assignment with the project, its client and the hours logged on it - for
@@ -59,7 +60,7 @@
 
         CountryID is dbo.Signup.CountryID and CountryName its dbo.Country
         name. The currency is that country's: the lowest CurrencyID in
-        dbo.CountryCurrency for it, as spc_AddEditClientSetup does. NULL when
+        dbo.CountryCurrency_Lookup for it, as spc_AddEditClientSetup does. NULL when
         the user has no country, or it has no currency.
 
         OrganizationID and OrganizationName come from the ASSIGNMENT'S
@@ -79,7 +80,7 @@
         JobType, CostRate, BillRate, MaxLogHoursPerDay.
 
         The project's currency is dbo.TimesheetProject.CurrencyCode in
-        dbo.CountryCurrency, and its country that currency's CountryID in
+        dbo.CountryCurrency_Lookup, and its country that currency's CountryID in
         dbo.Country. NULL when the project has no currency, or names one that
         does not exist.
 
@@ -135,7 +136,7 @@
       ../schema/dbo.TimesheetProjectSubmission.sql
       ../schema/dbo.TimesheetMasterSetup.sql
       ../schema/dbo.Country.sql
-      ../schema/dbo.CountryCurrency.sql
+      ../schema/dbo.CountryCurrency_Lookup.sql
     NOT RECORDED - dbo.Signup and dbo.Organization; the test container builds
     them from the EF mapping.
 */
@@ -216,7 +217,7 @@ BEGIN
     OUTER APPLY
     (
         SELECT TOP (1) currency.CurrencyID, currency.CurrencyName, currency.CurrencySymbol
-        FROM dbo.CountryCurrency currency
+        FROM dbo.CountryCurrency_Lookup currency
         WHERE currency.CountryID = s.CountryID
         ORDER BY currency.CurrencyID
     ) uc
@@ -236,7 +237,7 @@ BEGIN
     LEFT JOIN dbo.Organization o
         ON o.OrganizationID = tp.OrganizationID
     -- The PROJECT's currency, and through it the project's country.
-    LEFT JOIN dbo.CountryCurrency pcur
+    LEFT JOIN dbo.CountryCurrency_Lookup pcur
         ON pcur.CurrencyID = tp.CurrencyCode
     LEFT JOIN dbo.Country pc
         ON pc.ID = pcur.CountryID

@@ -9,7 +9,7 @@ namespace ETimeSheet.Tests.TestData;
 public static class MasterAdminTestData
 {
     /// <summary>
-    /// India. Its <c>dbo.CountryCurrency</c> row, inserted by the recorded
+    /// India. Its <c>dbo.CountryCurrency_Lookup</c> row, inserted by the recorded
     /// schema script, is <see cref="IndiaCurrencyId"/> - the Indian Rupee.
     /// </summary>
     public const int IndiaCountryId = 103;

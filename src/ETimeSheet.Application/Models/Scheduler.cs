@@ -97,7 +97,7 @@ public class ReminderEmailDetails
     /// <summary>The setup's IANA zone id.</summary>
     public string? TimeZone { get; set; }
 
-    /// <summary>First day of the week, a <c>dbo.DayMaster.DayID</c>.</summary>
+    /// <summary>First day of the week, a <c>dbo.DayMaster_Lookup.DayID</c>.</summary>
     public int? StartDay { get; set; }
 
     public TimeSpan? MaxTimeInHrs { get; set; }

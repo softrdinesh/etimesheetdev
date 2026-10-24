@@ -160,7 +160,7 @@ public class CurrentWeekSheetDetailResponse
     public DateTime WeekEndDate { get; set; }
 
     /// <summary>
-    /// The setup's <c>StartDay</c>, as stored - a <c>dbo.DayMaster.DayID</c>,
+    /// The setup's <c>StartDay</c>, as stored - a <c>dbo.DayMaster_Lookup.DayID</c>,
     /// 1 = Monday ... 7 = Sunday. <c>null</c> when the user has no setup or it
     /// has no start day.
     /// </summary>
@@ -306,13 +306,13 @@ public class SubmittedSheetResponse
     /// <summary>The setup's <c>StartDay</c> - 1 = Monday ... 7 = Sunday.</summary>
     public int? StartDay { get; set; }
 
-    /// <summary><see cref="StartDay"/>'s name, from <c>dbo.DayMaster</c>.</summary>
+    /// <summary><see cref="StartDay"/>'s name, from <c>dbo.DayMaster_Lookup</c>.</summary>
     public string? StartDayName { get; set; }
 
     /// <summary>The setup's <c>EndDay</c> - 1 = Monday ... 7 = Sunday.</summary>
     public int? EndDay { get; set; }
 
-    /// <summary><see cref="EndDay"/>'s name, from <c>dbo.DayMaster</c>.</summary>
+    /// <summary><see cref="EndDay"/>'s name, from <c>dbo.DayMaster_Lookup</c>.</summary>
     public string? EndDayName { get; set; }
 
     /// <summary>The hours submitted - <c>dbo.TimesheetSubmission.TotalHours</c>.</summary>

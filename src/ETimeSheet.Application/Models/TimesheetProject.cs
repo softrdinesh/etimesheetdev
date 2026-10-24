@@ -48,7 +48,7 @@ public class TimesheetProjectResponse
     public int? CurrencyCode { get; set; }
 
     /// <summary>
-    /// The currency's symbol from <c>dbo.CountryCurrency</c> - ₹, €, $ ...
+    /// The currency's symbol from <c>dbo.CountryCurrency_Lookup</c> - ₹, €, $ ...
     /// Null when <see cref="CurrencyCode"/> is null or names no currency. Not
     /// unique: "$" is shared by many currencies.
     /// </summary>
@@ -982,7 +982,7 @@ public class TimesheetUserListResponse
     public string? Address { get; set; }
 
     /// <summary>
-    /// The currency of the user's country, from <c>dbo.CountryCurrency</c>.
+    /// The currency of the user's country, from <c>dbo.CountryCurrency_Lookup</c>.
     /// Null when the user has no country, or it has no currency.
     /// </summary>
     /// <example>103</example>
@@ -1081,7 +1081,7 @@ public class TimesheetUserDetailsResponse
     public string? CountryName { get; set; }
 
     /// <summary>
-    /// The currency of the user's country, from <c>dbo.CountryCurrency</c>.
+    /// The currency of the user's country, from <c>dbo.CountryCurrency_Lookup</c>.
     /// Null when the user has no country, or it has no currency.
     /// </summary>
     public int? CurrencyId { get; set; }
@@ -1127,7 +1127,7 @@ public class TimesheetUserProjectResponse
 
     /// <summary>
     /// The project's currency - <c>dbo.TimesheetProject.CurrencyCode</c>, a
-    /// <c>dbo.CountryCurrency.CurrencyID</c>. Null when the project has none.
+    /// <c>dbo.CountryCurrency_Lookup.CurrencyID</c>. Null when the project has none.
     /// </summary>
     public int? ProjectCurrencyId { get; set; }
 

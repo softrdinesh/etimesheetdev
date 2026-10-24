@@ -34,9 +34,9 @@ internal static class AdminMappings
         OrganizationId = setup.OrganizationId,
         ContractType = setup.ContractType,
 
-        // Day ids straight through - dbo.DayMaster.DayID, 1 = Monday ... 7 =
+        // Day ids straight through - dbo.DayMaster_Lookup.DayID, 1 = Monday ... 7 =
         // Sunday. Not translated to names here: the response carries the stored
-        // value, and dbo.DayMaster is what turns it into a name.
+        // value, and dbo.DayMaster_Lookup is what turns it into a name.
         StartDay = setup.StartDay,
         EndDay = setup.EndDay,
         ExceptionDay = setup.ExceptionDay,

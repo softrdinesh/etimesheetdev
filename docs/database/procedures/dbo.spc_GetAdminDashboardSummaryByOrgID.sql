@@ -71,7 +71,7 @@ BEGIN
 
     DECLARE @Today DATE = CAST(GETDATE() AS DATE);
 
-    -- DayMaster numbering: 1 = Monday ... 7 = Sunday. '19000101' is a
+    -- DayMaster_Lookup numbering: 1 = Monday ... 7 = Sunday. '19000101' is a
     -- Monday, so the % 7 is 0 on a Monday whatever DATEFIRST is set to.
     DECLARE @TodayDayID INT = (DATEDIFF(DAY, '19000101', @Today) % 7) + 1;
 

@@ -1,12 +1,12 @@
 namespace ETimeSheet.Application.Models.Entities;
 
 /// <summary>
-/// A country's currency, mapped onto the existing <c>dbo.CountryCurrency</c>
+/// A country's currency, mapped onto the existing <c>dbo.CountryCurrency_Lookup</c>
 /// lookup table. This is a persistence/domain model and is never returned from
 /// a controller.
 /// <para>
 /// <b>Read-only reference data</b>, maintained by hand in SQL Server - see
-/// <c>docs/database/data/dbo.CountryCurrency_Insert.sql</c>. One row per
+/// <c>docs/database/data/dbo.CountryCurrency_Lookup_Insert.sql</c>. One row per
 /// country, so a currency used by several countries (the Euro) has several rows.
 /// </para>
 /// </summary>

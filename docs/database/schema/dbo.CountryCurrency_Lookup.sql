@@ -1,6 +1,7 @@
 /*
-    Table: dbo.CountryCurrency
+    Table: dbo.CountryCurrency_Lookup
     Recorded: 2026-10-11 (created and populated by the database owner by hand)
+    Revised:   2026-10-25 - table renamed from dbo.CountryCurrency by the database owner.
 
     One row per country, naming the currency that country uses and its
     symbol. 248 rows: every row of dbo.Country except Antarctica (ID 8,
@@ -20,7 +21,7 @@
         (MasterAdminService checks a country has a currency before saving).
 
     Populated by:
-      ../data/dbo.CountryCurrency_Insert.sql - run by hand, once, after the
+      ../data/dbo.CountryCurrency_Lookup_Insert.sql - run by hand, once, after the
       table is created. The INSERT at the bottom of this file is the same
       248 rows, so the throwaway test database built from this folder
       holds them too.
@@ -43,11 +44,11 @@
     Lengths below are characters.
 */
 
-IF OBJECT_ID(N'dbo.CountryCurrency', N'U') IS NOT NULL
-    DROP TABLE dbo.CountryCurrency;
+IF OBJECT_ID(N'dbo.CountryCurrency_Lookup', N'U') IS NOT NULL
+    DROP TABLE dbo.CountryCurrency_Lookup;
 GO
 
-CREATE TABLE dbo.CountryCurrency
+CREATE TABLE dbo.CountryCurrency_Lookup
 (
     CurrencyID      int            IDENTITY(1,1) NOT NULL,
     CurrencySymbol  nvarchar(10)   NOT NULL,
@@ -58,10 +59,10 @@ CREATE TABLE dbo.CountryCurrency
 GO
 
 -- The currency of every country in dbo.Country except Antarctica (ID 8).
--- Kept identical to ../data/dbo.CountryCurrency_Insert.sql.
-SET IDENTITY_INSERT dbo.CountryCurrency ON;
+-- Kept identical to ../data/dbo.CountryCurrency_Lookup_Insert.sql.
+SET IDENTITY_INSERT dbo.CountryCurrency_Lookup ON;
 
-INSERT INTO dbo.CountryCurrency
+INSERT INTO dbo.CountryCurrency_Lookup
     (CurrencyID, CurrencyName, CurrencySymbol, CountryID)
 VALUES
     (  1, N'Afghan Afghani',                          N'؋',   1),
@@ -313,5 +314,5 @@ VALUES
     (247, N'Zimbabwe Gold',                           N'ZiG', 248),
     (248, N'Euro',                                    N'€', 249);
 
-SET IDENTITY_INSERT dbo.CountryCurrency OFF;
+SET IDENTITY_INSERT dbo.CountryCurrency_Lookup OFF;
 GO

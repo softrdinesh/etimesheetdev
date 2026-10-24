@@ -76,7 +76,7 @@ public class MasterAdminRepository : IMasterAdminRepository
     public async Task<bool> HasCurrencyForCountryAsync(
         int countryId,
         CancellationToken cancellationToken = default) =>
-        await _db.CountryCurrency
+        await _db.CountryCurrency_Lookup
             .AsNoTracking()
             .AnyAsync(currency => currency.CountryId == countryId, cancellationToken);
 
