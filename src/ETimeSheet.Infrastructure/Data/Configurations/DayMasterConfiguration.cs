@@ -6,7 +6,7 @@ namespace ETimeSheet.Infrastructure.Data.Configurations;
 
 /// <summary>
 /// Database mapping for <see cref="DayMaster"/> onto the existing
-/// <c>dbo.DayMaster</c> lookup table.
+/// <c>dbo.DayMaster_Lookup</c> lookup table.
 /// <para>
 /// This is a database-first mapping: the column names and types below describe
 /// a table that already exists and must match it exactly. The UNIQUE
@@ -22,7 +22,7 @@ public class DayMasterConfiguration : IEntityTypeConfiguration<DayMaster>
 {
     public void Configure(EntityTypeBuilder<DayMaster> builder)
     {
-        builder.ToTable("DayMaster");
+        builder.ToTable("DayMaster_Lookup");
 
         builder.HasKey(day => day.DayId);
 

@@ -5,8 +5,10 @@
                dbo.TimesheetClientSetup) added to the result.
     Revised:   2026-10-16 - DRAFT: SubmissionFrequency and
                SubmissionFrequencyName added to the result.
-    Revised:   2026-10-17 - DRAFT: CurrencySymbol (from dbo.CountryCurrency)
+    Revised:   2026-10-17 - DRAFT: CurrencySymbol (from dbo.CountryCurrency_Lookup)
                added to the result, after CurrencyCode.
+    Revised:   2026-10-25 - reads dbo.CountryCurrency_Lookup (table renamed from
+               dbo.CountryCurrency).
 
     Returns the projects of one organisation from dbo.TimesheetProject, for
     GET api/v1/TimesheetProject/get-timesheet-project-by-orgID/{orgID}.
@@ -21,7 +23,7 @@
     Result columns:
       ProjectID, Code, ProjectName (aliased from Projectname), TotalBudget,
       TotalHours (aliased from Totalhours), StartDate, EndDate, CurrencyCode,
-      CurrencySymbol from dbo.CountryCurrency, Status, StatusName from dbo.TimesheetProjectStatus, ClientID,
+      CurrencySymbol from dbo.CountryCurrency_Lookup, Status, StatusName from dbo.TimesheetProjectStatus, ClientID,
       ClientName from dbo.TimesheetClientSetup, SubmissionFrequency
       (1 weekly, 2 every 15 days, 3 monthly; NULL when not set), and
       SubmissionFrequencyName - its text, 'Weekly', 'Every 15 Days' or
@@ -38,7 +40,7 @@
       IsDeleted: a project keeps showing the name of a client that has since
       been removed. Only a ClientID that names no row gives a NULL ClientName.
 
-      CurrencySymbol comes from a LEFT JOIN on CountryCurrency.CurrencyID =
+      CurrencySymbol comes from a LEFT JOIN on CountryCurrency_Lookup.CurrencyID =
       CurrencyCode, so a project whose CurrencyCode is NULL or names no row
       is still returned, with a NULL CurrencySymbol. Symbols are not unique
       ("$" is shared by many currencies).
@@ -54,7 +56,7 @@
       ../schema/dbo.TimesheetProject.sql
       ../schema/dbo.TimesheetProjectStatus.sql
       ../schema/dbo.Timesheetclientsetup.sql
-      ../schema/dbo.CountryCurrency.sql
+      ../schema/dbo.CountryCurrency_Lookup.sql
 */
 
 CREATE OR ALTER PROCEDURE [dbo].[spc_GetTimesheetProject]
@@ -88,7 +90,7 @@ BEGIN
         ON tps.StatusID = tp.Status
     LEFT JOIN dbo.TimesheetClientSetup tcs
         ON tcs.ClientID = tp.ClientID
-    LEFT JOIN dbo.CountryCurrency cc
+    LEFT JOIN dbo.CountryCurrency_Lookup cc
         ON cc.CurrencyID = tp.CurrencyCode
     WHERE tp.OrganizationID = @POrgID
     ORDER BY tp.Projectname, tp.ProjectID;

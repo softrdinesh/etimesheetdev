@@ -11,7 +11,7 @@
 
     Not here, deliberately:
       - EF entities (Models/Entities/) map one-to-one to a TABLE, not to a
-        controller. dbo.DayMaster belongs to no controller at all, and
+        controller. dbo.DayMaster_Lookup belongs to no controller at all, and
         dbo.TimesheetMasterSetup is read by two of them.
       - Validators, mappings and services keep their own files; this is the
         model, not the module.
@@ -88,7 +88,7 @@ public class AdminSaveRequest
     public int? ContractType { get; set; }
 
     /// <summary>
-    /// First day of the timesheet week - a <c>dbo.DayMaster.DayID</c>: 1 =
+    /// First day of the timesheet week - a <c>dbo.DayMaster_Lookup.DayID</c>: 1 =
     /// Monday, 2 = Tuesday ... 7 = Sunday. Send 1, not <c>"MO"</c>; the column
     /// stopped being a two-letter code on 2026-09-17.
     /// <b>Required</b>, and between 1 and 7.
@@ -103,7 +103,7 @@ public class AdminSaveRequest
 
     /// <summary>
     /// A day worked in addition to the normal week - also a
-    /// <c>dbo.DayMaster.DayID</c>. Send 7 for Sunday, not <c>"SUN"</c>.
+    /// <c>dbo.DayMaster_Lookup.DayID</c>. Send 7 for Sunday, not <c>"SUN"</c>.
     /// <b>Optional</b> - the only one of the three day fields that is, because
     /// most setups have no exception day at all. Between 1 and 7 when sent.
     /// </summary>
@@ -250,8 +250,8 @@ public class AdminResponse
     public int? ContractType { get; init; }
 
     /// <summary>
-    /// First day of the timesheet week - a <c>dbo.DayMaster.DayID</c>: 1 =
-    /// Monday through 7 = Sunday. Look the name up in <c>dbo.DayMaster</c>, or
+    /// First day of the timesheet week - a <c>dbo.DayMaster_Lookup.DayID</c>: 1 =
+    /// Monday through 7 = Sunday. Look the name up in <c>dbo.DayMaster_Lookup</c>, or
     /// use <c>Constants.DayMaster</c>.
     /// </summary>
     public int? StartDay { get; init; }

@@ -1,6 +1,7 @@
 /*
-    Table: dbo.DayMaster
+    Table: dbo.DayMaster_Lookup
     Recorded: 2026-09-17 (DDL supplied by the database owner)
+    Revised:   2026-10-25 - table renamed from dbo.DayMaster by the database owner.
 
     Lookup table for the seven days of the week. Fixed reference data: the seven
     rows below are the whole table and are inserted with the schema.
@@ -30,11 +31,11 @@
         look a row up by.
 */
 
-IF OBJECT_ID(N'dbo.DayMaster', N'U') IS NOT NULL
-    DROP TABLE dbo.DayMaster;
+IF OBJECT_ID(N'dbo.DayMaster_Lookup', N'U') IS NOT NULL
+    DROP TABLE dbo.DayMaster_Lookup;
 GO
 
-CREATE TABLE [dbo].[DayMaster]
+CREATE TABLE [dbo].[DayMaster_Lookup]
 (
     [DayID] INT NOT NULL,
     [Day] VARCHAR(20) NOT NULL,
@@ -46,7 +47,7 @@ CREATE TABLE [dbo].[DayMaster]
 );
 GO
 
-INSERT INTO [dbo].[DayMaster] ([DayID], [Day], [DayCode])
+INSERT INTO [dbo].[DayMaster_Lookup] ([DayID], [Day], [DayCode])
 VALUES
     (1, 'Monday',    'MO'),
     (2, 'Tuesday',   'TU'),

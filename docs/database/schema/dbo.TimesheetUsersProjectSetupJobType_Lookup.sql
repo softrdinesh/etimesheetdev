@@ -1,7 +1,8 @@
 /*
-    Table: dbo.TimesheetUsersProjectSetupJobType
+    Table: dbo.TimesheetUsersProjectSetupJobType_Lookup
     Recorded: 2026-10-23 (written at the database owner's request, to be
               created by hand; confirm here once it has been applied)
+    Revised:   2026-10-25 - table renamed from dbo.TimesheetUsersProjectSetupJobType by the database owner.
 
     Lookup table for dbo.Timesheet_Users_Project_setup.Jobtype - where a user
     works on a project they are assigned to. Reference data: the rows below
@@ -25,11 +26,11 @@
         table is declared.
 */
 
-IF OBJECT_ID(N'dbo.TimesheetUsersProjectSetupJobType', N'U') IS NOT NULL
-    DROP TABLE dbo.TimesheetUsersProjectSetupJobType;
+IF OBJECT_ID(N'dbo.TimesheetUsersProjectSetupJobType_Lookup', N'U') IS NOT NULL
+    DROP TABLE dbo.TimesheetUsersProjectSetupJobType_Lookup;
 GO
 
-CREATE TABLE dbo.TimesheetUsersProjectSetupJobType
+CREATE TABLE dbo.TimesheetUsersProjectSetupJobType_Lookup
 (
     JobTypeID  int           NOT NULL,
     JobType    nvarchar(50)  NOT NULL,
@@ -41,7 +42,7 @@ CREATE TABLE dbo.TimesheetUsersProjectSetupJobType
 );
 GO
 
-INSERT INTO dbo.TimesheetUsersProjectSetupJobType (JobTypeID, JobType)
+INSERT INTO dbo.TimesheetUsersProjectSetupJobType_Lookup (JobTypeID, JobType)
 VALUES
     (1, N'Work from office'),
     (2, N'Work from home');

@@ -429,8 +429,8 @@ GET /api/v1/TimeLog/get-timesheet-setup-by-user/101
 | `maxTimeLoggedByUserInHours` | string? | From `MaxTimeinhrs`. `"08:00:00"` — `hh:mm:ss`, not a number |
 | `maxTimeLoggedByUserInMinutes` | string? | From `MaxTiminmins`, `hh:mm:ss` |
 | `contractType` | int? | Contract type id |
-| `startDay` | int? | First day of the timesheet week — a `dbo.DayMaster.DayID`, 1 = Monday … 7 = Sunday |
-| `endDay` | int? | Last day of the timesheet week — a `dbo.DayMaster.DayID` |
+| `startDay` | int? | First day of the timesheet week — a `dbo.DayMaster_Lookup.DayID`, 1 = Monday … 7 = Sunday |
+| `endDay` | int? | Last day of the timesheet week — a `dbo.DayMaster_Lookup.DayID` |
 | `canUserLoggedPreDayTime` | bool? | `true` when the database server's current time is at or before `TimeEntryLockAt`; `false` after it, **or when `TimeEntryLockAt` is null**. Informational only — Save Time Log does not read it. Held as 0/1, surfaced as `true`/`false`. See the warning below |
 | `countryId` | int? | The user's country, from **`dbo.Signup.CountryID`** — the person's country, not the setup row's own `CountryID` |
 | `timeZone` | string? | The IANA zone the user's timesheet day is measured in — one id, e.g. `"Asia/Kolkata"`. `null` for a setup saved before time zones existed, in which case the API falls back to UTC |
@@ -1213,9 +1213,9 @@ with that id exists.
 | `maxTimInMins` | string? | **yes** | `hh:mm:ss`, **`00:00:00`–`00:59:00`** — e.g. `"00:30:00"`. The *minutes* that go with `maxTimeInHrs`, so it can never carry an hour of its own |
 | `organizationId` | int? | **yes** | `> 0` |
 | `contractType` | int? | **yes** | exactly `1` (Full Time) or `2` (Part Time). Nothing else — a `3` is refused, not stored as an unnamed contract |
-| `startDay` | int? | **yes** | a `dbo.DayMaster.DayID`, `1`–`7` (1 = Monday … 7 = Sunday) |
-| `endDay` | int? | **yes** | a `dbo.DayMaster.DayID`, `1`–`7` |
-| `exceptionDay` | int? | no | a `dbo.DayMaster.DayID`, `1`–`7`. A day worked *in addition* to the normal week. **The only optional day field** |
+| `startDay` | int? | **yes** | a `dbo.DayMaster_Lookup.DayID`, `1`–`7` (1 = Monday … 7 = Sunday) |
+| `endDay` | int? | **yes** | a `dbo.DayMaster_Lookup.DayID`, `1`–`7` |
+| `exceptionDay` | int? | no | a `dbo.DayMaster_Lookup.DayID`, `1`–`7`. A day worked *in addition* to the normal week. **The only optional day field** |
 | `countryId` | int? | **yes** | `> 0`. A `dbo.Country.ID`. **Stored as sent** — its existence is not checked |
 | `timeZone` | string? | **yes** | One IANA zone id, e.g. `"America/New_York"`. **Stored as sent.** Must carry a value — `null`, `""` and whitespace are all refused — and be ≤ 100 chars |
 | `timeEntryLockAt` | string? | no | `hh:mm:ss`, `00:00:00`–`23:59:59`. Time of day after which entry is locked — measured in the setup's `timeZone`. A moment in the day, so the narrower bounds above do not apply |
@@ -1228,7 +1228,7 @@ with that id exists.
 > `spc_GetTimesheetMasterSetupByUserID`. There is nothing here to store.
 
 > The day fields were two- and three-letter codes (`"MO"`, `"SUN"`) until
-> 2026-09-17. They are `dbo.DayMaster` ids now, and are validated against the
+> 2026-09-17. They are `dbo.DayMaster_Lookup` ids now, and are validated against the
 > exact range `1`–`7` rather than for shape, because the lookup fixes the
 > vocabulary at seven rows.
 
@@ -1339,9 +1339,9 @@ last changed a setup.
 | `maxTimInMins` | string? | The `MaxTiminmins` column, `hh:mm:ss` |
 | `organizationId` | int? | |
 | `contractType` | int? | |
-| `startDay` | int? | A `dbo.DayMaster.DayID`, 1 = Monday … 7 = Sunday |
-| `endDay` | int? | A `dbo.DayMaster.DayID` |
-| `exceptionDay` | int? | A `dbo.DayMaster.DayID` — a day worked in addition to the normal week |
+| `startDay` | int? | A `dbo.DayMaster_Lookup.DayID`, 1 = Monday … 7 = Sunday |
+| `endDay` | int? | A `dbo.DayMaster_Lookup.DayID` |
+| `exceptionDay` | int? | A `dbo.DayMaster_Lookup.DayID` — a day worked in addition to the normal week |
 | `countryId` | int? | Stored as sent |
 | `countryName` | string? | **Derived** — the country's name from `dbo.Country`. `null` when the setup names no country, **or names one that does not exist** |
 | `timeZone` | string? | The IANA zone id **exactly as it was sent** — not resolved, and not necessarily one the country has |
@@ -2966,9 +2966,9 @@ deliberate differences:
 | `weekStartDate` | datetime? | The setup's `startDay` on or before the sheet's earliest entry |
 | `weekEndDate` | datetime? | The setup's `endDay` after it |
 | `startDay` | int? | The setup's `StartDay` — 1 = Monday … 7 = Sunday |
-| `startDayName` | string? | Its name, from `dbo.DayMaster` |
+| `startDayName` | string? | Its name, from `dbo.DayMaster_Lookup` |
 | `endDay` | int? | The setup's `EndDay` |
-| `endDayName` | string? | Its name, from `dbo.DayMaster` |
+| `endDayName` | string? | Its name, from `dbo.DayMaster_Lookup` |
 | `totalHoursWorked` | decimal | Hours submitted |
 | `totalHoursExpected` | decimal? | Hours the current setup expects; `null` without a complete setup |
 | `totalHoursDrift` | decimal? | Worked − expected; `null` whenever expected is |
@@ -3036,7 +3036,7 @@ add / edit and returned on every read. The client list is still **not**
 filtered by organisation — it returns every live client.
 
 **Currency is derived, never sent.** A client's `currencyId` is the
-`dbo.CountryCurrency.CurrencyID` of its `countryId` (one row per country), stored
+`dbo.CountryCurrency_Lookup.CurrencyID` of its `countryId` (one row per country), stored
 in the table's `Currencycode` column. `currencyName` and `currencySymbol` are
 joined back from the same table on every read.
 
@@ -3056,7 +3056,7 @@ Returned by all three read/write endpoints below, in this order:
 | `alternateEmail` | string \| null | |
 | `billingAddress` | string \| null | |
 | `paymentTermsDays` | int | |
-| `currencyId` | int | `dbo.CountryCurrency.CurrencyID`, derived from the country |
+| `currencyId` | int | `dbo.CountryCurrency_Lookup.CurrencyID`, derived from the country |
 | `currencyName` | string \| null | `"Indian Rupee"`. `null` only for a client saved before currencies were derived |
 | `currencySymbol` | string \| null | `"₹"`. **Not unique** — `"$"` is shared by many currencies; show it beside `currencyName` |
 | `countryId` | int \| null | `dbo.Country.ID` |
@@ -3518,8 +3518,8 @@ then `projectId`:
 | `totalHours` | decimal \| null | A **number of hours** (`37.5` is 37½ hours), may exceed 24 |
 | `startDate` | datetime \| null | |
 | `endDate` | datetime \| null | |
-| `currencyCode` | int \| null | The client's currency — `dbo.CountryCurrency.CurrencyID`, copied from the client on every save |
-| `currencySymbol` | string \| null | `dbo.CountryCurrency.CurrencySymbol` of `currencyCode` — `₹`, `€`, `$` …; `null` when the currency is unknown. Not unique |
+| `currencyCode` | int \| null | The client's currency — `dbo.CountryCurrency_Lookup.CurrencyID`, copied from the client on every save |
+| `currencySymbol` | string \| null | `dbo.CountryCurrency_Lookup.CurrencySymbol` of `currencyCode` — `₹`, `€`, `$` …; `null` when the currency is unknown. Not unique |
 | `status` | int \| null | A `statusId` from [Project Status List](#27-project-status-list) |
 | `statusName` | string \| null | `Open` / `Closed` / `Pending`; `null` when `status` is null or unknown |
 | `clientId` | int | The client the project is for — `dbo.TimesheetClientSetup.ClientID` |
@@ -4581,7 +4581,7 @@ GET /api/v1/TimesheetProject/get-timesheet-user-by-orgID/12
 | `countryId` | int \| null | The **user's** country — `dbo.Signup.CountryID` |
 | `countryName` | string \| null | `dbo.Country.Name`; `null` when the user has no country or it is unknown |
 | `address` | string \| null | The user's `dbo.Signup.Address` |
-| `currencyId` | int \| null | The currency of the user's country, from `dbo.CountryCurrency` (the lowest `CurrencyID` for it, as client setup does); `null` when the user has no country or it has no currency |
+| `currencyId` | int \| null | The currency of the user's country, from `dbo.CountryCurrency_Lookup` (the lowest `CurrencyID` for it, as client setup does); `null` when the user has no country or it has no currency |
 | `currencyName` | string \| null | |
 | `currencySymbol` | string \| null | Not unique — show it beside `currencyName` |
 
@@ -6034,7 +6034,7 @@ and its `ClientID` — never through `dbo.Signup.OrganizationID`.
 
 **Two countries and currencies.** The user's own — `countryId`,
 `countryName`, `currency…` — come from `dbo.Signup.CountryID`, `dbo.Country`
-and that country's `dbo.CountryCurrency`. Each project carries its own, once —
+and that country's `dbo.CountryCurrency_Lookup`. Each project carries its own, once —
 `projectCountry…`, `projectCurrency…` — from the project's `CurrencyCode`. The
 client's currency is not returned.
 
@@ -6073,7 +6073,7 @@ GET /api/v1/TimesheetProject/get-project-timesheet-user-details-by-userID/149
 | `organizationName` | string \| null | `dbo.Organization`, reached from that id |
 | `countryId` | int \| null | **The user's** country — `dbo.Signup.CountryID` |
 | `countryName` | string \| null | `dbo.Country`, from that id |
-| `currencyId` | int \| null | The currency of the user's country (`dbo.CountryCurrency`, lowest id for it); `null` when the user has no country or it has no currency |
+| `currencyId` | int \| null | The currency of the user's country (`dbo.CountryCurrency_Lookup`, lowest id for it); `null` when the user has no country or it has no currency |
 | `currencyName` | string \| null | |
 | `currencySymbol` | string \| null | Not unique — show it beside `currencyName` |
 | `timeZone` | string \| null | The IANA zone of the user's timesheet setup |
@@ -6091,7 +6091,7 @@ Each item of `projects`:
 | `projectStartDate` | datetime \| null | |
 | `projectEndDate` | datetime \| null | |
 | `submissionFrequency` | int \| null | 1 weekly, 2 every 15 days, 3 monthly |
-| `projectCurrencyId` | int \| null | **The project's** currency — `dbo.TimesheetProject.CurrencyCode`, a `dbo.CountryCurrency.CurrencyID`; `null` when the project has none |
+| `projectCurrencyId` | int \| null | **The project's** currency — `dbo.TimesheetProject.CurrencyCode`, a `dbo.CountryCurrency_Lookup.CurrencyID`; `null` when the project has none |
 | `projectCurrencyName` | string \| null | |
 | `projectCurrencySymbol` | string \| null | Not unique — show it beside `projectCurrencyName` |
 | `projectCountryId` | int \| null | **The project's** country: its currency's `CountryID` |
@@ -6285,7 +6285,7 @@ Sent and received as the **number** — `jobType` on
 [Create](#36-create-timesheet-user) / [Edit Timesheet User](#37-edit-timesheet-user),
 [Organisation Timesheet User List](#39-organisation-timesheet-user-list) and
 [Timesheet User Details](#58-timesheet-user-details). The values are in the
-lookup table `dbo.TimesheetUsersProjectSetupJobType` (`docs/database/schema/`),
+lookup table `dbo.TimesheetUsersProjectSetupJobType_Lookup` (`docs/database/schema/`),
 once the owner has created it. The API does **not** check a value against it:
 any positive number is stored.
 
@@ -6381,7 +6381,7 @@ Documented so nobody has to rediscover them:
 2. **Logged Time List has no paging and no date filter.** Since 2026-09-25
    `spc_GetTimeLoggedDetailsForTask` takes only the user, so a user's whole
    history comes back in one call and the response grows without bound.
-3. **No foreign key ties the setup's day columns to `dbo.DayMaster`.** A row can
+3. **No foreign key ties the setup's day columns to `dbo.DayMaster_Lookup`.** A row can
    hold an id the lookup does not contain; the API treats such a value as "no
    week configured" rather than failing the read.
 4. **No delete for a time log entry.** Save Time Log adds and edits; nothing
@@ -6474,7 +6474,7 @@ Documented so nobody has to rediscover them:
     relates to `dbo.TimesheetUserRole.RoleID` is not recorded, so Delete User
     Role cannot refuse a role that users are still assigned to.
 28. **Clients saved before currencies were derived** may hold a `Currencycode`
-    that names no `dbo.CountryCurrency` row; they are listed with
+    that names no `dbo.CountryCurrency_Lookup` row; they are listed with
     `currencyName` / `currencySymbol` `null` until edited.
 29. **Recorded procedures awaiting confirmation.** `spc_AddEditClientSetup` and
     `spc_GetClientListForMasterAdmin` (currency revision) and

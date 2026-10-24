@@ -3,9 +3,10 @@
     Recorded:  2026-10-11 (applied by the database owner)
     Revised:   2026-10-11 - DRAFT, NOT YET RE-APPLIED: @PCurrencyCode removed;
                the currency is derived from @PCountryID via
-               dbo.CountryCurrency, and @PCountryID is now required.
+               dbo.CountryCurrency_Lookup, and @PCountryID is now required.
     Revised:   2026-10-14 - DRAFT: @POrgID added (required) and written to
                OrganizationID on add and edit; OrganizationID returned.
+    Revised:   2026-10-25 - reads dbo.CountryCurrency_Lookup (table renamed from dbo.CountryCurrency).
 
     Adds a client to dbo.TimesheetClientSetup, or edits one, and returns the
     saved row. Called by POST api/v1/MasterAdmin/add-or-edit-client-setup.
@@ -21,7 +22,7 @@
 
     Currency (add and edit alike):
       Currencycode is set to the CurrencyID of the client's country in
-      dbo.CountryCurrency - the lowest one, should a country ever have more
+      dbo.CountryCurrency_Lookup - the lowest one, should a country ever have more
       than one row. Re-derived on every edit, so changing a client's
       country changes its currency too. A country with no currency row
       (Antarctica) raises error 50002 and nothing is saved; the API checks
@@ -52,7 +53,7 @@
 
     The tables are recorded at:
       ../schema/dbo.Timesheetclientsetup.sql
-      ../schema/dbo.CountryCurrency.sql
+      ../schema/dbo.CountryCurrency_Lookup.sql
 */
 
 CREATE OR ALTER PROCEDURE [dbo].[spc_AddEditClientSetup]
@@ -84,13 +85,13 @@ BEGIN
     DECLARE @CurrencyID INT =
     (
         SELECT TOP (1) cc.CurrencyID
-        FROM dbo.CountryCurrency cc
+        FROM dbo.CountryCurrency_Lookup cc
         WHERE cc.CountryID = @PCountryID
         ORDER BY cc.CurrencyID
     );
 
     IF @CurrencyID IS NULL
-        THROW 50002, 'The client''s country has no currency in dbo.CountryCurrency.', 1;
+        THROW 50002, 'The client''s country has no currency in dbo.CountryCurrency_Lookup.', 1;
 
     IF ISNULL(@PClientID, 0) = 0
     BEGIN
@@ -188,9 +189,9 @@ BEGIN
         tcs.OrganizationID        AS OrganizationID
     FROM dbo.TimesheetClientSetup tcs
     -- LEFT: a client saved before currencies were derived may hold a
-    -- Currencycode with no CountryCurrency row; it is still listed, with a
+    -- Currencycode with no CountryCurrency_Lookup row; it is still listed, with a
     -- null name and symbol.
-    LEFT JOIN dbo.CountryCurrency cc ON cc.CurrencyID = tcs.Currencycode
+    LEFT JOIN dbo.CountryCurrency_Lookup cc ON cc.CurrencyID = tcs.Currencycode
     WHERE tcs.ClientID = @ClientID
       AND tcs.IsDeleted = 0;
 END

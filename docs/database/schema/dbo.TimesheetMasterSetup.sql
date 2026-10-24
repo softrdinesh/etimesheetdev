@@ -3,7 +3,7 @@
     Recorded: 2026-09-15 (column list confirmed against the live database 2026-09-15)
     Revised:  2026-09-17 - StartDay, EndDay and Exceptionday changed from
               char(2)/char(2)/char(3) to int, per the column list supplied by the
-              database owner. They now hold dbo.DayMaster.DayID values.
+              database owner. They now hold dbo.DayMaster_Lookup.DayID values.
     Revised:  2026-09-20 - TimeZone nvarchar(100) NULL added by the database
               owner. Holds ONE IANA zone id for this setup.
     Revised:  2026-10-08 - NeedToSendReminder bit NULL and
@@ -20,9 +20,9 @@
       - MaxTimeinhrs / MaxTiminmins are time(7), NOT numbers. "8 hours" is
         stored as 08:00:00.
       - StartDay / EndDay / Exceptionday are int and reference
-        dbo.DayMaster.DayID: 1 = Monday ... 7 = Sunday, the ISO-8601 numbering.
+        dbo.DayMaster_Lookup.DayID: 1 = Monday ... 7 = Sunday, the ISO-8601 numbering.
         They are NOT System.DayOfWeek values, which number Sunday 0.
-        No FOREIGN KEY constraint is declared to dbo.DayMaster - the values are
+        No FOREIGN KEY constraint is declared to dbo.DayMaster_Lookup - the values are
         a reference by convention, so a row can legally hold an id the lookup
         does not contain. The API treats an unknown id as "no week configured"
         rather than failing the request.
@@ -60,7 +60,7 @@
         get a generated id back, which is consistent with that.
       - The primary key is assumed to be SetupID, clustered.
       - Whether the rows that held char day codes before the 2026-09-17 change
-        were converted to the matching DayMaster ids, or left as they were. The
+        were converted to the matching DayMaster_Lookup ids, or left as they were. The
         API reads whatever is there and ignores an id outside 1-7.
 
     Written by:

@@ -38,7 +38,7 @@ public class TimesheetMasterSetup
     public int? ContractType { get; set; }
 
     /// <summary>
-    /// First day of the timesheet week - a <c>dbo.DayMaster.DayID</c>, so 1 is
+    /// First day of the timesheet week - a <c>dbo.DayMaster_Lookup.DayID</c>, so 1 is
     /// Monday and 7 is Sunday.
     /// <para>
     /// <b>Was a <c>char(2)</c> code such as "MO" until 2026-09-17</b>, and is an
@@ -48,12 +48,12 @@ public class TimesheetMasterSetup
     /// </summary>
     public int? StartDay { get; set; }
 
-    /// <summary>Last day of the timesheet week. A <c>DayMaster.DayID</c>, as <see cref="StartDay"/>.</summary>
+    /// <summary>Last day of the timesheet week. A <c>DayMaster_Lookup.DayID</c>, as <see cref="StartDay"/>.</summary>
     public int? EndDay { get; set; }
 
     /// <summary>
     /// A day treated as an exception to the normal week - also a
-    /// <c>DayMaster.DayID</c>. Was a <c>char(3)</c> code such as "SUN" until
+    /// <c>DayMaster_Lookup.DayID</c>. Was a <c>char(3)</c> code such as "SUN" until
     /// 2026-09-17.
     /// </summary>
     public int? ExceptionDay { get; set; }

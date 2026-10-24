@@ -11,7 +11,7 @@ namespace ETimeSheet.Tests.Integration;
 /// The Master Admin client setup endpoints, end to end against a real SQL
 /// Server: the recorded <c>spc_GetClientListForMasterAdmin</c> and
 /// <c>spc_AddEditClientSetup</c>, the 248 currency rows from the recorded
-/// <c>dbo.CountryCurrency</c> script, the real middleware.
+/// <c>dbo.CountryCurrency_Lookup</c> script, the real middleware.
 /// <para>
 /// This is where the parts that live in SQL are proven: the <c>CL0001</c>
 /// sequence and its lock, the currency derived from the country, and the

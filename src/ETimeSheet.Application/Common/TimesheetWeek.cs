@@ -5,7 +5,7 @@ namespace ETimeSheet.Application.Common;
 /// <summary>
 /// Reads the day ids held in <c>dbo.TimesheetMasterSetup</c> - <c>StartDay</c>,
 /// <c>EndDay</c> and <c>Exceptionday</c>, all <c>int</c> columns holding
-/// <c>dbo.DayMaster.DayID</c> - and turns a pair of them into the set of days a
+/// <c>dbo.DayMaster_Lookup.DayID</c> - and turns a pair of them into the set of days a
 /// week covers.
 /// <para>
 /// Kept out of the service because it is pure code-to-calendar translation with
@@ -15,14 +15,14 @@ namespace ETimeSheet.Application.Common;
 /// <para>
 /// <b>Until 2026-09-17 those three columns held letter codes</b> - "MO", "SUN" -
 /// and this class parsed strings. They are day ids now, which removes the
-/// guesswork: the vocabulary is whatever <c>dbo.DayMaster</c> contains, and that
+/// guesswork: the vocabulary is whatever <c>dbo.DayMaster_Lookup</c> contains, and that
 /// is fixed at seven rows.
 /// </para>
 /// </summary>
 internal static class TimesheetWeek
 {
     /// <summary>
-    /// <c>dbo.DayMaster.DayID</c> to <see cref="DayOfWeek"/>.
+    /// <c>dbo.DayMaster_Lookup.DayID</c> to <see cref="DayOfWeek"/>.
     /// <para>
     /// A table rather than arithmetic, because the two numberings disagree in a
     /// way that is easy to get subtly wrong: DayMaster is ISO-8601, Monday 1 to
@@ -45,11 +45,11 @@ internal static class TimesheetWeek
         };
 
     /// <summary>
-    /// The day a <c>DayMaster.DayID</c> names, or null when the id is absent or
+    /// The day a <c>DayMaster_Lookup.DayID</c> names, or null when the id is absent or
     /// is not one of the seven.
     /// <para>
     /// Null rather than an exception: no foreign key ties these columns to
-    /// <c>dbo.DayMaster</c>, so a row can hold an id that is not in the lookup,
+    /// <c>dbo.DayMaster_Lookup</c>, so a row can hold an id that is not in the lookup,
     /// and refusing to log time because of it would punish the employee for a
     /// setup someone else got wrong. Callers treat null as "no constraint
     /// expressed".
@@ -66,7 +66,7 @@ internal static class TimesheetWeek
     }
 
     /// <summary>
-    /// The name of a <c>DayMaster.DayID</c> - "Monday" ... "Sunday" - or the
+    /// The name of a <c>DayMaster_Lookup.DayID</c> - "Monday" ... "Sunday" - or the
     /// number itself when it is not one of the seven, so that a message about a
     /// bad value can still show what the value was.
     /// </summary>

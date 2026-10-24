@@ -41,7 +41,7 @@ public class TimesheetClientSetup
 
     /// <summary>
     /// The <c>Currencycode</c> column, which holds a
-    /// <c>dbo.CountryCurrency.CurrencyID</c> - derived from the country by
+    /// <c>dbo.CountryCurrency_Lookup.CurrencyID</c> - derived from the country by
     /// <c>spc_AddEditClientSetup</c>, never sent by a caller.
     /// </summary>
     public int CurrencyCode { get; set; }

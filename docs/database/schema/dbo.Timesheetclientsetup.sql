@@ -29,7 +29,7 @@
       - Column names mix conventions: PascalCase (BillingEmail, ClientCode),
         an irregular lower case (Clientname, Currencycode) and snake_case
         (payment_terms_days, tax_identifier). Map each one by its exact name.
-      - Currencycode holds dbo.CountryCurrency.CurrencyID, despite its name
+      - Currencycode holds dbo.CountryCurrency_Lookup.CurrencyID, despite its name
         - not an ISO code. It is never sent by the API caller: since
         2026-10-11 spc_AddEditClientSetup derives it from the client's
         CountryID. Rows saved before then may hold a value that is not a

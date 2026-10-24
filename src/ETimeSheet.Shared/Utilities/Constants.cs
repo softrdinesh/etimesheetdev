@@ -70,7 +70,7 @@ public static class Constants
     }
 
     /// <summary>
-    /// The contents of the <c>dbo.DayMaster</c> lookup table.
+    /// The contents of the <c>dbo.DayMaster_Lookup</c> lookup table.
     /// <para>
     /// The table is fixed reference data - seven rows, inserted with the schema,
     /// never written by the API - so its ids and codes are safe to declare as
@@ -81,7 +81,7 @@ public static class Constants
     public static class DayMaster
     {
         /// <summary>
-        /// Values of the <c>dbo.DayMaster.DayID</c> column - ISO-8601
+        /// Values of the <c>dbo.DayMaster_Lookup.DayID</c> column - ISO-8601
         /// numbering, Monday first.
         /// <para>
         /// <b>These are not <see cref="System.DayOfWeek"/> values.</b> That enum
@@ -118,7 +118,7 @@ public static class Constants
         }
 
         /// <summary>
-        /// Values of the <c>dbo.DayMaster.DayCode</c> column - the two-letter
+        /// Values of the <c>dbo.DayMaster_Lookup.DayCode</c> column - the two-letter
         /// codes, stored as <c>varchar(2)</c> and therefore unpadded.
         /// <para>
         /// <c>dbo.TimesheetMasterSetup</c> held codes like these in its
@@ -126,7 +126,7 @@ public static class Constants
         /// 2026-09-17; those columns are <c>int</c> now and reference
         /// <see cref="DayId"/> instead. Nothing in the application matches on a
         /// code any more - these exist for reading and writing
-        /// <c>dbo.DayMaster</c> itself.
+        /// <c>dbo.DayMaster_Lookup</c> itself.
         /// </para>
         /// </summary>
         public static class DayCode
@@ -154,7 +154,7 @@ public static class Constants
         }
 
         /// <summary>
-        /// Values of the <c>dbo.DayMaster.Day</c> column - the full English
+        /// Values of the <c>dbo.DayMaster_Lookup.Day</c> column - the full English
         /// names, each unique in the table.
         /// </summary>
         public static class DayName

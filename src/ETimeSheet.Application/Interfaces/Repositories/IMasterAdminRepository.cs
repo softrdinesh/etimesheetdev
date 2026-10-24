@@ -55,7 +55,7 @@ public interface IMasterAdminRepository
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Whether <c>dbo.CountryCurrency</c> has a currency for the country - the
+    /// Whether <c>dbo.CountryCurrency_Lookup</c> has a currency for the country - the
     /// row <c>spc_AddEditClientSetup</c> derives a client's currency from.
     /// </summary>
     Task<bool> HasCurrencyForCountryAsync(

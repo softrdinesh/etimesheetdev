@@ -121,7 +121,7 @@ public class AdminSaveRequestValidator : AbstractValidator<AdminSaveRequest>
         // AdminService reads all four through TimeOfDay, which is also what enforces that the first
         // two are required and what checks their ranges.
 
-        // Day ids. These became dbo.DayMaster.DayID references on 2026-09-17,
+        // Day ids. These became dbo.DayMaster_Lookup.DayID references on 2026-09-17,
         // which is what makes an exact range checkable at all: the lookup holds
         // exactly seven rows, so anything outside 1-7 names no day and the
         // caller can be told so now rather than storing a value nothing can

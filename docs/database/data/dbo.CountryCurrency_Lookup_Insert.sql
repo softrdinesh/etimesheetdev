@@ -1,8 +1,8 @@
 /* =============================================================================
-   dbo.CountryCurrency — populate the currency of every country
+   dbo.CountryCurrency_Lookup — populate the currency of every country
    -----------------------------------------------------------------------------
-   Run by hand, once, AFTER dbo.CountryCurrency has been created
-   (../schema/dbo.CountryCurrency.sql). Never run by the application or the tests.
+   Run by hand, once, AFTER dbo.CountryCurrency_Lookup has been created
+   (../schema/dbo.CountryCurrency_Lookup.sql). Never run by the application or the tests.
 
    Rows       : 248 - one per dbo.Country row except Antarctica (ID 8, AQ),
                 which has no currency.
@@ -29,9 +29,9 @@ SET NOCOUNT ON;
 
 BEGIN TRANSACTION;
 
-SET IDENTITY_INSERT dbo.CountryCurrency ON;
+SET IDENTITY_INSERT dbo.CountryCurrency_Lookup ON;
 
-INSERT INTO dbo.CountryCurrency
+INSERT INTO dbo.CountryCurrency_Lookup
     (CurrencyID, CurrencyName, CurrencySymbol, CountryID)
 SELECT
     v.CurrencyID, v.CurrencyName, v.CurrencySymbol, v.CountryID
@@ -297,14 +297,14 @@ WHERE EXISTS
   AND NOT EXISTS
       (
           SELECT 1
-          FROM dbo.CountryCurrency cc
+          FROM dbo.CountryCurrency_Lookup cc
           WHERE cc.CurrencyID = v.CurrencyID
              OR cc.CountryID = v.CountryID
       );
 
 PRINT CONCAT(@@ROWCOUNT, ' currency row(s) inserted.');
 
-SET IDENTITY_INSERT dbo.CountryCurrency OFF;
+SET IDENTITY_INSERT dbo.CountryCurrency_Lookup OFF;
 
 COMMIT TRANSACTION;
 GO

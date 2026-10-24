@@ -39,7 +39,7 @@ public class TimesheetMasterSetupConfiguration : IEntityTypeConfiguration<Timesh
         builder.Property(setup => setup.ContractType).HasColumnName("ContractType");
         builder.Property(setup => setup.CountryId).HasColumnName("CountryID");
 
-        // Day columns: plain int since 2026-09-17, holding dbo.DayMaster.DayID.
+        // Day columns: plain int since 2026-09-17, holding dbo.DayMaster_Lookup.DayID.
         // No HasOne/WithMany to DayMaster and no foreign key is declared,
         // because the database declares none - modelling a relationship the
         // database does not enforce would have EF Core generate joins and
