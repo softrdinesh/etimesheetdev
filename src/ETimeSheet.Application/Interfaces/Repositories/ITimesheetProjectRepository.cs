@@ -616,6 +616,18 @@ public interface ITimesheetProjectRepository
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// One user's details via <c>spc_GetTimesheetUserDetailsByUserID</c>: one
+    /// row per live project assignment, the user's columns repeated, and the
+    /// current timesheet period worked out for <paramref name="today"/>. A
+    /// user with no assignment is one row with no project; a missing or
+    /// deleted user is no rows.
+    /// </summary>
+    Task<IReadOnlyList<TimesheetUserDetailsDetail>> GetTimesheetUserDetailsAsync(
+        int userId,
+        DateTime today,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// The IANA time zone of the user's live timesheet setup in
     /// <c>dbo.TimesheetMasterSetup</c>; <see langword="null"/> when they have
     /// no setup or it names no zone.

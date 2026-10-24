@@ -3,7 +3,8 @@
 Every endpoint the API exposes today, with its purpose, input payload, success
 response and failure responses — each with a worked example.
 
-Generated from the code on branch `develop` (2026-10-21). If you change a
+Generated from the code on branch `develop` (last brought up to date
+2026-10-24). If you change a
 controller, DTO or validator, change this file with it.
 
 ---
@@ -81,6 +82,7 @@ controller, DTO or validator, change this file with it.
   - [Approver Setup List](#55-approver-setup-list)
   - [Add / Edit Approver Setup](#56-add--edit-approver-setup)
   - [Remove Approver Setup](#57-remove-approver-setup)
+  - [Timesheet User Details](#58-timesheet-user-details)
 - [Health endpoints](#health-endpoints)
 - [Enumerations](#enumerations)
 - [Endpoint summary table](#endpoint-summary-table)
@@ -4276,13 +4278,13 @@ and the reason is logged.
 | `organizationId` | int | yes | `> 0`; an existing organisation | |
 | `projectId` | int | yes | `> 0`; a project of `organizationId` | |
 | `projectRoleId` | int \| null | no | `> 0`; a live role of `organizationId` | A `roleId` from `get-user-role-list-by-orgid` |
-| `jobType` | int \| null | no | `> 0` | Not checked against a list |
+| `jobType` | int \| null | no | `> 0` | `1` work from office, `2` work from home — see [`JobType`](#jobtype--the-jobtype-column-of-dbotimesheet_users_project_setup). Not checked against the list |
 | `costRate` | decimal | yes | `>= 0` | Cost per hour |
 | `billRate` | decimal | yes | `>= 0` | Billable rate per hour |
 | `workLocationRange` | int \| null | no | `>= 0` | |
 | `projectLocationLatitude` | string \| null | no | a number from -90 to 90, `<= 25` characters | Saved for a **new** user only |
 | `projectLocationLongitude` | string \| null | no | a number from -180 to 180, `<= 25` characters | Saved for a **new** user only, and only once the procedure revision below is applied |
-| `maxLogHoursPerDay` | int \| null | no | `0`–`24` | The most hours a day this assignment may log. **Stored only — nothing enforces it**; see [Known gaps](#known-gaps) 57. Unlike the latitude and longitude, it is saved for an existing user too |
+| `maxLogHoursPerDay` | int \| null | no | `0`–`24` | The most hours a day this assignment may log. [Add / Edit Project Time Log](#50-add--edit-project-time-log) enforces it; `null` caps the day at 24. Unlike the latitude and longitude, it is saved for an existing user too |
 | `createdBy` | int | yes | `> 0` | Temporary — from the token once authentication is on |
 
 The procedure's `@Range` parameter is **not** exposed: the procedure never
@@ -4406,13 +4408,13 @@ assignment.
 | `email` | string | yes | a valid address, `<= 50` characters; not another user's | Stored upper case. Compared ignoring case, so a case-only change is not a change |
 | `projectId` | int | yes | `> 0`; a project of `organizationId`; not one the user is on through another live assignment | May move the assignment to another project |
 | `projectRoleId` | int \| null | no | `> 0`; a live role of `organizationId` | |
-| `jobType` | int \| null | no | `> 0` | |
+| `jobType` | int \| null | no | `> 0` | `1` work from office, `2` work from home. Not checked against the list |
 | `costRate` | decimal | yes | `>= 0` | |
 | `billRate` | decimal | yes | `>= 0` | |
 | `workLocationRange` | int \| null | no | `>= 0` | |
 | `projectLocationLatitude` | string \| null | no | a number from -90 to 90, `<= 25` characters | |
 | `projectLocationLongitude` | string \| null | no | a number from -180 to 180, `<= 25` characters | |
-| `maxLogHoursPerDay` | int \| null | no | `0`–`24` | **Stored only — nothing enforces it**; see [Known gaps](#known-gaps) 57 |
+| `maxLogHoursPerDay` | int \| null | no | `0`–`24` | The day's cap on [Add / Edit Project Time Log](#50-add--edit-project-time-log); `null` caps the day at 24 |
 | `updatedBy` | int | yes | `> 0` | Temporary — from the token once authentication is on |
 
 #### Example request
@@ -4569,7 +4571,7 @@ GET /api/v1/TimesheetProject/get-timesheet-user-by-orgID/12
 | `projectName` | string \| null | The `Projectname` column; `null` when the project is unknown |
 | `projectRoleId` | int \| null | |
 | `projectRoleName` | string \| null | From `dbo.TimesheetUserRole`; `null` when the role is null, unknown or deleted |
-| `jobType` | int \| null | |
+| `jobType` | int \| null | `1` work from office, `2` work from home |
 | `costRate` | decimal \| null | The `Cost_rate_per_hour` column |
 | `billRate` | decimal \| null | The `Billable_rate_per_hour` column |
 | `workLocationRange` | int \| null | |
@@ -6009,6 +6011,190 @@ success: `Approver setup '1' was not found.`
 
 ---
 
+### 58. Timesheet User Details
+
+`GET /api/v1/TimesheetProject/get-timesheet-user-details-by-userID/{userID}`
+
+**Purpose** — One timesheet user: their details, and the list of every live
+project they are assigned to — a user can be on several — each with the
+project's client and the hours on it. Read through
+`dbo.spc_GetTimesheetUserDetailsByUserID`.
+
+**The assignment is the subject.** The procedure reads from
+`dbo.Timesheet_Users_Project_setup` — the table that makes somebody a
+timesheet user — and joins `dbo.Signup` only for the name, email and other
+basic details. So a user with **no live assignment is a 404**, not a 200 with
+an empty `projects`: a `dbo.Signup` row that has never been put on a project,
+one whose every assignment has been removed, and a user id that does not
+exist are all the same answer here.
+
+**The organisation and the client are the project's.** Both are reached
+through the assignment's `projectId` — `dbo.TimesheetProject.OrganizationID`
+and its `ClientID` — never through `dbo.Signup.OrganizationID`.
+
+**Two countries and currencies.** The user's own — `countryId`,
+`countryName`, `currency…` — come from `dbo.Signup.CountryID`, `dbo.Country`
+and that country's `dbo.CountryCurrency`. Each project carries its own, once —
+`projectCountry…`, `projectCurrency…` — from the project's `CurrencyCode`. The
+client's currency is not returned.
+
+The **current timesheet period** of each project is the submission period
+(see [periods and sheet codes](#project-timesheets-periods-and-sheet-codes))
+containing the user's **own** today, in the time zone of their
+`dbo.TimesheetMasterSetup` (UTC when they have none).
+
+> **The procedure is a DRAFT.** `docs/database/procedures/dbo.spc_GetTimesheetUserDetailsByUserID.sql`
+> must be created in the database first; until then this endpoint answers 500.
+
+#### Route parameters
+
+| Name | Type | Rules |
+|---|---|---|
+| `userID` | int | `> 0` — checked by the service |
+
+#### Example request
+
+```
+GET /api/v1/TimesheetProject/get-timesheet-user-details-by-userID/149
+```
+
+#### Success response — `200 OK`
+
+`data` is a `TimesheetUserDetailsResponse`:
+
+| Field | Type | Notes |
+|---|---|---|
+| `userId` | int | |
+| `name` | string \| null | |
+| `email` | string \| null | As stored: upper case |
+| `address` | string \| null | `dbo.Signup.Address` |
+| `profilePicture` | string \| null | |
+| `organizationId` | int \| null | **The project's** `dbo.TimesheetProject.OrganizationID`, not `dbo.Signup`'s. A user belongs to one organisation, so it is the same on every assignment; `null` when the assignment names no project, or its project no organisation |
+| `organizationName` | string \| null | `dbo.Organization`, reached from that id |
+| `countryId` | int \| null | **The user's** country — `dbo.Signup.CountryID` |
+| `countryName` | string \| null | `dbo.Country`, from that id |
+| `currencyId` | int \| null | The currency of the user's country (`dbo.CountryCurrency`, lowest id for it); `null` when the user has no country or it has no currency |
+| `currencyName` | string \| null | |
+| `currencySymbol` | string \| null | Not unique — show it beside `currencyName` |
+| `timeZone` | string \| null | The IANA zone of the user's timesheet setup |
+| `projects` | array | Every live assignment, by project name. **Never empty** — a user with no live assignment is a 404 |
+
+Each item of `projects`:
+
+| Field | Type | Notes |
+|---|---|---|
+| `timesheetUserProjectSetupId` | int | The assignment — the id `edit-timesheet-user` takes |
+| `projectId` | int \| null | |
+| `projectCode` | string \| null | |
+| `projectName` | string \| null | |
+| `projectStatus` | int \| null | `dbo.TimesheetProject.Status` |
+| `projectStartDate` | datetime \| null | |
+| `projectEndDate` | datetime \| null | |
+| `submissionFrequency` | int \| null | 1 weekly, 2 every 15 days, 3 monthly |
+| `projectCurrencyId` | int \| null | **The project's** currency — `dbo.TimesheetProject.CurrencyCode`, a `dbo.CountryCurrency.CurrencyID`; `null` when the project has none |
+| `projectCurrencyName` | string \| null | |
+| `projectCurrencySymbol` | string \| null | Not unique — show it beside `projectCurrencyName` |
+| `projectCountryId` | int \| null | **The project's** country: its currency's `CountryID` |
+| `projectCountryName` | string \| null | `dbo.Country`, from that id |
+| `projectRoleId` | int \| null | |
+| `projectRoleName` | string \| null | |
+| `jobType` | int \| null | 1 work from office, 2 work from home |
+| `costRate` | decimal \| null | |
+| `billRate` | decimal \| null | |
+| `maxLogHoursPerDay` | int \| null | The day's cap; `null` = 24 |
+| `totalExpectedHours` | decimal \| null | The project's budgeted `Totalhours` — the same for every user on it |
+| `totalLoggedHours` | int | The user's live hours on the project, all time |
+| `currentPeriodStartDate` | datetime \| null | First day of the current period. `null` when the project has no start date or frequency, has not started, or has ended |
+| `currentPeriodEndDate` | datetime \| null | Last day of it, inclusive |
+| `currentPeriodLoggedHours` | int \| null | The user's live hours on the project in the current period; `null` with no period |
+| `currentSheetSubmissionCode` | string \| null | The current period's code — its sheet's, else its time log's; `null` when neither exists yet |
+| `currentSheetStatusId` | int \| null | 1 Submitted, 2 Approved, 3 Rejected; `null` when not submitted |
+| `currentSheetStatusName` | string \| null | |
+| `clientId` | int \| null | The project's client, from `dbo.TimesheetClientSetup`. The client fields are all `null` when the client is unknown or deleted |
+| `clientCode` | string \| null | |
+| `clientName` | string \| null | |
+| `clientBillingEmail` | string \| null | |
+| `clientPhoneNumber` | string \| null | |
+| `clientBillingAddress` | string \| null | |
+
+Each project shows **one** country and currency — its own (`projectCurrency…`,
+`projectCountry…`). The client's currency is not returned.
+
+#### Example response
+
+```json
+{
+  "success": true,
+  "message": "",
+  "data": {
+    "userId": 149,
+    "name": "LatAndLongTest2",
+    "email": "LATANDLONGTEST2@YOPMAIL.COM",
+    "address": "12 MG Road, Ahmedabad",
+    "profilePicture": null,
+    "organizationId": 1,
+    "organizationName": "A to Z",
+    "countryId": 103,
+    "countryName": "India",
+    "currencyId": 103,
+    "currencyName": "Indian rupee",
+    "currencySymbol": "₹",
+    "timeZone": null,
+    "projects": [
+      {
+        "timesheetUserProjectSetupId": 21,
+        "projectId": 12,
+        "projectCode": "PR0003",
+        "projectName": "string",
+        "projectStatus": 1,
+        "projectStartDate": "2026-10-19T00:00:00",
+        "projectEndDate": "2026-10-25T00:00:00",
+        "submissionFrequency": 1,
+        "projectCurrencyId": 1,
+        "projectCurrencyName": "Afghan afghani",
+        "projectCurrencySymbol": "؋",
+        "projectCountryId": 1,
+        "projectCountryName": "Afghanistan",
+        "projectRoleId": 2,
+        "projectRoleName": "Developer",
+        "jobType": 1,
+        "costRate": 20.00,
+        "billRate": 30.00,
+        "maxLogHoursPerDay": 8,
+        "totalExpectedHours": 12.00,
+        "totalLoggedHours": 26,
+        "currentPeriodStartDate": "2026-10-19T00:00:00",
+        "currentPeriodEndDate": "2026-10-25T00:00:00",
+        "currentPeriodLoggedHours": 12,
+        "currentSheetSubmissionCode": "PSHT0002",
+        "currentSheetStatusId": null,
+        "currentSheetStatusName": null,
+        "clientId": 1,
+        "clientCode": "CL0001",
+        "clientName": "Vrushang Solanki",
+        "clientBillingEmail": "BILLING@EXAMPLE.COM",
+        "clientPhoneNumber": "9999999999",
+        "clientBillingAddress": null
+      }
+    ]
+  },
+  "errors": []
+}
+```
+
+#### Error responses
+
+**400** — `userID <= 0`: `userID: userID is required and must be greater than 0.`
+
+**404** — the user has no live project assignment, which includes a user id
+that does not exist, a deleted user, and a live user who is on no project:
+`Timesheet user '149' was not found.`
+
+**500** — unhandled defect, or the procedure has not been created in the
+database yet.
+
+---
+
 ## Health endpoints
 
 Anonymous, outside the `ApiResponse` envelope, and outside `/api/v1`.
@@ -6073,10 +6259,10 @@ must stay stable. [Review Timesheet](#13-review-timesheet) accepts only `2` and
 
 | Name | Value | Meaning |
 |---|---|---|
-| `Pending` | `0` | Open for time — every new sheet, logged or not |
-| `Submitted` | `1` | Handed in; its time is locked |
-| `Approved` | `2` | Approved — final |
-| `Rejected` | `3` | Sent back; open for time again and can be resubmitted |
+| `Pending` | `0` | Only on rows written before 2026-10-23. The API no longer writes it: a sheet's row is created by its first submit, already Submitted. A Pending row can still be submitted |
+| `Submitted` | `1` | Handed in; the period's time is locked |
+| `Approved` | `2` | Approved — final; the period's time stays locked |
+| `Rejected` | `3` | Sent back; the period's time is open again and the sheet can be resubmitted |
 
 Sent and received as the **number**, with the name alongside as `statusName` on
 the sheet list. The same values are written to
@@ -6084,7 +6270,24 @@ the sheet list. The same values are written to
 and reject. Declared in code as `Constants.TimesheetProjectSubmission.Status`;
 the values are persisted, so they must stay stable.
 [Approve / Reject Project Timesheet](#54-approve--reject-project-timesheet)
-accepts only `2` and `3`.
+accepts only `2` and `3`. The same values are in the lookup table
+`dbo.TimesheetProjectSubmissionStatus` (`docs/database/schema/`), once the
+owner has created it; the API does not read it.
+
+### `JobType` — the `Jobtype` column of `dbo.Timesheet_Users_Project_setup`
+
+| Value | Meaning |
+|---|---|
+| `1` | Work from office |
+| `2` | Work from home |
+
+Sent and received as the **number** — `jobType` on
+[Create](#36-create-timesheet-user) / [Edit Timesheet User](#37-edit-timesheet-user),
+[Organisation Timesheet User List](#39-organisation-timesheet-user-list) and
+[Timesheet User Details](#58-timesheet-user-details). The values are in the
+lookup table `dbo.TimesheetUsersProjectSetupJobType` (`docs/database/schema/`),
+once the owner has created it. The API does **not** check a value against it:
+any positive number is stored.
 
 ### `RoleType`
 
@@ -6160,6 +6363,7 @@ authentication is off.
 | 55 | Approver Setup List | GET | `/api/v1/TimesheetProject/get-timesheet-approver-setup?orgID=&projectID=` | Live approver setups of an organisation, a project or both | query params (at least one) | `TimesheetApproverSetupResponse[]` | 400, 500 |
 | 56 | Add / Edit Approver Setup | POST | `/api/v1/TimesheetProject/add-edit-timesheet-approver-setup` | Add a project's approver (`timesheetApproverSetupId` 0 / absent) or edit one; one approver per project | `TimesheetApproverSetupSaveRequest` | `TimesheetApproverSetupResponse` | 400, 404, 409, 500 |
 | 57 | Remove Approver Setup | POST | `/api/v1/TimesheetProject/remove-timesheet-approver-setup` | Soft-delete an approver setup by its id | `TimesheetApproverSetupDeleteRequest` | `null` | 400, 404, 500 |
+| 58 | Timesheet User Details | GET | `/api/v1/TimesheetProject/get-timesheet-user-details-by-userID/{userID}` | One user's details and their projects, each with its own currency and country, its client, expected hours, total and current-period logged hours | route param | `TimesheetUserDetailsResponse` | 400, 404, 500 |
 | — | Health | GET | `/health`, `/health/live`, `/health/ready` | Liveness / readiness | — | *(unenveloped)* | 503 |
 
 ---
@@ -6410,7 +6614,7 @@ Documented so nobody has to rediscover them:
 61. **A future `logDate` is accepted.** The time log checks the project's
     dates and the day's cap (see 57), not today's date.
 62. **Project timesheet writes trust `userId` and `addedBy`.** With
-    authentication off, any caller can log, edit, remove or submit time as any
+    authentication off, any caller can log, remove or submit time as any
     user. The status update does check that `addedBy` is the project's
     timesheet approver, but `addedBy` is whatever the caller sends, so anyone
     who knows the approver's id can approve or reject as them (see 1).
@@ -6420,16 +6624,14 @@ Documented so nobody has to rediscover them:
 64. **The timesheet list has no user name.** It returns `userId` only, so a
     list across users (by `projectID` or `orgID`) needs a second lookup to show
     who each sheet belongs to.
-65. **The three project timesheet tables must exist in the database.**
-    `dbo.TimesheetProjectSubmission`, `dbo.TimesheetProjectTimeLog` and
-    `dbo.TimesheetProjectSubmissionAuditLog` were recorded on 2026-10-20 from
-    the owner's scripts. Until they are created, endpoints 49–54 answer 500
-    (`Invalid object name`).
-66. **`dbo.Timesheet_Approver_setup` must be changed and its procedures
-    created.** The table's `TimesheetApproverSetupID` key (recorded
-    2026-10-20) and `Mod_IsViewTimesheet` on `dbo.Timesheet_role_assignment`
-    must be applied by the owner. Until then endpoints 46–47 and 55–57 answer
-    500 — and so does Approve / Reject (54), which reads the approver table.
+65. *(Resolved 2026-10-23.)* `dbo.TimesheetProjectSubmission`,
+    `dbo.TimesheetProjectTimeLog` (with `IsRemoteLog`) and
+    `dbo.TimesheetProjectSubmissionAuditLog` exist in PPMUAT: endpoints 49–54
+    were run against it end to end.
+66. **`Mod_IsViewTimesheet` on `dbo.Timesheet_role_assignment` must be
+    applied** for endpoints 46–47; until then they answer 500. The approver
+    setup itself is in place: Approver Setup List (55) and Approve / Reject
+    (54) were run against PPMUAT on 2026-10-23.
 67. **One approver per project is kept by the API and the procedure, not the
     table.** No unique constraint on `dbo.Timesheet_Approver_setup.ProjectID`
     was reported. Racing saves behave as in 51 (the loser answers 500), and a
@@ -6463,3 +6665,15 @@ Documented so nobody has to rediscover them:
     not.** "The period's last day has come" is judged on the user's date in
     their `dbo.TimesheetMasterSetup` zone; `submittedDate`, `approvedDate` and
     `rejectedDate` are stored in UTC.
+76. **Timesheet User Details cannot say *why* it found nothing.** Since
+    2026-10-24 it reads from `dbo.Timesheet_Users_Project_setup`, so a user
+    who does not exist, a deleted user, and a live user on no project are one
+    404. A client that needs to tell them apart has to ask
+    [Organisation Timesheet User List](#39-organisation-timesheet-user-list)
+    or the employee list as well.
+77. **Two procedures are drafts the database does not have yet.** The
+    2026-10-23 revision of `dbo.spc_GetTimesheetUserListByOrgID` (country,
+    address, currency) and the new `dbo.spc_GetTimesheetUserDetailsByUserID`
+    must be created by the owner from `docs/database/procedures/`. Until then
+    [Organisation Timesheet User List](#39-organisation-timesheet-user-list)
+    and [Timesheet User Details](#58-timesheet-user-details) answer 500.

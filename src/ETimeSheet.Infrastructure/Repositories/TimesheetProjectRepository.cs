@@ -798,6 +798,17 @@ public class TimesheetProjectRepository : ITimesheetProjectRepository
             .Select(timeLog => (DateTime?)timeLog.LogDate)
             .FirstOrDefaultAsync(cancellationToken);
 
+    public async Task<IReadOnlyList<TimesheetUserDetailsDetail>> GetTimesheetUserDetailsAsync(
+        int userId,
+        DateTime today,
+        CancellationToken cancellationToken = default) =>
+        // The procedure does the joins, the totals, the current period and the
+        // ordering; no LINQ is composed on top, because SQL Server cannot wrap
+        // an EXEC. Only the date of today is passed - the procedure takes a DATE.
+        await _db.spc_GetTimesheetUserDetailsByUserID
+            .FromSqlInterpolated($"EXEC dbo.spc_GetTimesheetUserDetailsByUserID @PUserID = {userId}, @PToday = {today.Date}")
+            .ToListAsync(cancellationToken);
+
     public async Task<string?> GetUserTimeZoneAsync(
         int userId,
         CancellationToken cancellationToken = default) =>

@@ -89,6 +89,7 @@ docs/database/
 │   ├── dbo.spc_GetTimesheetProjectBudgetByOrgID.sql
 │   ├── dbo.spc_GetTimesheetProjectCategory.sql
 │   ├── dbo.spc_GetTimesheetProjectStatus.sql
+│   ├── dbo.spc_GetTimesheetUserDetailsByUserID.sql
 │   ├── dbo.spc_GetTimesheetUserListByOrgID.sql
 │   ├── dbo.spc_GetTimesheetWeekendSetup.sql
 │   ├── dbo.spc_GetUserAccessSetup.sql

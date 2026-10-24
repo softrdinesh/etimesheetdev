@@ -137,6 +137,74 @@ internal static class TimesheetProjectMappings
         CurrencySymbol = user.CurrencySymbol,
     };
 
+    /// <summary>
+    /// Projects the user's columns of a <c>spc_GetTimesheetUserDetailsByUserID</c>
+    /// row to the user details response, with its projects.
+    /// </summary>
+    internal static TimesheetUserDetailsResponse ToUserDetailsResponse(
+        this TimesheetUserDetailsDetail user,
+        List<TimesheetUserProjectResponse> projects) => new()
+    {
+        UserId = user.UserId,
+        Name = user.Name,
+        Email = user.Email,
+        Address = user.Address,
+        ProfilePicture = user.ProfilePicture,
+        OrganizationId = user.OrganizationId,
+        OrganizationName = user.OrganizationName,
+        CountryId = user.CountryId,
+        CountryName = user.CountryName,
+        CurrencyId = user.CurrencyId,
+        CurrencyName = user.CurrencyName,
+        CurrencySymbol = user.CurrencySymbol,
+        TimeZone = user.TimeZone,
+        Projects = projects,
+    };
+
+    /// <summary>
+    /// Projects the assignment columns of a <c>spc_GetTimesheetUserDetailsByUserID</c>
+    /// row - one that has an assignment - to a project of the user details
+    /// response.
+    /// </summary>
+    internal static TimesheetUserProjectResponse ToUserProjectResponse(
+        this TimesheetUserDetailsDetail row,
+        string? currentSheetStatusName) => new()
+    {
+        TimesheetUserProjectSetupId = row.TimesheetUserProjectSetupId!.Value,
+        ProjectId = row.ProjectId,
+        ProjectCode = row.ProjectCode,
+        ProjectName = row.ProjectName,
+        ProjectStatus = row.ProjectStatus,
+        ProjectStartDate = row.ProjectStartDate,
+        ProjectEndDate = row.ProjectEndDate,
+        SubmissionFrequency = row.SubmissionFrequency,
+        ProjectCurrencyId = row.ProjectCurrencyId,
+        ProjectCurrencyName = row.ProjectCurrencyName,
+        ProjectCurrencySymbol = row.ProjectCurrencySymbol,
+        ProjectCountryId = row.ProjectCountryId,
+        ProjectCountryName = row.ProjectCountryName,
+        ProjectRoleId = row.ProjectRoleId,
+        ProjectRoleName = row.ProjectRoleName,
+        JobType = row.JobType,
+        CostRate = row.CostRate,
+        BillRate = row.BillRate,
+        MaxLogHoursPerDay = row.MaxLogHoursPerDay,
+        TotalExpectedHours = row.TotalExpectedHours,
+        TotalLoggedHours = row.TotalLoggedHours ?? 0,
+        CurrentPeriodStartDate = row.CurrentPeriodStartDate,
+        CurrentPeriodEndDate = row.CurrentPeriodEndDate,
+        CurrentPeriodLoggedHours = row.CurrentPeriodLoggedHours,
+        CurrentSheetSubmissionCode = row.CurrentSheetSubmissionCode,
+        CurrentSheetStatusId = row.CurrentSheetStatusId,
+        CurrentSheetStatusName = currentSheetStatusName,
+        ClientId = row.ClientId,
+        ClientCode = row.ClientCode,
+        ClientName = row.ClientName,
+        ClientBillingEmail = row.ClientBillingEmail,
+        ClientPhoneNumber = row.ClientPhoneNumber,
+        ClientBillingAddress = row.ClientBillingAddress,
+    };
+
     /// <summary>Projects a holiday row from <c>spc_GetTimesheetHolidaySetup</c> to the holiday response.</summary>
     internal static TimesheetHolidaySetupResponse ToResponse(this TimesheetHolidaySetupDetail holiday) => new()
     {

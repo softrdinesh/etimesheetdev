@@ -948,4 +948,39 @@ public class TimesheetProjectController : ControllerBase
     }
 
     #endregion
+
+    #region User Details
+
+    /// <summary>
+    /// Returns one timesheet user: their details - name, email, address,
+    /// profile picture, organisation, country, currency and time zone - and a
+    /// list of every live project they are assigned to, through
+    /// <c>dbo.spc_GetTimesheetUserDetailsByUserID</c>.
+    /// <para>
+    /// Each project carries the assignment (role, job type, rates, daily cap),
+    /// the project's <c>client</c>, and its hours: <c>totalExpectedHours</c>
+    /// (the project's budgeted <c>Totalhours</c>), <c>totalLoggedHours</c>
+    /// (the user's, all time) and <c>currentPeriodLoggedHours</c> - the
+    /// user's hours in the project's current timesheet period, worked out on
+    /// the user's own date in the time zone of their timesheet setup, with the
+    /// period's code and submission status.
+    /// </para>
+    /// </summary>
+    /// <param name="userID">The user. Must be greater than 0.</param>
+    /// <response code="200">The user. A user on no project has an empty <c>projects</c> list.</response>
+    /// <response code="400"><c>userID</c> is not greater than 0.</response>
+    /// <response code="404">No live user has that id.</response>
+    [HttpGet("get-timesheet-user-details-by-userID/{userID:int}")]
+    [ProducesResponseType(typeof(ApiResponse<TimesheetUserDetailsResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetTimesheetUserDetailsByUserId(
+        int userID,
+        CancellationToken cancellationToken)
+    {
+        var result = await _timesheetProjectService.GetTimesheetUserDetailsAsync(userID, cancellationToken);
+        return Ok(ApiResponse.Ok(result));
+    }
+
+    #endregion
 }
