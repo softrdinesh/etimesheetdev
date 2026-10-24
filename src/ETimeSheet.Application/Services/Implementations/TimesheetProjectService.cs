@@ -1272,6 +1272,46 @@ public class TimesheetProjectService : ITimesheetProjectService
         return users.Select(user => user.ToResponse()).ToList();
     }
 
+    public async Task<TimesheetUserDetailsResponse> GetTimesheetUserDetailsAsync(
+        int userId,
+        CancellationToken cancellationToken = default)
+    {
+        // Checked here rather than by a route constraint: a 0 is told what is
+        // wrong with it instead of missing the route.
+        if (userId <= 0)
+        {
+            throw new ValidationException(
+                "userID",
+                "userID is required and must be greater than 0.");
+        }
+
+        // The current timesheet period is the one the user is in on their own
+        // date, as the submit judges it.
+        var clock = await ClockForUserAsync(userId, cancellationToken);
+
+        var rows = await _timesheetProjectRepository.GetTimesheetUserDetailsAsync(
+            userId,
+            clock.Today,
+            cancellationToken);
+
+        // The procedure reads from dbo.Timesheet_Users_Project_setup, so a row
+        // IS an assignment: no rows means the user has no live one. That
+        // covers a user who was never put on a project, one whose every
+        // assignment has been removed, and one who does not exist at all -
+        // the result cannot tell them apart, so they share this 404.
+        if (rows.Count == 0)
+        {
+            throw NotFoundException.For("Timesheet user", userId);
+        }
+
+        var projects = rows
+            .Select(row => row.ToUserProjectResponse(
+                row.CurrentSheetStatusId is { } statusId ? ProjectSheetStatusName(statusId) : null))
+            .ToList();
+
+        return rows[0].ToUserDetailsResponse(projects);
+    }
+
     public async Task<IReadOnlyList<TimesheetHolidaySetupResponse>> GetHolidaySetupListAsync(
         int? organizationId,
         int? projectId,

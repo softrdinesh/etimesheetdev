@@ -330,6 +330,13 @@ public class Context : DbContext
     public DbSet<TimesheetUserListDetail> spc_GetTimesheetUserListByOrgID { get; set; } = null!;
 
     /// <summary>
+    /// Result set of <c>dbo.spc_GetTimesheetUserDetailsByUserID</c> - one
+    /// user's details, one row per live project assignment with its project,
+    /// hours and client.
+    /// </summary>
+    public DbSet<TimesheetUserDetailsDetail> spc_GetTimesheetUserDetailsByUserID { get; set; } = null!;
+
+    /// <summary>
     /// Result set of <c>dbo.spc_GetTimesheetHolidaySetup</c> - the live
     /// holidays of an organisation, a project or both, ordered by date.
     /// </summary>
@@ -835,6 +842,60 @@ public class Context : DbContext
             user.Property(row => row.CurrencyId).HasColumnName("CurrencyID");
             user.Property(row => row.CurrencyName).HasColumnName("CurrencyName");
             user.Property(row => row.CurrencySymbol).HasColumnName("CurrencySymbol");
+        });
+
+        modelBuilder.Entity<TimesheetUserDetailsDetail>(details =>
+        {
+            details.HasNoKey();
+            details.ToView(null);
+
+            // One row per assignment, the user's columns repeated; the
+            // procedure aliases every column to the name bound here.
+            details.Property(row => row.UserId).HasColumnName("UserID");
+            details.Property(row => row.Name).HasColumnName("Name");
+            details.Property(row => row.Email).HasColumnName("Email");
+            details.Property(row => row.Address).HasColumnName("Address");
+            details.Property(row => row.ProfilePicture).HasColumnName("ProfilePicture");
+            details.Property(row => row.OrganizationId).HasColumnName("OrganizationID");
+            details.Property(row => row.OrganizationName).HasColumnName("OrganizationName");
+            details.Property(row => row.CountryId).HasColumnName("CountryID");
+            details.Property(row => row.CountryName).HasColumnName("CountryName");
+            details.Property(row => row.CurrencyId).HasColumnName("CurrencyID");
+            details.Property(row => row.CurrencyName).HasColumnName("CurrencyName");
+            details.Property(row => row.CurrencySymbol).HasColumnName("CurrencySymbol");
+            details.Property(row => row.TimeZone).HasColumnName("TimeZone");
+            details.Property(row => row.TimesheetUserProjectSetupId).HasColumnName("TimesheetUserProjectSetupID");
+            details.Property(row => row.ProjectId).HasColumnName("ProjectID");
+            details.Property(row => row.ProjectCode).HasColumnName("ProjectCode");
+            details.Property(row => row.ProjectName).HasColumnName("ProjectName");
+            details.Property(row => row.ProjectStatus).HasColumnName("ProjectStatus");
+            details.Property(row => row.ProjectStartDate).HasColumnName("ProjectStartDate").HasColumnType("datetime");
+            details.Property(row => row.ProjectEndDate).HasColumnName("ProjectEndDate").HasColumnType("datetime");
+            details.Property(row => row.SubmissionFrequency).HasColumnName("SubmissionFrequency");
+            details.Property(row => row.ProjectCurrencyId).HasColumnName("ProjectCurrencyID");
+            details.Property(row => row.ProjectCurrencyName).HasColumnName("ProjectCurrencyName");
+            details.Property(row => row.ProjectCurrencySymbol).HasColumnName("ProjectCurrencySymbol");
+            details.Property(row => row.ProjectCountryId).HasColumnName("ProjectCountryID");
+            details.Property(row => row.ProjectCountryName).HasColumnName("ProjectCountryName");
+            details.Property(row => row.ProjectRoleId).HasColumnName("ProjectRoleID");
+            details.Property(row => row.ProjectRoleName).HasColumnName("ProjectRoleName");
+            details.Property(row => row.JobType).HasColumnName("JobType");
+            details.Property(row => row.CostRate).HasColumnName("CostRate").HasColumnType("decimal(18,2)");
+            details.Property(row => row.BillRate).HasColumnName("BillRate").HasColumnType("decimal(18,2)");
+            details.Property(row => row.MaxLogHoursPerDay).HasColumnName("MaxLogHoursPerDay");
+            details.Property(row => row.TotalExpectedHours).HasColumnName("TotalExpectedHours").HasColumnType("decimal(18,2)");
+            details.Property(row => row.TotalLoggedHours).HasColumnName("TotalLoggedHours");
+            details.Property(row => row.CurrentPeriodStartDate).HasColumnName("CurrentPeriodStartDate").HasColumnType("date");
+            details.Property(row => row.CurrentPeriodEndDate).HasColumnName("CurrentPeriodEndDate").HasColumnType("date");
+            details.Property(row => row.CurrentPeriodLoggedHours).HasColumnName("CurrentPeriodLoggedHours");
+            details.Property(row => row.CurrentSheetSubmissionCode).HasColumnName("CurrentSheetSubmissionCode");
+            details.Property(row => row.CurrentSheetStatusId).HasColumnName("CurrentSheetStatusID");
+            details.Property(row => row.ClientId).HasColumnName("ClientID");
+            details.Property(row => row.ClientCode).HasColumnName("ClientCode");
+            details.Property(row => row.ClientName).HasColumnName("ClientName");
+            details.Property(row => row.ClientBillingEmail).HasColumnName("ClientBillingEmail");
+            details.Property(row => row.ClientPhoneNumber).HasColumnName("ClientPhoneNumber");
+            details.Property(row => row.ClientBillingAddress).HasColumnName("ClientBillingAddress");
         });
 
         modelBuilder.Entity<TimesheetHolidaySetupDetail>(holiday =>

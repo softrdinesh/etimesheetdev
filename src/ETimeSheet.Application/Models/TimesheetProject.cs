@@ -1052,6 +1052,254 @@ public class TimesheetUserListDetail
 }
 
 /// <summary>
+/// One timesheet user, as <c>get-timesheet-user-details-by-userID</c> returns
+/// it: the user's details, and every live project assignment with its
+/// project, client and hours.
+/// </summary>
+public class TimesheetUserDetailsResponse
+{
+    /// <example>149</example>
+    public int UserId { get; set; }
+
+    public string? Name { get; set; }
+
+    /// <summary>As stored: upper case.</summary>
+    public string? Email { get; set; }
+
+    public string? Address { get; set; }
+
+    public string? ProfilePicture { get; set; }
+
+    public int? OrganizationId { get; set; }
+
+    public string? OrganizationName { get; set; }
+
+    /// <summary>The user's country - <c>dbo.Signup.CountryID</c>. Null when they have none.</summary>
+    public int? CountryId { get; set; }
+
+    /// <summary>From <c>dbo.Country</c>.</summary>
+    public string? CountryName { get; set; }
+
+    /// <summary>
+    /// The currency of the user's country, from <c>dbo.CountryCurrency</c>.
+    /// Null when the user has no country, or it has no currency.
+    /// </summary>
+    public int? CurrencyId { get; set; }
+
+    public string? CurrencyName { get; set; }
+
+    /// <summary>Not unique - show it beside <see cref="CurrencyName"/>.</summary>
+    public string? CurrencySymbol { get; set; }
+
+    /// <summary>
+    /// The IANA zone of the user's timesheet setup; null when they have none.
+    /// The current timesheet period of each project is worked out on it (UTC
+    /// when null).
+    /// </summary>
+    /// <example>Asia/Kolkata</example>
+    public string? TimeZone { get; set; }
+
+    /// <summary>Every live assignment, by project name. Empty when the user is on no project.</summary>
+    public List<TimesheetUserProjectResponse> Projects { get; set; } = new();
+}
+
+/// <summary>One project assignment of a user, in <see cref="TimesheetUserDetailsResponse"/>.</summary>
+public class TimesheetUserProjectResponse
+{
+    /// <summary>The assignment - the id <c>edit-timesheet-user</c> takes.</summary>
+    public int TimesheetUserProjectSetupId { get; set; }
+
+    public int? ProjectId { get; set; }
+
+    public string? ProjectCode { get; set; }
+
+    public string? ProjectName { get; set; }
+
+    /// <summary><c>dbo.TimesheetProject.Status</c>.</summary>
+    public int? ProjectStatus { get; set; }
+
+    public DateTime? ProjectStartDate { get; set; }
+
+    public DateTime? ProjectEndDate { get; set; }
+
+    /// <summary>1 weekly, 2 every 15 days, 3 monthly.</summary>
+    public int? SubmissionFrequency { get; set; }
+
+    /// <summary>
+    /// The project's currency - <c>dbo.TimesheetProject.CurrencyCode</c>, a
+    /// <c>dbo.CountryCurrency.CurrencyID</c>. Null when the project has none.
+    /// </summary>
+    public int? ProjectCurrencyId { get; set; }
+
+    public string? ProjectCurrencyName { get; set; }
+
+    /// <summary>Not unique - show it beside <see cref="ProjectCurrencyName"/>.</summary>
+    public string? ProjectCurrencySymbol { get; set; }
+
+    /// <summary>The project's country: its currency's country. Null when the project has no currency.</summary>
+    public int? ProjectCountryId { get; set; }
+
+    public string? ProjectCountryName { get; set; }
+
+    public int? ProjectRoleId { get; set; }
+
+    public string? ProjectRoleName { get; set; }
+
+    /// <summary>1 = work from office, 2 = work from home.</summary>
+    public int? JobType { get; set; }
+
+    public decimal? CostRate { get; set; }
+
+    public decimal? BillRate { get; set; }
+
+    /// <summary>The most hours a day the user may log on the project; null = no cap of its own (24).</summary>
+    public int? MaxLogHoursPerDay { get; set; }
+
+    /// <summary>The project's budgeted hours - <c>dbo.TimesheetProject.Totalhours</c>, the same for every user on it.</summary>
+    /// <example>120</example>
+    public decimal? TotalExpectedHours { get; set; }
+
+    /// <summary>The user's live hours on the project, all time.</summary>
+    /// <example>42</example>
+    public int TotalLoggedHours { get; set; }
+
+    /// <summary>
+    /// First day of the project's submission period containing the user's
+    /// today. Null when the project has no start date or frequency, has not
+    /// started, or has ended.
+    /// </summary>
+    public DateTime? CurrentPeriodStartDate { get; set; }
+
+    /// <summary>Last day of that period, inclusive.</summary>
+    public DateTime? CurrentPeriodEndDate { get; set; }
+
+    /// <summary>The user's live hours on the project in the current period; null when there is no period.</summary>
+    /// <example>15</example>
+    public int? CurrentPeriodLoggedHours { get; set; }
+
+    /// <summary>The current period's code - its sheet's, else its time log's; null when neither exists yet.</summary>
+    /// <example>PSHT0002</example>
+    public string? CurrentSheetSubmissionCode { get; set; }
+
+    /// <summary>1 Submitted, 2 Approved, 3 Rejected; null when the current period is not submitted.</summary>
+    public int? CurrentSheetStatusId { get; set; }
+
+    /// <summary>The name of <see cref="CurrentSheetStatusId"/>; null with it.</summary>
+    public string? CurrentSheetStatusName { get; set; }
+
+    /// <summary>The project's client, from <c>dbo.TimesheetClientSetup</c>. Null - with the other client fields - when it is unknown or deleted.</summary>
+    public int? ClientId { get; set; }
+
+    public string? ClientCode { get; set; }
+
+    public string? ClientName { get; set; }
+
+    public string? ClientBillingEmail { get; set; }
+
+    public string? ClientPhoneNumber { get; set; }
+
+    public string? ClientBillingAddress { get; set; }
+}
+
+/// <summary>
+/// One row of <c>dbo.spc_GetTimesheetUserDetailsByUserID</c>: the user's
+/// columns, repeated, and one assignment with its project, hours and client -
+/// all NULL on the single row of a user with no assignment.
+/// </summary>
+public class TimesheetUserDetailsDetail
+{
+    public int UserId { get; set; }
+
+    public string? Name { get; set; }
+
+    public string? Email { get; set; }
+
+    public string? Address { get; set; }
+
+    public string? ProfilePicture { get; set; }
+
+    public int? OrganizationId { get; set; }
+
+    public string? OrganizationName { get; set; }
+
+    public int? CountryId { get; set; }
+
+    public string? CountryName { get; set; }
+
+    public int? CurrencyId { get; set; }
+
+    public string? CurrencyName { get; set; }
+
+    public string? CurrencySymbol { get; set; }
+
+    public string? TimeZone { get; set; }
+
+    public int? TimesheetUserProjectSetupId { get; set; }
+
+    public int? ProjectId { get; set; }
+
+    public string? ProjectCode { get; set; }
+
+    public string? ProjectName { get; set; }
+
+    public int? ProjectStatus { get; set; }
+
+    public DateTime? ProjectStartDate { get; set; }
+
+    public DateTime? ProjectEndDate { get; set; }
+
+    public int? SubmissionFrequency { get; set; }
+
+    public int? ProjectCurrencyId { get; set; }
+
+    public string? ProjectCurrencyName { get; set; }
+
+    public string? ProjectCurrencySymbol { get; set; }
+
+    public int? ProjectCountryId { get; set; }
+
+    public string? ProjectCountryName { get; set; }
+
+    public int? ProjectRoleId { get; set; }
+
+    public string? ProjectRoleName { get; set; }
+
+    public int? JobType { get; set; }
+
+    public decimal? CostRate { get; set; }
+
+    public decimal? BillRate { get; set; }
+
+    public int? MaxLogHoursPerDay { get; set; }
+
+    public decimal? TotalExpectedHours { get; set; }
+
+    public int? TotalLoggedHours { get; set; }
+
+    public DateTime? CurrentPeriodStartDate { get; set; }
+
+    public DateTime? CurrentPeriodEndDate { get; set; }
+
+    public int? CurrentPeriodLoggedHours { get; set; }
+
+    public string? CurrentSheetSubmissionCode { get; set; }
+
+    public int? CurrentSheetStatusId { get; set; }
+
+    public int? ClientId { get; set; }
+
+    public string? ClientCode { get; set; }
+
+    public string? ClientName { get; set; }
+
+    public string? ClientBillingEmail { get; set; }
+
+    public string? ClientPhoneNumber { get; set; }
+
+    public string? ClientBillingAddress { get; set; }
+}
+
+/// <summary>
 /// One holiday from <c>dbo.TimesheetHolidaysetup</c>, as
 /// <c>get-timesheet-holiday-setup</c> and
 /// <c>add-edit-timesheet-holiday-setup</c> return it - with the names of its

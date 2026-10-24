@@ -226,6 +226,23 @@ public interface ITimesheetProjectService
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Returns one timesheet user via <c>spc_GetTimesheetUserDetailsByUserID</c>:
+    /// their details, and every live project assignment with its project,
+    /// client, expected and logged hours, and the hours logged in the
+    /// project's current timesheet period - worked out on the user's own date,
+    /// in the time zone of their timesheet setup.
+    /// </summary>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.ValidationException">
+    /// <paramref name="userId"/> is not a positive id.
+    /// </exception>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.NotFoundException">
+    /// No live user has that id.
+    /// </exception>
+    Task<TimesheetUserDetailsResponse> GetTimesheetUserDetailsAsync(
+        int userId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Returns the live holidays of an organisation, a project or both,
     /// ordered by date, via <c>spc_GetTimesheetHolidaySetup</c>. A filter that
     /// is null or <c>0</c> is not applied; at least one must be given. No
