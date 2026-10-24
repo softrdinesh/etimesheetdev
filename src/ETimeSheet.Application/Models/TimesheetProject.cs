@@ -1052,7 +1052,7 @@ public class TimesheetUserListDetail
 }
 
 /// <summary>
-/// One timesheet user, as <c>get-timesheet-user-details-by-userID</c> returns
+/// One timesheet user, as <c>get-project-timesheet-user-details-by-userID</c> returns
 /// it: the user's details, and every live project assignment with its
 /// project, client and hours.
 /// </summary>

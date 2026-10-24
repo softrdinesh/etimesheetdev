@@ -6013,7 +6013,7 @@ success: `Approver setup '1' was not found.`
 
 ### 58. Timesheet User Details
 
-`GET /api/v1/TimesheetProject/get-timesheet-user-details-by-userID/{userID}`
+`GET /api/v1/TimesheetProject/get-project-timesheet-user-details-by-userID/{userID}`
 
 **Purpose** — One timesheet user: their details, and the list of every live
 project they are assigned to — a user can be on several — each with the
@@ -6055,7 +6055,7 @@ containing the user's **own** today, in the time zone of their
 #### Example request
 
 ```
-GET /api/v1/TimesheetProject/get-timesheet-user-details-by-userID/149
+GET /api/v1/TimesheetProject/get-project-timesheet-user-details-by-userID/149
 ```
 
 #### Success response — `200 OK`
@@ -6363,7 +6363,7 @@ authentication is off.
 | 55 | Approver Setup List | GET | `/api/v1/TimesheetProject/get-timesheet-approver-setup?orgID=&projectID=` | Live approver setups of an organisation, a project or both | query params (at least one) | `TimesheetApproverSetupResponse[]` | 400, 500 |
 | 56 | Add / Edit Approver Setup | POST | `/api/v1/TimesheetProject/add-edit-timesheet-approver-setup` | Add a project's approver (`timesheetApproverSetupId` 0 / absent) or edit one; one approver per project | `TimesheetApproverSetupSaveRequest` | `TimesheetApproverSetupResponse` | 400, 404, 409, 500 |
 | 57 | Remove Approver Setup | POST | `/api/v1/TimesheetProject/remove-timesheet-approver-setup` | Soft-delete an approver setup by its id | `TimesheetApproverSetupDeleteRequest` | `null` | 400, 404, 500 |
-| 58 | Timesheet User Details | GET | `/api/v1/TimesheetProject/get-timesheet-user-details-by-userID/{userID}` | One user's details and their projects, each with its own currency and country, its client, expected hours, total and current-period logged hours | route param | `TimesheetUserDetailsResponse` | 400, 404, 500 |
+| 58 | Timesheet User Details | GET | `/api/v1/TimesheetProject/get-project-timesheet-user-details-by-userID/{userID}` | One user's details and their projects, each with its own currency and country, its client, expected hours, total and current-period logged hours | route param | `TimesheetUserDetailsResponse` | 400, 404, 500 |
 | — | Health | GET | `/health`, `/health/live`, `/health/ready` | Liveness / readiness | — | *(unenveloped)* | 503 |
 
 ---
