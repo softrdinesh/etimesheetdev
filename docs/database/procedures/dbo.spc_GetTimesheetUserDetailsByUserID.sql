@@ -25,7 +25,7 @@
 
     Returns one timesheet user - their basic details, and every live project
     assignment with the project, its client and the hours logged on it - for
-    GET api/v1/TimesheetProject/get-timesheet-user-details-by-userID/{userID}.
+    GET api/v1/TimesheetProject/get-project-timesheet-user-details-by-userID/{userID}.
 
     The ASSIGNMENT is the subject: the procedure reads from
     dbo.Timesheet_Users_Project_setup, which is what makes somebody a

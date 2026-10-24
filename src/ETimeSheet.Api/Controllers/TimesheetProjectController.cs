@@ -970,7 +970,7 @@ public class TimesheetProjectController : ControllerBase
     /// <response code="200">The user. A user on no project has an empty <c>projects</c> list.</response>
     /// <response code="400"><c>userID</c> is not greater than 0.</response>
     /// <response code="404">No live user has that id.</response>
-    [HttpGet("get-timesheet-user-details-by-userID/{userID:int}")]
+    [HttpGet("get-project-timesheet-user-details-by-userID/{userID:int}")]
     [ProducesResponseType(typeof(ApiResponse<TimesheetUserDetailsResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
