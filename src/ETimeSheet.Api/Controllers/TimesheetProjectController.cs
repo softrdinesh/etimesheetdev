@@ -864,18 +864,19 @@ public class TimesheetProjectController : ControllerBase
 
     /// <summary>
     /// Returns the live approver setups in <c>dbo.Timesheet_Approver_setup</c> -
-    /// who reviews each project's timesheets - with the project's code and name
+    /// who approves each project's timesheets and leave - with the project's code and name
     /// and the approver's name and email.
     /// <para>
     /// Filter by organisation, project or both. A filter left out or sent as
     /// <c>0</c> is not applied: <c>orgID</c> alone returns every setup of the
-    /// organisation, <c>projectID</c> alone the project's approver (a project
-    /// has at most one). At least one is required. Deleted setups are not
+    /// organisation, <c>projectID</c> alone the project's approvers (at most
+    /// one timesheet approver and one leave approver). At least one is
+    /// required. Deleted setups are not
     /// included.
     /// </para>
     /// </summary>
     /// <param name="orgID">The organisation whose setups to list. Optional when <c>projectID</c> is sent.</param>
-    /// <param name="projectID">The project whose approver to return. Optional when <c>orgID</c> is sent.</param>
+    /// <param name="projectID">The project whose approvers to return. Optional when <c>orgID</c> is sent.</param>
     /// <response code="200">The setups. None matching is an empty list, not a 404.</response>
     /// <response code="400">Neither <c>orgID</c> nor <c>projectID</c> was sent, or one is negative.</response>
     [HttpGet("get-timesheet-approver-setup")]
@@ -897,18 +898,22 @@ public class TimesheetProjectController : ControllerBase
     /// <para>
     /// Send <c>timesheetApproverSetupId</c> as <c>0</c> (or leave it out) to
     /// add a setup. Send an existing setup's id to edit it; it must belong to
-    /// <c>organizationId</c>. An edit overwrites the project, the approver and
-    /// <c>isTimesheetApprover</c>, so send them all.
+    /// <c>organizationId</c>. An edit overwrites the project, the approver,
+    /// <c>isTimesheetApprover</c> and <c>isLeaveApprover</c>, so send them all.
+    /// At least one of the two flags must be true.
     /// </para>
     /// <para>
-    /// A project has only one approver: adding a second one for the same
-    /// project, or moving a setup onto a project that already has one, is a 409.
+    /// A project has one timesheet approver, and an organisation has one leave
+    /// approver - who may be different users. Claiming an area that already
+    /// has a live approver - by adding, or by editing a setup onto it - is a
+    /// 409. An area nobody holds yet can be taken. A leave-only setup may
+    /// leave out <c>projectId</c>.
     /// </para>
     /// </summary>
     /// <response code="200">The saved setup, including its <c>timesheetApproverSetupId</c>.</response>
-    /// <response code="400">The payload failed validation, the project is not in the organisation, or the approver is not a live user of it.</response>
+    /// <response code="400">The payload failed validation (including neither flag true), the project is not in the organisation, or the approver is not a live user of it.</response>
     /// <response code="404">A <c>timesheetApproverSetupId</c> was sent, but no live setup of the organisation has it.</response>
-    /// <response code="409">The project already has another approver.</response>
+    /// <response code="409">The project already has a timesheet approver, or the organisation a leave approver.</response>
     [HttpPost("add-edit-timesheet-approver-setup")]
     [ProducesResponseType(typeof(ApiResponse<TimesheetApproverSetupResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -980,6 +985,321 @@ public class TimesheetProjectController : ControllerBase
     {
         var result = await _timesheetProjectService.GetTimesheetUserDetailsAsync(userID, cancellationToken);
         return Ok(ApiResponse.Ok(result));
+    }
+
+    #endregion
+
+    #region Leave Setup
+
+    /// <summary>
+    /// Returns the live leave types of an organisation from
+    /// <c>dbo.Timesheet_Leavetype_Setup</c>, ordered by name, each with the
+    /// days allocated. Deleted leave types are not included.
+    /// </summary>
+    /// <param name="orgID">The organisation whose leave types to list. Required, greater than 0.</param>
+    /// <response code="200">The leave types. None is an empty list, not a 404.</response>
+    /// <response code="400"><c>orgID</c> was not sent, or is not greater than 0.</response>
+    [HttpGet("get-timesheet-leave-setup")]
+    [ProducesResponseType(typeof(ApiResponse<IReadOnlyList<TimesheetLeaveSetupResponse>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> GetTimesheetLeaveSetup(
+        [FromQuery] int? orgID,
+        CancellationToken cancellationToken)
+    {
+        var result = await _timesheetProjectService.GetLeaveSetupListAsync(orgID, cancellationToken);
+        return Ok(ApiResponse.Ok(result));
+    }
+
+    /// <summary>
+    /// Adds a leave type to an organisation, or edits one - <b>one endpoint for
+    /// both</b>.
+    /// <para>
+    /// Send <c>leaveTypeId</c> as <c>0</c> (or leave it out) to add a leave
+    /// type to <c>organizationId</c>. Send an existing leave type's
+    /// <c>leaveTypeId</c> to edit it; it must belong to <c>organizationId</c>.
+    /// An edit overwrites <c>leaveType</c> and <c>noOfLeaveAllocated</c>, so
+    /// send both.
+    /// </para>
+    /// </summary>
+    /// <response code="200">The saved leave type, including its <c>leaveTypeId</c>.</response>
+    /// <response code="400">The payload failed validation - every failure is listed.</response>
+    /// <response code="404">A <c>leaveTypeId</c> was sent, but no live leave type of that organisation has it.</response>
+    [HttpPost("add-edit-timesheet-leave-setup")]
+    [ProducesResponseType(typeof(ApiResponse<TimesheetLeaveSetupResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> AddEditTimesheetLeaveSetup(
+        [FromBody] TimesheetLeaveSetupSaveRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await _timesheetProjectService.SaveLeaveSetupAsync(request, cancellationToken);
+        return Ok(ApiResponse.Ok(result, "Leave type saved."));
+    }
+
+    /// <summary>
+    /// Removes a leave type of an organisation. <b>A soft delete</b>: the row
+    /// is stamped with <c>IsDelete</c>, <c>DeletedDate</c> and
+    /// <c>DeletedBy</c> and kept.
+    /// <para>
+    /// A POST rather than an HTTP DELETE, matching the other removes here:
+    /// every argument in this API travels in the payload.
+    /// </para>
+    /// </summary>
+    /// <response code="200">The leave type was removed.</response>
+    /// <response code="400">A <c>leaveTypeId</c>, <c>organizationId</c> or <c>deletedBy</c> that is not greater than zero.</response>
+    /// <response code="404">No live leave type with that id belongs to that organisation; removing one twice is not a silent success.</response>
+    [HttpPost("remove-timesheet-leave-setup")]
+    [ProducesResponseType(typeof(ApiResponse<object?>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> RemoveTimesheetLeaveSetup(
+        [FromBody] TimesheetLeaveSetupDeleteRequest request,
+        CancellationToken cancellationToken)
+    {
+        await _timesheetProjectService.DeleteLeaveSetupAsync(request, cancellationToken);
+        return Ok(ApiResponse.Ok("Leave type removed."));
+    }
+
+    #endregion
+
+    #region User Leave Assignment
+
+    /// <summary>
+    /// Returns the live leave assignments in
+    /// <c>dbo.Timesheet_Leave_assignment_user</c> - which leave types each user
+    /// holds and the balance left - with the user's name and email and the
+    /// leave type's name and allocation.
+    /// <para>
+    /// Filter by organisation, user or both. A filter left out or sent as
+    /// <c>0</c> is not applied: <c>orgID</c> alone returns every assignment of
+    /// the organisation's live users, <c>userID</c> alone one user's. At least
+    /// one is required. Deleted assignments are not included.
+    /// </para>
+    /// </summary>
+    /// <param name="orgID">The organisation whose assignments to list. Optional when <c>userID</c> is sent.</param>
+    /// <param name="userID">The user whose assignments to list. Optional when <c>orgID</c> is sent.</param>
+    /// <response code="200">The assignments. None matching is an empty list, not a 404.</response>
+    /// <response code="400">Neither <c>orgID</c> nor <c>userID</c> was sent, or one is negative.</response>
+    [HttpGet("get-timesheet-user-leave-assignment")]
+    [ProducesResponseType(typeof(ApiResponse<IReadOnlyList<TimesheetUserLeaveAssignmentResponse>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> GetTimesheetUserLeaveAssignment(
+        // Query string rather than route segments: either may be left out.
+        [FromQuery] int? orgID,
+        [FromQuery] int? userID,
+        CancellationToken cancellationToken)
+    {
+        var result = await _timesheetProjectService.GetUserLeaveAssignmentListAsync(orgID, userID, cancellationToken);
+        return Ok(ApiResponse.Ok(result));
+    }
+
+    /// <summary>
+    /// Assigns a leave type to a user. The balance is not sent: it starts at
+    /// the leave type's allocation (<c>NoofLeaveAllocated</c>).
+    /// <para>
+    /// A user holds each leave type once: assigning one the user already holds
+    /// is a 409.
+    /// </para>
+    /// </summary>
+    /// <response code="200">The new assignment, including its <c>timesheetLeaveAssignmentUserId</c>.</response>
+    /// <response code="400">The payload failed validation, the user is not a live user of the organisation, or the leave type is not a live leave type of it.</response>
+    /// <response code="409">The user already holds this leave type.</response>
+    [HttpPost("add-timesheet-user-leave-assignment")]
+    [ProducesResponseType(typeof(ApiResponse<TimesheetUserLeaveAssignmentResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> AddTimesheetUserLeaveAssignment(
+        [FromBody] TimesheetUserLeaveAssignmentAddRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await _timesheetProjectService.AddUserLeaveAssignmentAsync(request, cancellationToken);
+        return Ok(ApiResponse.Ok(result, "Leave assignment added."));
+    }
+
+    /// <summary>
+    /// Edits a leave assignment of the organisation. The user and the leave
+    /// type are overwritten, so send both.
+    /// <para>
+    /// <c>balanceLeave</c> is optional: sent, it replaces the balance; left out
+    /// or null, the balance is not changed - even when the leave type is.
+    /// </para>
+    /// <para>
+    /// Moving the assignment onto a leave type the user already holds in
+    /// another assignment is a 409.
+    /// </para>
+    /// </summary>
+    /// <response code="200">The edited assignment.</response>
+    /// <response code="400">The payload failed validation, the user is not a live user of the organisation, or the leave type is not a live leave type of it.</response>
+    /// <response code="404">No live assignment of the organisation has that <c>timesheetLeaveAssignmentUserId</c>.</response>
+    /// <response code="409">The user already holds this leave type in another assignment.</response>
+    [HttpPost("edit-timesheet-user-leave-assignment")]
+    [ProducesResponseType(typeof(ApiResponse<TimesheetUserLeaveAssignmentResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> EditTimesheetUserLeaveAssignment(
+        [FromBody] TimesheetUserLeaveAssignmentEditRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await _timesheetProjectService.EditUserLeaveAssignmentAsync(request, cancellationToken);
+        return Ok(ApiResponse.Ok(result, "Leave assignment updated."));
+    }
+
+    /// <summary>
+    /// Removes a leave assignment. <b>A soft delete</b>: the row is stamped with
+    /// <c>IsDelete</c>, <c>DeletedDate</c> and <c>DeletedBy</c> and kept, and
+    /// the user may then be assigned the leave type again.
+    /// <para>
+    /// A POST rather than an HTTP DELETE, matching the other removes here:
+    /// every argument in this API travels in the payload.
+    /// </para>
+    /// </summary>
+    /// <response code="200">The assignment was removed.</response>
+    /// <response code="400">A <c>timesheetLeaveAssignmentUserId</c>, <c>organizationId</c> or <c>deletedBy</c> that is not greater than zero.</response>
+    /// <response code="404">No live assignment of that organisation has that id; removing one twice is not a silent success.</response>
+    [HttpPost("remove-timesheet-user-leave-assignment")]
+    [ProducesResponseType(typeof(ApiResponse<object?>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> RemoveTimesheetUserLeaveAssignment(
+        [FromBody] TimesheetUserLeaveAssignmentDeleteRequest request,
+        CancellationToken cancellationToken)
+    {
+        await _timesheetProjectService.DeleteUserLeaveAssignmentAsync(request, cancellationToken);
+        return Ok(ApiResponse.Ok("Leave assignment removed."));
+    }
+
+    #endregion
+
+    #region User Leave Apply
+
+    /// <summary>
+    /// Returns the leave applications in <c>dbo.Timesheet_Leave_User_apply</c>,
+    /// newest first, with the user's name and email, the leave type's name and
+    /// the status's name from <c>dbo.TimesheetLeaveStatus_Lookup</c>.
+    /// <para>
+    /// Filter by organisation, user or both. A filter left out or sent as
+    /// <c>0</c> is not applied: <c>orgID</c> alone returns every application of
+    /// the organisation's live users, <c>userID</c> alone one user's. At least
+    /// one is required.
+    /// </para>
+    /// </summary>
+    /// <param name="orgID">The organisation whose applications to list. Optional when <c>userID</c> is sent.</param>
+    /// <param name="userID">The user whose applications to list. Optional when <c>orgID</c> is sent.</param>
+    /// <response code="200">The applications. None matching is an empty list, not a 404.</response>
+    /// <response code="400">Neither <c>orgID</c> nor <c>userID</c> was sent, or one is negative.</response>
+    [HttpGet("get-timesheet-user-leave-apply")]
+    [ProducesResponseType(typeof(ApiResponse<IReadOnlyList<TimesheetUserLeaveApplyResponse>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> GetTimesheetUserLeaveApply(
+        // Query string rather than route segments: either may be left out.
+        [FromQuery] int? orgID,
+        [FromQuery] int? userID,
+        CancellationToken cancellationToken)
+    {
+        var result = await _timesheetProjectService.GetUserLeaveApplyListAsync(orgID, userID, cancellationToken);
+        return Ok(ApiResponse.Ok(result));
+    }
+
+    /// <summary>
+    /// Applies for leave, or edits an application - <b>one endpoint for
+    /// both</b>.
+    /// <para>
+    /// Send <c>timesheetLeaveUserApplyId</c> as <c>0</c> (or leave it out) to
+    /// apply: the application is saved as Submitted and given the next
+    /// <c>leaveId</c>. Send an existing application's id to edit it; it must be
+    /// the user's own. An edit overwrites the leave type, the dates and the
+    /// comment, so send them all, and puts the application back to
+    /// Submitted - a rejected one is resubmitted.
+    /// </para>
+    /// <para>
+    /// The days are not sent: they are worked out from the dates - every
+    /// calendar day from <c>startDate</c> to <c>endDate</c>, both counted.
+    /// </para>
+    /// <para>
+    /// <b>An approved application cannot be edited.</b> The balance is not
+    /// touched here.
+    /// </para>
+    /// </summary>
+    /// <response code="200">The saved application, including its <c>timesheetLeaveUserApplyId</c> and <c>leaveId</c>.</response>
+    /// <response code="400">The payload failed validation, the user, leave type or assignment does not exist, or the application is approved.</response>
+    /// <response code="404">A <c>timesheetLeaveUserApplyId</c> was sent, but no application of this user in the organisation has it.</response>
+    [HttpPost("add-edit-timesheet-user-leave-apply")]
+    [ProducesResponseType(typeof(ApiResponse<TimesheetUserLeaveApplyResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> AddEditTimesheetUserLeaveApply(
+        [FromBody] TimesheetUserLeaveApplySaveRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await _timesheetProjectService.SaveUserLeaveApplyAsync(request, cancellationToken);
+        return Ok(ApiResponse.Ok(result, "Leave application saved."));
+    }
+
+    /// <summary>
+    /// Removes a leave application. <b>A hard delete</b>: the table has no
+    /// soft-delete column, so the row is physically removed.
+    /// <para>
+    /// If the application was <b>approved</b>, its days are given back to the
+    /// user's balance for that leave type, in the same transaction. If it was
+    /// not approved, the balance is not touched.
+    /// </para>
+    /// <para>
+    /// A POST rather than an HTTP DELETE, matching the other removes here:
+    /// every argument in this API travels in the payload.
+    /// </para>
+    /// </summary>
+    /// <response code="200">The application was removed.</response>
+    /// <response code="400">A <c>timesheetLeaveUserApplyId</c>, <c>organizationId</c> or <c>deletedBy</c> that is not greater than zero, or giving the days back would take the balance past 99.99.</response>
+    /// <response code="404">No application of that organisation has that id; removing one twice is not a silent success.</response>
+    [HttpPost("remove-timesheet-user-leave-apply")]
+    [ProducesResponseType(typeof(ApiResponse<object?>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> RemoveTimesheetUserLeaveApply(
+        [FromBody] TimesheetUserLeaveApplyDeleteRequest request,
+        CancellationToken cancellationToken)
+    {
+        await _timesheetProjectService.DeleteUserLeaveApplyAsync(request, cancellationToken);
+        return Ok(ApiResponse.Ok("Leave application removed."));
+    }
+
+
+    /// <summary>
+    /// Approves or rejects a submitted leave application - <c>leaveStatus</c>
+    /// is the <c>Value</c> of the Approved or Rejected row of
+    /// <c>dbo.TimesheetLeaveStatus_Lookup</c>.
+    /// <para>
+    /// Only a leave approver of the organisation can decide, and only on its
+    /// own organisation's leave: <c>addedBy</c> must be a live user of
+    /// <c>organizationId</c> with leave approval on in an approver setup of it,
+    /// and the application must belong to <c>organizationId</c>.
+    /// </para>
+    /// <para>
+    /// Approving takes the days from the user's balance for that leave type;
+    /// a balance too small is refused. Rejecting needs
+    /// <c>approverComments</c> and leaves the balance alone. Only a submitted
+    /// application can be decided: an approved one is final, and a rejected
+    /// one goes back to the user, who edits it to resubmit.
+    /// </para>
+    /// </summary>
+    /// <response code="200">The application after the change.</response>
+    /// <response code="400">The payload failed validation, the balance is too small, or the user no longer holds the leave type.</response>
+    /// <response code="403"><c>addedBy</c> is not a leave approver of the organisation.</response>
+    /// <response code="404">No application of the organisation has that id.</response>
+    /// <response code="409">The application is not submitted.</response>
+    [HttpPost("update-timesheet-user-leave-apply-status")]
+    [ProducesResponseType(typeof(ApiResponse<TimesheetUserLeaveApplyResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> UpdateTimesheetUserLeaveApplyStatus(
+        [FromBody] TimesheetUserLeaveApplyStatusUpdateRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await _timesheetProjectService.UpdateUserLeaveApplyStatusAsync(request, cancellationToken);
+        return Ok(ApiResponse.Ok(result, $"Leave application {(result.LeaveStatusName ?? "updated").ToLowerInvariant()}."));
     }
 
     #endregion

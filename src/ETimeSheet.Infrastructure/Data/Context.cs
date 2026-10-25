@@ -164,6 +164,32 @@ public class Context : DbContext
     public DbSet<TimesheetApproverSetup> Timesheet_Approver_setup { get; set; } = null!;
 
     /// <summary>
+    /// The <c>dbo.Timesheet_Leavetype_Setup</c> table - the leave types of each
+    /// organisation. Rows with <c>IsDelete</c> = 1 are hidden by a query filter.
+    /// </summary>
+    public DbSet<TimesheetLeaveTypeSetup> Timesheet_Leavetype_Setup { get; set; } = null!;
+
+    /// <summary>
+    /// The <c>dbo.Timesheet_Leave_assignment_user</c> table - the leave types
+    /// assigned to each user, with the balance left. Rows with
+    /// <c>IsDelete</c> = 1 are hidden by a query filter.
+    /// </summary>
+    public DbSet<TimesheetLeaveAssignmentUser> Timesheet_Leave_assignment_user { get; set; } = null!;
+
+    /// <summary>
+    /// The <c>dbo.Timesheet_Leave_User_apply</c> table - the leave each user
+    /// applies for. No soft delete: a removed application is physically
+    /// deleted.
+    /// </summary>
+    public DbSet<TimesheetLeaveUserApply> Timesheet_Leave_User_apply { get; set; } = null!;
+
+    /// <summary>
+    /// The <c>dbo.TimesheetLeaveStatus_Lookup</c> lookup table - Submitted,
+    /// Approved, Rejected. Read-only to the API.
+    /// </summary>
+    public DbSet<TimesheetLeaveStatusLookup> TimesheetLeaveStatus_Lookup { get; set; } = null!;
+
+    /// <summary>
     /// The <c>dbo.TimesheetProjectSubmission</c> table - one sheet per user,
     /// project and submission period. Rows with <c>IsDelete</c> = 1 are hidden
     /// by a query filter.
@@ -384,6 +410,49 @@ public class Context : DbContext
     /// just added or edited, or no row when an edit names a missing setup.
     /// </summary>
     public DbSet<TimesheetApproverSetupSaveDetail> spc_AddEditTimesheetApproverSetup { get; set; } = null!;
+
+    /// <summary>
+    /// Result set of <c>dbo.spc_GetTimesheetLeaveSetup</c> - the live leave
+    /// types of an organisation.
+    /// </summary>
+    public DbSet<TimesheetLeaveSetupDetail> spc_GetTimesheetLeaveSetup { get; set; } = null!;
+
+    /// <summary>
+    /// Result set of <c>dbo.spc_AddEditTimesheetLeaveSetup</c> - the leave type
+    /// just added or edited, or no row when an edit names a missing one.
+    /// </summary>
+    public DbSet<TimesheetLeaveSetupSaveDetail> spc_AddEditTimesheetLeaveSetup { get; set; } = null!;
+
+    /// <summary>
+    /// Result set of <c>dbo.spc_GetTimesheetUserLeaveAssignment</c> - the live
+    /// leave assignments of an organisation, a user or both.
+    /// </summary>
+    public DbSet<TimesheetUserLeaveAssignmentDetail> spc_GetTimesheetUserLeaveAssignment { get; set; } = null!;
+
+    /// <summary>
+    /// Result set of <c>dbo.spc_AddTimesheetUserLeaveAssignment</c> - the
+    /// assignment just added.
+    /// </summary>
+    public DbSet<TimesheetUserLeaveAssignmentAddDetail> spc_AddTimesheetUserLeaveAssignment { get; set; } = null!;
+
+    /// <summary>
+    /// Result set of <c>dbo.spc_EditTimesheetUserLeaveAssignment</c> - the
+    /// assignment just edited, or no row when it names a missing one.
+    /// </summary>
+    public DbSet<TimesheetUserLeaveAssignmentEditDetail> spc_EditTimesheetUserLeaveAssignment { get; set; } = null!;
+
+    /// <summary>
+    /// Result set of <c>dbo.spc_GetTimesheetUserLeaveApply</c> - the leave
+    /// applications of an organisation, a user or both.
+    /// </summary>
+    public DbSet<TimesheetUserLeaveApplyDetail> spc_GetTimesheetUserLeaveApply { get; set; } = null!;
+
+    /// <summary>
+    /// Result set of <c>dbo.spc_AddEditTimesheetUserLeaveApply</c> - the
+    /// application just added or edited, or no row when an edit names a
+    /// missing, foreign or approved one.
+    /// </summary>
+    public DbSet<TimesheetUserLeaveApplySaveDetail> spc_AddEditTimesheetUserLeaveApply { get; set; } = null!;
 
     // dbo.spc_GetUsersTaskList has NO DbSet, deliberately. It returns two
     // result sets and EF Core materialises only the first, so
@@ -1001,7 +1070,7 @@ public class Context : DbContext
             assignment.ToView(null);
 
             // Aliased by the procedure: Signup.Name AS UserName, the Mod_
-            // columns AS IsClientSetup .. IsViewTimesheet, Updatedby AS UpdatedBy.
+            // columns AS IsClientSetup .. IsReportView, Updatedby AS UpdatedBy.
             assignment.Property(row => row.AssignmentId).HasColumnName("AssignmentID");
             assignment.Property(row => row.UserId).HasColumnName("UserID");
             assignment.Property(row => row.UserName).HasColumnName("UserName");
@@ -1016,6 +1085,11 @@ public class Context : DbContext
             assignment.Property(row => row.IsUserSetup).HasColumnName("IsUserSetup");
             assignment.Property(row => row.IsTimeLog).HasColumnName("IsTimeLog");
             assignment.Property(row => row.IsViewTimesheet).HasColumnName("IsViewTimesheet");
+            assignment.Property(row => row.IsUserLeaveApply).HasColumnName("IsUserLeaveApply");
+            assignment.Property(row => row.IsLeaveSetup).HasColumnName("IsLeaveSetup");
+            assignment.Property(row => row.IsLeaveAssignmentUser).HasColumnName("IsLeaveAssignmentUser");
+            assignment.Property(row => row.IsLeaveApproveReject).HasColumnName("IsLeaveApproveReject");
+            assignment.Property(row => row.IsReportView).HasColumnName("IsReportView");
             assignment.Property(row => row.CreateDate).HasColumnName("CreateDate").HasColumnType("datetime");
             assignment.Property(row => row.CreatedBy).HasColumnName("CreatedBy");
             assignment.Property(row => row.UpdatedDate).HasColumnName("UpdatedDate").HasColumnType("datetime");
@@ -1042,6 +1116,11 @@ public class Context : DbContext
             assignment.Property(row => row.IsUserSetup).HasColumnName("IsUserSetup");
             assignment.Property(row => row.IsTimeLog).HasColumnName("IsTimeLog");
             assignment.Property(row => row.IsViewTimesheet).HasColumnName("IsViewTimesheet");
+            assignment.Property(row => row.IsUserLeaveApply).HasColumnName("IsUserLeaveApply");
+            assignment.Property(row => row.IsLeaveSetup).HasColumnName("IsLeaveSetup");
+            assignment.Property(row => row.IsLeaveAssignmentUser).HasColumnName("IsLeaveAssignmentUser");
+            assignment.Property(row => row.IsLeaveApproveReject).HasColumnName("IsLeaveApproveReject");
+            assignment.Property(row => row.IsReportView).HasColumnName("IsReportView");
             assignment.Property(row => row.CreateDate).HasColumnName("CreateDate").HasColumnType("datetime");
             assignment.Property(row => row.CreatedBy).HasColumnName("CreatedBy");
             assignment.Property(row => row.UpdatedDate).HasColumnName("UpdatedDate").HasColumnType("datetime");
@@ -1065,6 +1144,7 @@ public class Context : DbContext
             setup.Property(row => row.ApproverName).HasColumnName("ApproverName");
             setup.Property(row => row.ApproverEmail).HasColumnName("ApproverEmail");
             setup.Property(row => row.IsTimesheetApprover).HasColumnName("IsTimesheetApprover");
+            setup.Property(row => row.IsLeaveApprover).HasColumnName("IsLeaveApprover");
             setup.Property(row => row.CreateDate).HasColumnName("CreateDate").HasColumnType("datetime");
             setup.Property(row => row.CreatedBy).HasColumnName("CreatedBy");
         });
@@ -1084,8 +1164,141 @@ public class Context : DbContext
             setup.Property(row => row.ApproverName).HasColumnName("ApproverName");
             setup.Property(row => row.ApproverEmail).HasColumnName("ApproverEmail");
             setup.Property(row => row.IsTimesheetApprover).HasColumnName("IsTimesheetApprover");
+            setup.Property(row => row.IsLeaveApprover).HasColumnName("IsLeaveApprover");
             setup.Property(row => row.CreateDate).HasColumnName("CreateDate").HasColumnType("datetime");
             setup.Property(row => row.CreatedBy).HasColumnName("CreatedBy");
+        });
+
+        modelBuilder.Entity<TimesheetLeaveSetupDetail>(leaveType =>
+        {
+            leaveType.HasNoKey();
+            leaveType.ToView(null);
+
+            // Aliased by the procedure: OrgID AS OrganizationID,
+            // NoofLeaveAllocated AS NoOfLeaveAllocated.
+            leaveType.Property(row => row.LeaveTypeId).HasColumnName("LeaveTypeID");
+            leaveType.Property(row => row.OrganizationId).HasColumnName("OrganizationID");
+            leaveType.Property(row => row.LeaveType).HasColumnName("LeaveType");
+            leaveType.Property(row => row.NoOfLeaveAllocated).HasColumnName("NoOfLeaveAllocated").HasColumnType("decimal(4,2)");
+        });
+
+        modelBuilder.Entity<TimesheetLeaveSetupSaveDetail>(leaveType =>
+        {
+            leaveType.HasNoKey();
+            leaveType.ToView(null);
+
+            // The same aliases as spc_GetTimesheetLeaveSetup.
+            leaveType.Property(row => row.LeaveTypeId).HasColumnName("LeaveTypeID");
+            leaveType.Property(row => row.OrganizationId).HasColumnName("OrganizationID");
+            leaveType.Property(row => row.LeaveType).HasColumnName("LeaveType");
+            leaveType.Property(row => row.NoOfLeaveAllocated).HasColumnName("NoOfLeaveAllocated").HasColumnType("decimal(4,2)");
+        });
+
+        modelBuilder.Entity<TimesheetUserLeaveAssignmentDetail>(assignment =>
+        {
+            assignment.HasNoKey();
+            assignment.ToView(null);
+
+            // Aliased by the procedure: Signup.Name AS UserName, LeavetypeID AS
+            // LeaveTypeID, NoofLeaveAllocated AS NoOfLeaveAllocated.
+            assignment.Property(row => row.TimesheetLeaveAssignmentUserId).HasColumnName("TimesheetLeaveAssignmentUserID");
+            assignment.Property(row => row.UserId).HasColumnName("UserID");
+            assignment.Property(row => row.UserName).HasColumnName("UserName");
+            assignment.Property(row => row.Email).HasColumnName("Email");
+            assignment.Property(row => row.OrganizationId).HasColumnName("OrganizationID");
+            assignment.Property(row => row.LeaveTypeId).HasColumnName("LeaveTypeID");
+            assignment.Property(row => row.LeaveType).HasColumnName("LeaveType");
+            assignment.Property(row => row.NoOfLeaveAllocated).HasColumnName("NoOfLeaveAllocated").HasColumnType("decimal(4,2)");
+            assignment.Property(row => row.BalanceLeave).HasColumnName("BalanceLeave").HasColumnType("decimal(4,2)");
+        });
+
+        modelBuilder.Entity<TimesheetUserLeaveAssignmentAddDetail>(assignment =>
+        {
+            assignment.HasNoKey();
+            assignment.ToView(null);
+
+            // The same aliases as spc_GetTimesheetUserLeaveAssignment.
+            assignment.Property(row => row.TimesheetLeaveAssignmentUserId).HasColumnName("TimesheetLeaveAssignmentUserID");
+            assignment.Property(row => row.UserId).HasColumnName("UserID");
+            assignment.Property(row => row.UserName).HasColumnName("UserName");
+            assignment.Property(row => row.Email).HasColumnName("Email");
+            assignment.Property(row => row.OrganizationId).HasColumnName("OrganizationID");
+            assignment.Property(row => row.LeaveTypeId).HasColumnName("LeaveTypeID");
+            assignment.Property(row => row.LeaveType).HasColumnName("LeaveType");
+            assignment.Property(row => row.NoOfLeaveAllocated).HasColumnName("NoOfLeaveAllocated").HasColumnType("decimal(4,2)");
+            assignment.Property(row => row.BalanceLeave).HasColumnName("BalanceLeave").HasColumnType("decimal(4,2)");
+        });
+
+        modelBuilder.Entity<TimesheetUserLeaveAssignmentEditDetail>(assignment =>
+        {
+            assignment.HasNoKey();
+            assignment.ToView(null);
+
+            // The same aliases as spc_GetTimesheetUserLeaveAssignment.
+            assignment.Property(row => row.TimesheetLeaveAssignmentUserId).HasColumnName("TimesheetLeaveAssignmentUserID");
+            assignment.Property(row => row.UserId).HasColumnName("UserID");
+            assignment.Property(row => row.UserName).HasColumnName("UserName");
+            assignment.Property(row => row.Email).HasColumnName("Email");
+            assignment.Property(row => row.OrganizationId).HasColumnName("OrganizationID");
+            assignment.Property(row => row.LeaveTypeId).HasColumnName("LeaveTypeID");
+            assignment.Property(row => row.LeaveType).HasColumnName("LeaveType");
+            assignment.Property(row => row.NoOfLeaveAllocated).HasColumnName("NoOfLeaveAllocated").HasColumnType("decimal(4,2)");
+            assignment.Property(row => row.BalanceLeave).HasColumnName("BalanceLeave").HasColumnType("decimal(4,2)");
+        });
+
+        modelBuilder.Entity<TimesheetUserLeaveApplyDetail>(application =>
+        {
+            application.HasNoKey();
+            application.ToView(null);
+
+            // Aliased by the procedure: Signup.Name AS UserName, LeavetypeID AS
+            // LeaveTypeID, NoofDays AS NoOfDays, the lookup's Text AS LeaveStatusName.
+            application.Property(row => row.TimesheetLeaveUserApplyId).HasColumnName("TimesheetLeaveUserApplyID");
+            application.Property(row => row.LeaveId).HasColumnName("LeaveID");
+            application.Property(row => row.UserId).HasColumnName("UserID");
+            application.Property(row => row.UserName).HasColumnName("UserName");
+            application.Property(row => row.Email).HasColumnName("Email");
+            application.Property(row => row.OrganizationId).HasColumnName("OrganizationID");
+            application.Property(row => row.LeaveTypeId).HasColumnName("LeaveTypeID");
+            application.Property(row => row.LeaveType).HasColumnName("LeaveType");
+            application.Property(row => row.StartDate).HasColumnName("StartDate").HasColumnType("datetime");
+            application.Property(row => row.EndDate).HasColumnName("EndDate").HasColumnType("datetime");
+            application.Property(row => row.NoOfDays).HasColumnName("NoOfDays").HasColumnType("decimal(4,2)");
+            application.Property(row => row.UserComments).HasColumnName("UserComments");
+            application.Property(row => row.ApproverComments).HasColumnName("ApproverComments");
+            application.Property(row => row.LeaveStatus).HasColumnName("LeaveStatus");
+            application.Property(row => row.LeaveStatusName).HasColumnName("LeaveStatusName");
+            application.Property(row => row.ApprovedDate).HasColumnName("ApprovedDate").HasColumnType("datetime");
+            application.Property(row => row.ApprovedBy).HasColumnName("ApprovedBy");
+            application.Property(row => row.RejectedDate).HasColumnName("RejectedDate").HasColumnType("datetime");
+            application.Property(row => row.RejectedBy).HasColumnName("RejectedBy");
+        });
+
+        modelBuilder.Entity<TimesheetUserLeaveApplySaveDetail>(application =>
+        {
+            application.HasNoKey();
+            application.ToView(null);
+
+            // The same aliases as spc_GetTimesheetUserLeaveApply.
+            application.Property(row => row.TimesheetLeaveUserApplyId).HasColumnName("TimesheetLeaveUserApplyID");
+            application.Property(row => row.LeaveId).HasColumnName("LeaveID");
+            application.Property(row => row.UserId).HasColumnName("UserID");
+            application.Property(row => row.UserName).HasColumnName("UserName");
+            application.Property(row => row.Email).HasColumnName("Email");
+            application.Property(row => row.OrganizationId).HasColumnName("OrganizationID");
+            application.Property(row => row.LeaveTypeId).HasColumnName("LeaveTypeID");
+            application.Property(row => row.LeaveType).HasColumnName("LeaveType");
+            application.Property(row => row.StartDate).HasColumnName("StartDate").HasColumnType("datetime");
+            application.Property(row => row.EndDate).HasColumnName("EndDate").HasColumnType("datetime");
+            application.Property(row => row.NoOfDays).HasColumnName("NoOfDays").HasColumnType("decimal(4,2)");
+            application.Property(row => row.UserComments).HasColumnName("UserComments");
+            application.Property(row => row.ApproverComments).HasColumnName("ApproverComments");
+            application.Property(row => row.LeaveStatus).HasColumnName("LeaveStatus");
+            application.Property(row => row.LeaveStatusName).HasColumnName("LeaveStatusName");
+            application.Property(row => row.ApprovedDate).HasColumnName("ApprovedDate").HasColumnType("datetime");
+            application.Property(row => row.ApprovedBy).HasColumnName("ApprovedBy");
+            application.Property(row => row.RejectedDate).HasColumnName("RejectedDate").HasColumnType("datetime");
+            application.Property(row => row.RejectedBy).HasColumnName("RejectedBy");
         });
     }
 }

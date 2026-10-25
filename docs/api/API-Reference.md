@@ -83,6 +83,16 @@ controller, DTO or validator, change this file with it.
   - [Add / Edit Approver Setup](#56-add--edit-approver-setup)
   - [Remove Approver Setup](#57-remove-approver-setup)
   - [Timesheet User Details](#58-timesheet-user-details)
+  - [Leave Setup List](#59-leave-setup-list)
+  - [Add / Edit Leave Setup](#60-add--edit-leave-setup)
+  - [Remove Leave Setup](#61-remove-leave-setup)
+  - [User Leave Assignment List](#62-user-leave-assignment-list)
+  - [Add / Edit User Leave Assignment](#63-add--edit-user-leave-assignment)
+  - [Remove User Leave Assignment](#64-remove-user-leave-assignment)
+  - [User Leave Apply List](#65-user-leave-apply-list)
+  - [Add / Edit User Leave Apply](#66-add--edit-user-leave-apply)
+  - [Remove User Leave Apply](#67-remove-user-leave-apply)
+  - [Approve / Reject User Leave Apply](#68-approve--reject-user-leave-apply)
 - [Health endpoints](#health-endpoints)
 - [Enumerations](#enumerations)
 - [Endpoint summary table](#endpoint-summary-table)
@@ -4584,6 +4594,7 @@ GET /api/v1/TimesheetProject/get-timesheet-user-by-orgID/12
 | `currencyId` | int \| null | The currency of the user's country, from `dbo.CountryCurrency_Lookup` (the lowest `CurrencyID` for it, as client setup does); `null` when the user has no country or it has no currency |
 | `currencyName` | string \| null | |
 | `currencySymbol` | string \| null | Not unique — show it beside `currencyName` |
+| `isOnLeave` | bool | `true` when an **approved** leave application of this organisation ([68](#68-approve--reject-user-leave-apply)) runs from on or before today to on or after it — today being the user's own date in the time zone of their timesheet setup (UTC without one). Submitted and rejected leave do not count. The same on every row of one user |
 
 #### Example response
 
@@ -4615,7 +4626,8 @@ GET /api/v1/TimesheetProject/get-timesheet-user-by-orgID/12
       "address": "12 MG Road, Ahmedabad",
       "currencyId": 103,
       "currencyName": "Indian rupee",
-      "currencySymbol": "₹"
+      "currencySymbol": "₹",
+      "isOnLeave": false
     }
   ],
   "errors": []
@@ -5114,6 +5126,11 @@ then `assignmentId`.
 | `isUserSetup` | bool \| null | `Mod_IsUsersetup` |
 | `isTimeLog` | bool \| null | `Mod_IsTimeLog` |
 | `isViewTimesheet` | bool \| null | `Mod_IsViewTimesheet` |
+| `isUserLeaveApply` | bool \| null | `Mod_IsUserLeaveApply` |
+| `isLeaveSetup` | bool \| null | `Mod_IsLeaveSetup` |
+| `isLeaveAssignmentUser` | bool \| null | `Mod_IsLeaveAssignmentUser` |
+| `isLeaveApproveReject` | bool \| null | `Mod_IsLeaveApproveReject` |
+| `isReportView` | bool \| null | `Mod_IsReportView` |
 | `createDate` | datetime \| null | |
 | `createdBy` | int \| null | |
 | `updatedDate` | datetime \| null | `null` until the first edit |
@@ -5141,6 +5158,16 @@ then `assignmentId`.
       "isUserSetup": false,
       "isTimeLog": true,
       "isViewTimesheet": true,
+  "isUserLeaveApply": false,
+  "isLeaveSetup": false,
+  "isLeaveAssignmentUser": false,
+  "isLeaveApproveReject": false,
+  "isReportView": false,
+      "isUserLeaveApply": false,
+      "isLeaveSetup": false,
+      "isLeaveAssignmentUser": false,
+      "isLeaveApproveReject": false,
+      "isReportView": false,
       "createDate": "2026-10-18T10:41:07.233",
       "createdBy": 7,
       "updatedDate": null,
@@ -5186,7 +5213,7 @@ again under a lock. The table does not enforce it — see
 | `assignmentId` | int \| null | no | `0` / absent to add; `> 0` to edit |
 | `organizationId` | int | yes | `> 0`. **Not stored** — the table has no organisation column — but the user must be a live user of it |
 | `userId` | int | yes | `> 0`; a live user (`dbo.Signup.IsDelete = 0`) of `organizationId` with no other setup |
-| `isClientSetup`, `isProject`, `isProjectBudget`, `isProjectCategory`, `isStatusSetup`, `isRoleSetup`, `isUserSetup`, `isTimeLog`, `isViewTimesheet` | bool | no | Absent is `false` |
+| `isClientSetup`, `isProject`, `isProjectBudget`, `isProjectCategory`, `isStatusSetup`, `isRoleSetup`, `isUserSetup`, `isTimeLog`, `isViewTimesheet`, `isUserLeaveApply`, `isLeaveSetup`, `isLeaveAssignmentUser`, `isLeaveApproveReject`, `isReportView` | bool | no | Absent is `false` |
 | `loginUserId` | int | yes | `> 0`. The user performing the save — written to `CreatedBy` on add, `Updatedby` on edit. Temporary — from the token once authentication is on |
 
 #### Example request
@@ -5205,6 +5232,11 @@ again under a lock. The table does not enforce it — see
   "isUserSetup": false,
   "isTimeLog": true,
   "isViewTimesheet": true,
+  "isUserLeaveApply": false,
+  "isLeaveSetup": false,
+  "isLeaveAssignmentUser": false,
+  "isLeaveApproveReject": false,
+  "isReportView": false,
   "loginUserId": 7
 }
 ```
@@ -5821,7 +5853,7 @@ database yet.
 `GET /api/v1/TimesheetProject/get-timesheet-approver-setup?orgID={orgID}&projectID={projectID}`
 
 **Purpose** — The live approver setups in `dbo.Timesheet_Approver_setup` —
-who reviews each project's timesheets — with the project's code and name and
+who approves each project's timesheets and leave — with the project's code and name and
 the approver's name and email. Read through `dbo.spc_GetTimesheetApproverSetup`.
 
 #### Query parameters
@@ -5833,9 +5865,9 @@ the approver's name and email. Read through `dbo.spc_GetTimesheetApproverSetup`.
 
 | Sent | Returns |
 |---|---|
-| `orgID` only | Every setup of the organisation |
-| `projectID` only | The project's approver — at most one |
-| both | The project's approver, if the project is in the organisation |
+| `orgID` only | Every setup of the organisation — including a leave approver with no project (`projectId`, `projectCode`, `projectName` null) |
+| `projectID` only | The project's approvers — at most one timesheet approver and one leave approver |
+| both | The project's approvers, if the project is in the organisation |
 | neither | **400** — the whole table is never returned |
 
 #### Example request
@@ -5859,7 +5891,8 @@ name, then `timesheetApproverSetupId`.
 | `approverId` | int \| null | The approving user's `dbo.Signup.UserID` |
 | `approverName` | string \| null | `dbo.Signup.Name` |
 | `approverEmail` | string \| null | `dbo.Signup.Email` |
-| `isTimesheetApprover` | bool \| null | |
+| `isTimesheetApprover` | bool \| null | The project's timesheet approver |
+| `isLeaveApprover` | bool \| null | The project's leave approver |
 | `createDate` | datetime \| null | |
 | `createdBy` | int \| null | |
 
@@ -5881,6 +5914,7 @@ user is missing is still listed, with `null` names.
       "approverName": "Asha Patel",
       "approverEmail": "asha@example.com",
       "isTimesheetApprover": true,
+      "isLeaveApprover": false,
       "createDate": "2026-10-20T09:12:44.107",
       "createdBy": 7
     }
@@ -5909,15 +5943,31 @@ database yet.
 
 **Purpose** — Add the approver of a project, or edit one — **one endpoint for
 both**. `timesheetApproverSetupId` `0` (or absent) adds; an existing id edits
-it. An edit overwrites the project, the approver and `isTimesheetApprover`, so
-send them all. Written through `dbo.spc_AddEditTimesheetApproverSetup`.
+it. An edit overwrites the project, the approver, `isTimesheetApprover` and
+`isLeaveApprover`, so send them all. Written through
+`dbo.spc_AddEditTimesheetApproverSetup`.
 
-**One project has only one approver.** Adding a second setup for a project, or
-editing a setup onto a project that already has one, is a **409**; the
-procedure checks again under a lock. One user may approve several projects.
-The table does not enforce the rule — see [Known gaps](#known-gaps) 67. A setup
-with `isTimesheetApprover` false still counts as the project's one setup — see
-[Known gaps](#known-gaps) 68.
+**One timesheet approver per project, one leave approver per
+organisation.** A project has at most one live timesheet approver. An
+organisation has at most one live leave approver, **whatever project its
+setup names** — leave is approved for the whole organisation. They may be the
+same user (one setup with both flags) or two users (two setups). Claiming an
+area that already has a live approver — by adding, or by editing a setup onto
+it — is a **409**; an area nobody holds yet can still be taken. The procedure
+checks again under a lock. The table does not enforce the rules — see
+[Known gaps](#known-gaps) 67.
+
+A setup must approve something: `isTimesheetApprover` and `isLeaveApprover`
+both false is a **400**. A timesheet approver needs a `projectId` (**400**
+without one); a leave-only setup may leave it out.
+
+| Already held | Save claims | Result |
+|---|---|---|
+| nothing | timesheet, project 5 | saved |
+| project 5's timesheet approver (user 58) | leave, user 61, no project | saved — two setups, two users |
+| project 5's timesheet approver (user 58) | timesheet, project 5, user 61 | **409** |
+| organisation's leave approver (user 61) | leave, user 70, any project or none | **409** — one leave approver per organisation |
+| project 5's timesheet approver (user 58) | timesheet **and** leave, project 5, user 61 | **409** — the timesheet area is held |
 
 The table has no `UpdatedDate` / `UpdatedBy` columns, so an edit is not
 stamped: `loginUserId` is written to `CreatedBy` on add only.
@@ -5928,9 +5978,10 @@ stamped: `loginUserId` is written to `CreatedBy` on add only.
 |---|---|---|---|
 | `timesheetApproverSetupId` | int \| null | no | `0` / absent to add; `> 0` to edit a live setup of `organizationId` |
 | `organizationId` | int | yes | `> 0`. Not changed by an edit |
-| `projectId` | int | yes | `> 0`; a project of `organizationId` with no other approver |
+| `projectId` | int \| null | for a timesheet approver | `> 0`; a project of `organizationId` with no other live timesheet approver. **Optional for a leave-only setup** (`isTimesheetApprover` false) — null or `0` |
 | `approverId` | int | yes | `> 0`; a live user (`dbo.Signup.IsDelete = 0`) of `organizationId` |
-| `isTimesheetApprover` | bool | no | Absent is `false` |
+| `isTimesheetApprover` | bool | no | Absent is `false`. At least one of the two flags must be `true` |
+| `isLeaveApprover` | bool | no | Absent is `false`. At least one of the two flags must be `true` |
 | `loginUserId` | int | yes | `> 0`. Written to `CreatedBy` on add. Temporary — from the token once authentication is on |
 
 #### Example request
@@ -5942,6 +5993,7 @@ stamped: `loginUserId` is written to `CreatedBy` on add only.
   "projectId": 5,
   "approverId": 58,
   "isTimesheetApprover": true,
+  "isLeaveApprover": false,
   "loginUserId": 7
 }
 ```
@@ -5954,17 +6006,22 @@ message `Approver setup saved.`
 #### Error responses
 
 **400** — every failing field together: a negative id, a missing
-`organizationId` / `projectId` / `approverId` / `loginUserId`, a project not in
-the organisation, or an approver who is not a live user of it.
+`organizationId` / `projectId` / `approverId` / `loginUserId`, both approver
+flags false, a project not in the organisation, or an approver who is not a
+live user of it.
 
 **404** — an id was sent, but no live setup of the organisation has it:
 `Approver setup '3' was not found.`
 
-**409** — the project already has another approver:
+**409** — an area this save claims already has a live approver. The message
+names each one held:
 
 ```json
-{ "success": false, "message": "Project '5' already has an approver. Edit that setup instead.", "data": null, "errors": [] }
+{ "success": false, "message": "Project '5' already has a timesheet approver. Edit that setup instead.", "data": null, "errors": [] }
 ```
+
+`Organization '12' already has a leave approver. Edit that setup instead.` is
+the leave form; both sentences appear together when both areas are held.
 
 **500** — unhandled defect, or the procedure has not been created in the
 database yet. Also the loser of two saves for the same project racing past
@@ -6077,6 +6134,7 @@ GET /api/v1/TimesheetProject/get-project-timesheet-user-details-by-userID/149
 | `currencyName` | string \| null | |
 | `currencySymbol` | string \| null | Not unique — show it beside `currencyName` |
 | `timeZone` | string \| null | The IANA zone of the user's timesheet setup |
+| `isOnLeave` | bool | `true` when one of the user's **approved** leave applications ([68](#68-approve--reject-user-leave-apply)) runs from on or before today to on or after it — today being the user's own date in `timeZone` (UTC when null). Submitted and rejected leave do not count |
 | `projects` | array | Every live assignment, by project name. **Never empty** — a user with no live assignment is a 404 |
 
 Each item of `projects`:
@@ -6140,6 +6198,7 @@ Each project shows **one** country and currency — its own (`projectCurrency…
     "currencyName": "Indian rupee",
     "currencySymbol": "₹",
     "timeZone": null,
+    "isOnLeave": false,
     "projects": [
       {
         "timesheetUserProjectSetupId": 21,
@@ -6192,6 +6251,648 @@ that does not exist, a deleted user, and a live user who is on no project:
 
 **500** — unhandled defect, or the procedure has not been created in the
 database yet.
+
+---
+
+### 59. Leave Setup List
+
+`GET /api/v1/TimesheetProject/get-timesheet-leave-setup?orgID={orgID}`
+
+**Purpose** — The live leave types of one organisation from
+`dbo.Timesheet_Leavetype_Setup` — "Casual Leave", "Sick Leave" … — with the
+days allocated for each, ordered by name. Read through
+`dbo.spc_GetTimesheetLeaveSetup`.
+
+#### Query parameters
+
+| Name | Type | Rules |
+|---|---|---|
+| `orgID` | int | **Required**, `> 0` |
+
+#### Success response — `200 OK`
+
+`data` is a list of `TimesheetLeaveSetupResponse`:
+
+| Field | Type | Notes |
+|---|---|---|
+| `leaveTypeId` | int | `LeaveTypeID` |
+| `organizationId` | int \| null | `OrgID` |
+| `leaveType` | string \| null | The name |
+| `noOfLeaveAllocated` | decimal \| null | `NoofLeaveAllocated` — days, up to two decimal places |
+
+The audit columns (`CreateDate`, `CreatedBy`, `UpdatedDate`, `UpdatedBy`) are
+written but not returned.
+
+```json
+{
+  "success": true,
+  "message": "Request completed successfully.",
+  "data": [
+    {
+      "leaveTypeId": 3,
+      "organizationId": 12,
+      "leaveType": "Sick Leave",
+      "noOfLeaveAllocated": 12.00
+    }
+  ],
+  "errors": []
+}
+```
+
+No leave types is an empty list, not a 404.
+
+#### Error responses
+
+**400** — `orgID` missing or `<= 0`.
+
+**500** — unhandled defect, or the procedure has not been created in the
+database yet.
+
+---
+
+### 60. Add / Edit Leave Setup
+
+`POST /api/v1/TimesheetProject/add-edit-timesheet-leave-setup`
+
+**Purpose** — Add a leave type to an organisation, or edit one — **one
+endpoint for both**. `leaveTypeId` `0` (or absent) adds; an existing id edits
+it, and it must belong to `organizationId`. An edit overwrites `leaveType` and
+`noOfLeaveAllocated`, so send both, and stamps `UpdatedDate` / `UpdatedBy`.
+Written through `dbo.spc_AddEditTimesheetLeaveSetup`.
+
+Two leave types of one organisation may share a name — nothing checks for
+duplicates, as with project categories and statuses.
+
+#### Request body — `TimesheetLeaveSetupSaveRequest` (JSON)
+
+| Field | Type | Required | Rules |
+|---|---|---|---|
+| `leaveTypeId` | int \| null | no | `0` / absent to add; `> 0` to edit a live leave type of `organizationId` |
+| `organizationId` | int | yes | `> 0`. Not changed by an edit |
+| `leaveType` | string | yes | Not blank; at most 50 characters after trimming |
+| `noOfLeaveAllocated` | decimal | yes | `0` to `99.99`, at most two decimal places (`1.5` is allowed, `1.555` is not) |
+| `loginUserId` | int | yes | `> 0`. Written to `CreatedBy` on add, `UpdatedBy` on edit. Temporary — from the token once authentication is on |
+
+#### Example request
+
+```json
+{
+  "leaveTypeId": 0,
+  "organizationId": 12,
+  "leaveType": "Sick Leave",
+  "noOfLeaveAllocated": 12,
+  "loginUserId": 7
+}
+```
+
+#### Success response — `200 OK`
+
+`data` is the saved `TimesheetLeaveSetupResponse` (fields as in 59), with
+message `Leave type saved.`
+
+#### Error responses
+
+**400** — every failing field together: a negative id, a missing
+`organizationId` / `loginUserId`, a blank or over-long `leaveType`, or a
+missing or out-of-range `noOfLeaveAllocated`.
+
+**404** — an id was sent, but no live leave type of the organisation has it:
+`Leave type '3' was not found.`
+
+**500** — unhandled defect, or the procedure has not been created in the
+database yet.
+
+---
+
+### 61. Remove Leave Setup
+
+`POST /api/v1/TimesheetProject/remove-timesheet-leave-setup`
+
+**Purpose** — Remove a leave type of an organisation. **A soft delete**: the
+row is stamped with `IsDelete = 1`, `DeletedDate` and `DeletedBy` and kept;
+the list and the add/edit no longer see it. By the API through EF Core; no
+stored procedure.
+
+#### Request body — `TimesheetLeaveSetupDeleteRequest` (JSON)
+
+| Field | Type | Required | Rules |
+|---|---|---|---|
+| `leaveTypeId` | int | yes | `> 0` |
+| `organizationId` | int | yes | `> 0`; the leave type must belong to it |
+| `deletedBy` | int | yes | `> 0`. Written to `DeletedBy`. Temporary — from the token once authentication is on |
+
+#### Example request
+
+```json
+{ "leaveTypeId": 3, "organizationId": 12, "deletedBy": 7 }
+```
+
+#### Success response — `200 OK`
+
+```json
+{ "success": true, "message": "Leave type removed.", "data": null, "errors": [] }
+```
+
+#### Error responses
+
+**400** — `leaveTypeId`, `organizationId` or `deletedBy` `<= 0`.
+
+**404** — no live leave type of the organisation has that id. Removing one
+twice is **not** a silent success: `Leave type '3' was not found.`
+
+**500** — unhandled defect.
+
+---
+
+### 62. User Leave Assignment List
+
+`GET /api/v1/TimesheetProject/get-timesheet-user-leave-assignment?orgID={orgID}&userID={userID}`
+
+**Purpose** — The live leave assignments in `dbo.Timesheet_Leave_assignment_user`
+— which leave types each user holds and the balance left — with the user's
+name and email and the leave type's name and allocation. Read through
+`dbo.spc_GetTimesheetUserLeaveAssignment`. Only live users are included.
+
+#### Query parameters
+
+| Name | Type | Rules |
+|---|---|---|
+| `orgID` | int \| absent | `>= 0`. Absent or `0` = not filtered by organisation. The table has no organisation column, so this is the **user's** organisation |
+| `userID` | int \| absent | `>= 0`. Absent or `0` = not filtered by user |
+
+| Sent | Returns |
+|---|---|
+| `orgID` only | Every assignment of the organisation's live users |
+| `userID` only | That user's assignments |
+| both | That user's assignments, if the user is in the organisation |
+| neither | **400** — the whole table is never returned |
+
+#### Success response — `200 OK`
+
+`data` is a list of `TimesheetUserLeaveAssignmentResponse`, ordered by user
+name, then leave type:
+
+| Field | Type | Notes |
+|---|---|---|
+| `timesheetLeaveAssignmentUserId` | int | `TimesheetLeaveAssignmentUserID` |
+| `userId` | int \| null | |
+| `userName` | string \| null | `dbo.Signup.Name` |
+| `email` | string \| null | `dbo.Signup.Email` |
+| `organizationId` | int \| null | `dbo.Signup.OrganizationID` |
+| `leaveTypeId` | int \| null | The `LeavetypeID` column |
+| `leaveType` | string \| null | `dbo.Timesheet_Leavetype_Setup.LeaveType`; `null` when the leave type is unknown |
+| `noOfLeaveAllocated` | decimal \| null | The leave type's allocation |
+| `balanceLeave` | decimal \| null | The leave the user has left |
+
+The audit columns are written but not returned, as in Leave Setup List.
+
+```json
+{
+  "success": true,
+  "message": "Request completed successfully.",
+  "data": [
+    {
+      "timesheetLeaveAssignmentUserId": 4,
+      "userId": 58,
+      "userName": "Asha Mehta",
+      "email": "asha@example.com",
+      "organizationId": 12,
+      "leaveTypeId": 3,
+      "leaveType": "Sick Leave",
+      "noOfLeaveAllocated": 12.00,
+      "balanceLeave": 10.50
+    }
+  ],
+  "errors": []
+}
+```
+
+#### Error responses
+
+**400** — neither filter sent, or one is negative.
+
+**500** — unhandled defect, or the procedure has not been created in the
+database yet.
+
+---
+
+### 63. Add / Edit User Leave Assignment
+
+Two endpoints, each with its own procedure:
+
+| | Add | Edit |
+|---|---|---|
+| Endpoint | `POST /api/v1/TimesheetProject/add-timesheet-user-leave-assignment` | `POST /api/v1/TimesheetProject/edit-timesheet-user-leave-assignment` |
+| Procedure | `dbo.spc_AddTimesheetUserLeaveAssignment` | `dbo.spc_EditTimesheetUserLeaveAssignment` |
+| Body | `TimesheetUserLeaveAssignmentAddRequest` | `TimesheetUserLeaveAssignmentEditRequest` |
+| Balance | **Not sent.** Starts at the leave type's `NoofLeaveAllocated` | **Optional `balanceLeave`.** Sent, it replaces the balance; left out or `null`, the balance is **not changed** — even when the leave type is |
+| Stamps | `CreatedDate` / `CreatedBy` | `UpdatedDate` / `UpdatedBy` |
+| Message | `Leave assignment added.` | `Leave assignment updated.` |
+
+After that, approving leave (68) takes days from the balance and removing
+approved leave (67) gives them back.
+
+**One assignment per user and leave type.** Assigning a leave type the user
+already holds — by adding, or by editing another assignment onto it — is a
+**409**; each procedure checks again under a lock. A removed assignment does
+not count, so the leave type can be assigned again. The table does not
+enforce the rule: no unique constraint was reported.
+
+#### Add — request body (JSON)
+
+| Field | Type | Required | Rules |
+|---|---|---|---|
+| `organizationId` | int | yes | `> 0`. **Not stored** — the table has no organisation column — but the user and the leave type must belong to it |
+| `userId` | int | yes | `> 0`; a live user (`dbo.Signup.IsDelete = 0`) of `organizationId` who does not hold this leave type already |
+| `leaveTypeId` | int | yes | `> 0`; a live leave type of `organizationId` |
+| `loginUserId` | int | yes | `> 0`. Written to `CreatedBy`. Temporary — from the token once authentication is on |
+
+```json
+{ "organizationId": 12, "userId": 58, "leaveTypeId": 3, "loginUserId": 7 }
+```
+
+#### Edit — request body (JSON)
+
+| Field | Type | Required | Rules |
+|---|---|---|---|
+| `timesheetLeaveAssignmentUserId` | int | yes | `> 0`; a live assignment whose current user belongs to `organizationId` |
+| `organizationId` | int | yes | `> 0`. The new user and the leave type must belong to it too |
+| `userId` | int | yes | `> 0`; a live user of `organizationId` who does not hold this leave type in **another** assignment. Overwrites the assignment's user |
+| `leaveTypeId` | int | yes | `> 0`; a live leave type of `organizationId`. Overwrites the assignment's leave type |
+| `balanceLeave` | decimal \| null | no | `0` to `99.99`, at most two decimal places. Left out or `null` keeps the balance |
+| `loginUserId` | int | yes | `> 0`. Written to `UpdatedBy`. Temporary — from the token once authentication is on |
+
+```json
+{ "timesheetLeaveAssignmentUserId": 4, "organizationId": 12, "userId": 58, "leaveTypeId": 3, "balanceLeave": 10.5, "loginUserId": 7 }
+```
+
+#### Success response — `200 OK`
+
+`data` is the saved `TimesheetUserLeaveAssignmentResponse` (fields as in 62).
+
+#### Error responses
+
+**400** — every failing field together: a missing or non-positive id, a
+missing `organizationId` / `userId` / `leaveTypeId` / `loginUserId`, an
+out-of-range `balanceLeave` (edit), a user who is not a live user of the
+organisation, or a leave type that is not a live leave type of it.
+
+**404** — edit only: no live assignment of the organisation has the id:
+`Leave assignment '4' was not found.`
+
+**409** — the user already holds the leave type:
+
+```json
+{ "success": false, "message": "User '58' already has leave type '3' assigned. Edit that assignment instead.", "data": null, "errors": [] }
+```
+
+**500** — unhandled defect, or the procedure has not been created in the
+database yet. Also the loser of two saves for the same user and leave type
+racing past the 409 check.
+
+---
+
+### 64. Remove User Leave Assignment
+
+`POST /api/v1/TimesheetProject/remove-timesheet-user-leave-assignment`
+
+**Purpose** — Remove a leave assignment. **A soft delete**: the row is stamped
+with `IsDelete = 1`, `DeletedDate` and `DeletedBy` and kept; the list and the
+add/edit no longer see it, so the user may be assigned the leave type again.
+By the API through EF Core; no stored procedure.
+
+#### Request body — `TimesheetUserLeaveAssignmentDeleteRequest` (JSON)
+
+| Field | Type | Required | Rules |
+|---|---|---|---|
+| `timesheetLeaveAssignmentUserId` | int | yes | `> 0` |
+| `organizationId` | int | yes | `> 0`; the assignment's user must belong to it |
+| `deletedBy` | int | yes | `> 0`. Written to `DeletedBy`. Temporary — from the token once authentication is on |
+
+#### Example request
+
+```json
+{ "timesheetLeaveAssignmentUserId": 4, "organizationId": 12, "deletedBy": 7 }
+```
+
+#### Success response — `200 OK`
+
+```json
+{ "success": true, "message": "Leave assignment removed.", "data": null, "errors": [] }
+```
+
+#### Error responses
+
+**400** — `timesheetLeaveAssignmentUserId`, `organizationId` or `deletedBy`
+`<= 0`.
+
+**404** — no live assignment of the organisation has that id. Removing one
+twice is **not** a silent success: `Leave assignment '4' was not found.`
+
+**500** — unhandled defect.
+
+---
+
+### 65. User Leave Apply List
+
+`GET /api/v1/TimesheetProject/get-timesheet-user-leave-apply?orgID={orgID}&userID={userID}`
+
+**Purpose** — The leave applications in `dbo.Timesheet_Leave_User_apply`,
+newest first, with the user's name and email, the leave type's name, and the
+status's name from `dbo.TimesheetLeaveStatus_Lookup`. Read through
+`dbo.spc_GetTimesheetUserLeaveApply`. Only live users are included.
+
+#### Query parameters
+
+| Name | Type | Rules |
+|---|---|---|
+| `orgID` | int \| absent | `>= 0`. Absent or `0` = not filtered. The application's `OrgID` |
+| `userID` | int \| absent | `>= 0`. Absent or `0` = not filtered |
+
+At least one is required; neither is a **400**.
+
+#### Success response — `200 OK`
+
+`data` is a list of `TimesheetUserLeaveApplyResponse`, ordered by `startDate`
+descending:
+
+| Field | Type | Notes |
+|---|---|---|
+| `timesheetLeaveUserApplyId` | int | The primary key |
+| `leaveId` | int | The running leave number, assigned on apply |
+| `userId` | int \| null | |
+| `userName` | string \| null | `dbo.Signup.Name` |
+| `email` | string \| null | `dbo.Signup.Email` |
+| `organizationId` | int \| null | The `OrgID` column |
+| `leaveTypeId` | int \| null | The `LeavetypeID` column |
+| `leaveType` | string \| null | `dbo.Timesheet_Leavetype_Setup.LeaveType` |
+| `startDate` | datetime \| null | First day of leave |
+| `endDate` | datetime \| null | Last day of leave |
+| `noOfDays` | decimal \| null | The `NoofDays` column — half days allowed |
+| `userComments` | string \| null | |
+| `approverComments` | string \| null | |
+| `leaveStatus` | int \| null | A `dbo.TimesheetLeaveStatus_Lookup.Value` |
+| `leaveStatusName` | string \| null | That row's `Text` — `Submitted`, `Approved`, `Rejected` |
+| `approvedDate` | datetime \| null | |
+| `approvedBy` | int \| null | |
+| `rejectedDate` | datetime \| null | |
+| `rejectedBy` | int \| null | |
+
+```json
+{
+  "success": true,
+  "message": "Request completed successfully.",
+  "data": [
+    {
+      "timesheetLeaveUserApplyId": 9,
+      "leaveId": 9,
+      "userId": 58,
+      "userName": "Asha Mehta",
+      "email": "asha@example.com",
+      "organizationId": 12,
+      "leaveTypeId": 3,
+      "leaveType": "Sick Leave",
+      "startDate": "2026-11-02T00:00:00",
+      "endDate": "2026-11-03T00:00:00",
+      "noOfDays": 2.00,
+      "userComments": "Family function",
+      "approverComments": null,
+      "leaveStatus": 1,
+      "leaveStatusName": "Submitted",
+      "approvedDate": null,
+      "approvedBy": null,
+      "rejectedDate": null,
+      "rejectedBy": null
+    }
+  ],
+  "errors": []
+}
+```
+
+#### Error responses
+
+**400** — neither filter sent, or one is negative.
+
+**500** — unhandled defect, or the procedure has not been created in the
+database yet.
+
+---
+
+### 66. Add / Edit User Leave Apply
+
+`POST /api/v1/TimesheetProject/add-edit-timesheet-user-leave-apply`
+
+**Purpose** — Apply for leave, or edit an application — **one endpoint for
+both**. Written through `dbo.spc_AddEditTimesheetUserLeaveApply`.
+
+- **Apply** (`timesheetLeaveUserApplyId` `0` or absent): saved as
+  **Submitted**, with the next `leaveId` (the highest in the table plus one).
+  The organisation's leave approvers are then emailed — see *The email*.
+- **Edit** (an existing id): must be the user's own application. Overwrites
+  the leave type, the dates and the comment, so send them all, and
+  puts the application back to **Submitted** — a rejected one is resubmitted,
+  its `rejectedDate` / `rejectedBy` cleared. `approverComments` are kept. No
+  email is sent for an edit.
+- **An approved application cannot be edited** — a **400**.
+- **The days are not sent.** `noOfDays` is worked out from the dates: every
+  calendar day from `startDate` to `endDate`, both counted — 2 to 3 November
+  is `2`. Weekends and holidays are counted too.
+
+The balance is **not** touched here: applying takes nothing from
+`BalanceLeave`. Statuses are read from `dbo.TimesheetLeaveStatus_Lookup` by
+name, never hard-coded.
+
+**The email.** After a successful apply, the organisation's leave approver —
+the approver of its live approver setup with `isLeaveApprover` true (see
+[Approver Setup](#56-add--edit-approver-setup)) — is sent `LeaveAppliedTemplate.html`, subject *Leave Applied for Approval*:
+who applied, for which leave type, from and to which dates, for how many days,
+and the user's comment. It is fire-and-forget: no approver, an approver with
+no email, or a failed send is logged, and the apply still answers 200.
+
+#### Request body — `TimesheetUserLeaveApplySaveRequest` (JSON)
+
+| Field | Type | Required | Rules |
+|---|---|---|---|
+| `timesheetLeaveUserApplyId` | int \| null | no | `0` / absent to apply; `> 0` to edit the user's own, not approved application |
+| `organizationId` | int | yes | `> 0`. Written to `OrgID` on apply; the user and the leave type must belong to it. An edit must name an application of it |
+| `userId` | int | yes | `> 0`; a live user of `organizationId` |
+| `leaveTypeId` | int | yes | `> 0`; a live leave type of `organizationId` that the user is **assigned** ([User Leave Assignment](#63-add--edit-user-leave-assignment)) |
+| `startDate` | date | yes | Any time part is ignored |
+| `endDate` | date | yes | Not before `startDate`, and at most 99 days from it (both counted); any time part is ignored |
+| `userComments` | string \| null | no | Trimmed. An edit that leaves it out clears it |
+| `loginUserId` | int | yes | `> 0`. Written to `CreatedBy` on apply. The table has no updated columns, so an edit records nobody |
+
+#### Example request
+
+```json
+{
+  "timesheetLeaveUserApplyId": 0,
+  "organizationId": 12,
+  "userId": 58,
+  "leaveTypeId": 3,
+  "startDate": "2026-11-02",
+  "endDate": "2026-11-03",
+  "userComments": "Family function",
+  "loginUserId": 58
+}
+```
+
+#### Success response — `200 OK`
+
+`data` is the saved `TimesheetUserLeaveApplyResponse` (fields as in 65), with
+message `Leave application saved.`
+
+#### Error responses
+
+**400** — every failing field together (missing or non-positive ids, missing
+or reversed dates, dates more than 99 days apart, a user, leave type or assignment
+that does not exist); or, on its own, an approved application:
+
+```json
+{ "success": false, "message": "Leave application '9' is approved, so it can no longer be changed.", "data": null, "errors": [] }
+```
+
+**404** — an id was sent, but no application of this user in the organisation
+has it: `Leave application '9' was not found.`
+
+**500** — unhandled defect, or the procedure has not been created in the
+database yet (or `dbo.TimesheetLeaveStatus_Lookup` has no `Submitted` row —
+error `50002`).
+
+---
+
+### 67. Remove User Leave Apply
+
+`POST /api/v1/TimesheetProject/remove-timesheet-user-leave-apply`
+
+**Purpose** — Remove a leave application. **A hard delete**: the table has no
+soft-delete column, so the row is physically removed. By the API through EF
+Core; no stored procedure.
+
+**The balance.**
+
+| The application was | On remove |
+|---|---|
+| **Approved** | Its `noOfDays` are **added back** to the user's `BalanceLeave` for that leave type, with `UpdatedDate` / `UpdatedBy` stamped — in the same transaction as the delete |
+| Submitted or Rejected | The balance is **not touched** |
+
+If the user no longer holds the leave type, the application is still removed
+and the days are not given back (logged as a warning). Giving back days that
+would take the balance past `99.99` — which the column cannot hold — is a
+**400**, and nothing is deleted.
+
+#### Request body — `TimesheetUserLeaveApplyDeleteRequest` (JSON)
+
+| Field | Type | Required | Rules |
+|---|---|---|---|
+| `timesheetLeaveUserApplyId` | int | yes | `> 0` |
+| `organizationId` | int | yes | `> 0`; the application's `OrgID` |
+| `deletedBy` | int | yes | `> 0`. Written to the balance's `UpdatedBy` when days are given back, and logged — the deleted row cannot record it |
+
+#### Example request
+
+```json
+{ "timesheetLeaveUserApplyId": 9, "organizationId": 12, "deletedBy": 7 }
+```
+
+#### Success response — `200 OK`
+
+```json
+{ "success": true, "message": "Leave application removed.", "data": null, "errors": [] }
+```
+
+#### Error responses
+
+**400** — `timesheetLeaveUserApplyId`, `organizationId` or `deletedBy` `<= 0`,
+or the balance would pass `99.99`.
+
+**404** — no application of the organisation has that id. Removing one twice
+is **not** a silent success: `Leave application '9' was not found.`
+
+**500** — unhandled defect.
+
+---
+
+### 68. Approve / Reject User Leave Apply
+
+`POST /api/v1/TimesheetProject/update-timesheet-user-leave-apply-status`
+
+**Purpose** — Approve or reject a submitted leave application in
+`dbo.Timesheet_Leave_User_apply`. By the API through EF Core; no stored
+procedure. The response is read back through
+`dbo.spc_GetTimesheetUserLeaveApply`.
+
+**Who may decide.** Only a leave approver of the organisation, and only on that
+organisation's leave:
+
+- `addedBy` must be a live user (`dbo.Signup.IsDelete = 0`) of
+  `organizationId`, **and** the organisation's leave approver (its live
+  approver setup with `isLeaveApprover` true) — otherwise **403**.
+- The application must belong to `organizationId` (its `OrgID`) — otherwise
+  **404**, so another organisation's leave cannot even be seen to exist.
+
+**What happens.**
+
+| Decision | Status | Stamped | Balance |
+|---|---|---|---|
+| Approve | Approved | `ApprovedDate`, `ApprovedBy` | `noOfDays` **taken** from the user's `BalanceLeave` for the leave type, in the same transaction. A balance too small, or a user no longer assigned the leave type, is a **400** and nothing changes |
+| Reject | Rejected | `RejectedDate`, `RejectedBy` | Not touched |
+
+Only a **Submitted** application can be decided — anything else is a **409**.
+Approved is final (it cannot be edited, see 66; removing it gives the days
+back, see 67). A rejected application goes back to the user, who edits it to
+resubmit it, and it can then be decided again.
+
+Statuses are read from `dbo.TimesheetLeaveStatus_Lookup` by name, never
+hard-coded: `leaveStatus` must be the `Value` of its *Approved* or *Rejected*
+row (2 or 3 today).
+
+#### Request body — `TimesheetUserLeaveApplyStatusUpdateRequest` (JSON)
+
+| Field | Type | Required | Rules |
+|---|---|---|---|
+| `timesheetLeaveUserApplyId` | int | yes | `> 0`; a **submitted** application of `organizationId` |
+| `organizationId` | int | yes | `> 0` |
+| `leaveStatus` | int | yes | The lookup's Approved or Rejected `Value` |
+| `approverComments` | string \| null | when rejecting | Trimmed, written to `ApproverComments`. Optional when approving — left out, an existing note is kept |
+| `addedBy` | int | yes | `> 0`; a live user and leave approver of `organizationId`. Written to `ApprovedBy` / `RejectedBy`. Temporary — from the token once authentication is on |
+
+#### Example requests
+
+```json
+{ "timesheetLeaveUserApplyId": 9, "organizationId": 12, "leaveStatus": 2, "approverComments": "Enjoy your break.", "addedBy": 3 }
+```
+
+```json
+{ "timesheetLeaveUserApplyId": 9, "organizationId": 12, "leaveStatus": 3, "approverComments": "Release week - please move it.", "addedBy": 3 }
+```
+
+#### Success response — `200 OK`
+
+`data` is the `TimesheetUserLeaveApplyResponse` after the change (fields as in
+65), with message `Leave application approved.` or `Leave application
+rejected.`
+
+#### Error responses
+
+**400** — every failing field together (non-positive ids, a `leaveStatus` that
+is not Approved or Rejected, a rejection with no `approverComments`); or, on
+approval, a balance smaller than `noOfDays`:
+
+```json
+{ "success": false, "message": "Leave application '9' is for 2 day(s), but the user's balance is 1.5.", "data": null, "errors": [] }
+```
+
+**403** — `addedBy` is not a leave approver of the organisation:
+`User '3' is not a leave approver of organization '12'.`
+
+**404** — no application of the organisation has that id.
+
+**409** — the application is not submitted:
+`Leave application '9' is not submitted, so it cannot be approved or rejected.`
+
+**500** — unhandled defect, or the list procedure (65) has not been created
+yet — the decision is saved before the read-back.
 
 ---
 
@@ -6361,9 +7062,20 @@ authentication is off.
 | 53 | Submit Project Timesheet | POST | `/api/v1/TimesheetProject/submit-timesheet-project-sheet` | Submit one period, by code or `periodDate`, on or after its last day (user's time zone); first submit creates the row as Submitted with the time log's code; audit logged | `TimesheetProjectSheetSubmitRequest` | `TimesheetProjectSheetResponse` | 400, 409, 500 |
 | 54 | Approve / Reject Project Timesheet | POST | `/api/v1/TimesheetProject/update-timesheet-project-sheet-status` | Approve (2) or reject (3, with reason) a submitted sheet; audit logged | `TimesheetProjectSheetStatusUpdateRequest` | `TimesheetProjectSheetResponse` | 400, 403, 404, 409, 500 |
 | 55 | Approver Setup List | GET | `/api/v1/TimesheetProject/get-timesheet-approver-setup?orgID=&projectID=` | Live approver setups of an organisation, a project or both | query params (at least one) | `TimesheetApproverSetupResponse[]` | 400, 500 |
-| 56 | Add / Edit Approver Setup | POST | `/api/v1/TimesheetProject/add-edit-timesheet-approver-setup` | Add a project's approver (`timesheetApproverSetupId` 0 / absent) or edit one; one approver per project | `TimesheetApproverSetupSaveRequest` | `TimesheetApproverSetupResponse` | 400, 404, 409, 500 |
+| 56 | Add / Edit Approver Setup | POST | `/api/v1/TimesheetProject/add-edit-timesheet-approver-setup` | Add a project's approver (`timesheetApproverSetupId` 0 / absent) or edit one; one timesheet approver per project, one leave approver per organisation | `TimesheetApproverSetupSaveRequest` | `TimesheetApproverSetupResponse` | 400, 404, 409, 500 |
 | 57 | Remove Approver Setup | POST | `/api/v1/TimesheetProject/remove-timesheet-approver-setup` | Soft-delete an approver setup by its id | `TimesheetApproverSetupDeleteRequest` | `null` | 400, 404, 500 |
 | 58 | Timesheet User Details | GET | `/api/v1/TimesheetProject/get-project-timesheet-user-details-by-userID/{userID}` | One user's details and their projects, each with its own currency and country, its client, expected hours, total and current-period logged hours | route param | `TimesheetUserDetailsResponse` | 400, 404, 500 |
+| 59 | Leave Setup List | GET | `/api/v1/TimesheetProject/get-timesheet-leave-setup?orgID=` | Live leave types of an organisation, by name | query param (required) | `TimesheetLeaveSetupResponse[]` | 400, 500 |
+| 60 | Add / Edit Leave Setup | POST | `/api/v1/TimesheetProject/add-edit-timesheet-leave-setup` | Add a leave type (`leaveTypeId` 0 / absent) or edit one | `TimesheetLeaveSetupSaveRequest` | `TimesheetLeaveSetupResponse` | 400, 404, 500 |
+| 61 | Remove Leave Setup | POST | `/api/v1/TimesheetProject/remove-timesheet-leave-setup` | Soft-delete a leave type of an organisation | `TimesheetLeaveSetupDeleteRequest` | `null` | 400, 404, 500 |
+| 62 | User Leave Assignment List | GET | `/api/v1/TimesheetProject/get-timesheet-user-leave-assignment?orgID=&userID=` | Live leave assignments of an organisation, a user or both, with balances | query params (at least one) | `TimesheetUserLeaveAssignmentResponse[]` | 400, 500 |
+| 63 | Add User Leave Assignment | POST | `/api/v1/TimesheetProject/add-timesheet-user-leave-assignment` | Assign a leave type to a user; the balance starts at the type's allocation; one per user and leave type | `TimesheetUserLeaveAssignmentAddRequest` | `TimesheetUserLeaveAssignmentResponse` | 400, 409, 500 |
+| 63 | Edit User Leave Assignment | POST | `/api/v1/TimesheetProject/edit-timesheet-user-leave-assignment` | Edit an assignment; optional `balanceLeave`, `null` keeps it | `TimesheetUserLeaveAssignmentEditRequest` | `TimesheetUserLeaveAssignmentResponse` | 400, 404, 409, 500 |
+| 64 | Remove User Leave Assignment | POST | `/api/v1/TimesheetProject/remove-timesheet-user-leave-assignment` | Soft-delete a leave assignment of an organisation | `TimesheetUserLeaveAssignmentDeleteRequest` | `null` | 400, 404, 500 |
+| 65 | User Leave Apply List | GET | `/api/v1/TimesheetProject/get-timesheet-user-leave-apply?orgID=&userID=` | Leave applications of an organisation, a user or both, newest first, with status names from the lookup | query params (at least one) | `TimesheetUserLeaveApplyResponse[]` | 400, 500 |
+| 66 | Add / Edit User Leave Apply | POST | `/api/v1/TimesheetProject/add-edit-timesheet-user-leave-apply` | Apply for leave (Submitted, emails the leave approvers) or edit a not-approved application | `TimesheetUserLeaveApplySaveRequest` | `TimesheetUserLeaveApplyResponse` | 400, 404, 500 |
+| 67 | Remove User Leave Apply | POST | `/api/v1/TimesheetProject/remove-timesheet-user-leave-apply` | Hard-delete a leave application; an approved one's days go back to the balance | `TimesheetUserLeaveApplyDeleteRequest` | `null` | 400, 404, 500 |
+| 68 | Approve / Reject User Leave Apply | POST | `/api/v1/TimesheetProject/update-timesheet-user-leave-apply-status` | Approve (takes the days from the balance) or reject a submitted application; leave approvers of the organisation only | `TimesheetUserLeaveApplyStatusUpdateRequest` | `TimesheetUserLeaveApplyResponse` | 400, 403, 404, 409, 500 |
 | — | Health | GET | `/health`, `/health/live`, `/health/ready` | Liveness / readiness | — | *(unenveloped)* | 503 |
 
 ---
@@ -6632,17 +7344,16 @@ Documented so nobody has to rediscover them:
     applied** for endpoints 46–47; until then they answer 500. The approver
     setup itself is in place: Approver Setup List (55) and Approve / Reject
     (54) were run against PPMUAT on 2026-10-23.
-67. **One approver per project is kept by the API and the procedure, not the
-    table.** No unique constraint on `dbo.Timesheet_Approver_setup.ProjectID`
-    was reported. Racing saves behave as in 51 (the loser answers 500), and a
-    row written directly can give a project a second approver — who could then
-    also approve. A filtered unique index on `ProjectID` `WHERE IsDelete = 0`,
-    added by the owner, would close this.
-68. **An approver setup with `isTimesheetApprover` false still takes the
-    project's one slot.** The one-per-project check ignores the flag, so such
-    a project has a setup but nobody who may approve: every Approve / Reject
-    answers 403, and no submission email is sent. Edit the setup to `true`, or
-    remove it, rather than adding another.
+67. **One timesheet approver per project, and one leave approver per
+    organisation, are kept by the API and the procedure, not the table.** No
+    unique constraint on `dbo.Timesheet_Approver_setup` was reported. Racing
+    saves behave as in 51 (the loser answers 500), and a row written directly
+    can add a second approver — who could then also approve. Filtered unique
+    indexes (on `ProjectID` for timesheet approvers, on `OrgID` for leave
+    approvers, live rows only), added by the owner, would close this.
+68. *(Resolved 2026-10-25.)* A setup with `isTimesheetApprover` false used to
+    take the project's one slot. The check is now per area and only counts a
+    flag that is `true`, and a setup with both flags false is refused.
 69. **Approver setup edits record nobody.** `dbo.Timesheet_Approver_setup` has
     no updated columns, so an edit leaves only the original `CreateDate` /
     `CreatedBy`.
@@ -6677,3 +7388,57 @@ Documented so nobody has to rediscover them:
     must be created by the owner from `docs/database/procedures/`. Until then
     [Organisation Timesheet User List](#39-organisation-timesheet-user-list)
     and [Timesheet User Details](#58-timesheet-user-details) answer 500.
+78. **The 2026-10-25 module flags need the user access procedures
+    re-created.** `Mod_IsUserLeaveApply`, `Mod_IsLeaveSetup`,
+    `Mod_IsLeaveAssignmentUser`, `Mod_IsLeaveApproveReject` and
+    `Mod_IsReportView` are on `dbo.Timesheet_role_assignment`, but the API
+    sends and reads them through the drafts of
+    `dbo.spc_AddEditUserAccessSetup` and `dbo.spc_GetUserAccessSetup` in
+    `docs/database/procedures/`. Until the owner applies both, endpoints 46–47
+    answer 500.
+79. **`IsLeaveApprover` needs the approver setup procedures re-created.** The
+    column is on `dbo.Timesheet_Approver_setup`, but the API sends and reads
+    it through the 2026-10-25 drafts of
+    `dbo.spc_AddEditTimesheetApproverSetup` and
+    `dbo.spc_GetTimesheetApproverSetup` in `docs/database/procedures/`. Until
+    the owner applies both, endpoints 55–56 answer 500.
+80. **Leave Setup needs its table and two procedures created.**
+    `dbo.Timesheet_Leavetype_Setup` is recorded from the owner's column list,
+    and `dbo.spc_GetTimesheetLeaveSetup` / `dbo.spc_AddEditTimesheetLeaveSetup`
+    are in `docs/database/procedures/`. The get is the owner's version; the
+    add/edit is still a draft. Until both exist, endpoints 59–60 answer 500
+    (61 needs only the table).
+81. **User Leave Assignment needs its table and three procedures created.**
+    `dbo.Timesheet_Leave_assignment_user` is recorded from the owner's
+    definition, and `dbo.spc_GetTimesheetUserLeaveAssignment` /
+    `dbo.spc_AddTimesheetUserLeaveAssignment` /
+    `dbo.spc_EditTimesheetUserLeaveAssignment` are drafts in
+    `docs/database/procedures/`. Until the owner applies all three,
+    endpoints 62–63 answer 500 (64 needs only the table).
+82. *(Resolved 2026-10-25.)* Approving leave (68) now takes the days from
+    `BalanceLeave`, and removing approved leave (67) gives them back. Still
+    true: editing a leave type's allocation does not touch the balances of
+    users who already hold it. The balance is never sent: it starts at the
+    leave type's allocation, and changes only through approving (68),
+    removing approved leave (67), or an edit that sends `balanceLeave` (63).
+83. **User Leave Apply needs its table and two procedures created.**
+    `dbo.Timesheet_Leave_User_apply` is recorded from the owner's column list,
+    and `dbo.spc_GetTimesheetUserLeaveApply` /
+    `dbo.spc_AddEditTimesheetUserLeaveApply` are drafts in
+    `docs/database/procedures/`. Until the owner applies both, endpoints
+    65–66 answer 500 (67 needs only the tables).
+84. *(Resolved 2026-10-25 by 68.)* **No leave approval yet, so "approved" cannot happen through the API.**
+    The edit lock and the balance give-back on remove both key on the
+    lookup's `Approved` status, which only an approve endpoint (not built)
+    or a direct database write can set. That endpoint must take the days
+    from `BalanceLeave` when it approves, or the give-back on remove will
+    over-credit the balance.
+85. **`LeaveID` is assigned as the highest plus one**, table-wide, because the
+    column is `NOT NULL` and not an identity and its meaning was not stated.
+    It equals `timesheetLeaveUserApplyId` only by coincidence.
+86. **Overlapping applications are not refused.** A user may apply twice for
+    the same days; nothing checks the dates against their other leave.
+87. **A leave approver may approve their own leave.** Nothing stops `addedBy`
+    being the application's own user.
+88. **The applicant is not told the decision.** Approve / Reject (68) sends no
+    email; only applying (66) emails the approvers.

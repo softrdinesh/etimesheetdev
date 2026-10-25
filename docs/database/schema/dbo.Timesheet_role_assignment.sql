@@ -5,6 +5,10 @@
               stated by the owner)
     Revised:  2026-10-20 (Mod_IsViewTimesheet bit NULL added as the last
               column by the database owner)
+    Revised:  2026-10-25 (Mod_IsUserLeaveApply, Mod_IsLeaveSetup,
+              Mod_IsLeaveAssignmentUser, Mod_IsLeaveApproveReject and
+              Mod_IsReportView, all bit NULL, added after Mod_IsViewTimesheet
+              by the database owner)
 
     Which modules of the application a user may use - one bit per module -
     with audit columns.
@@ -40,6 +44,11 @@
           Mod_IsUsersetup        (lower-case "setup")
           Mod_IsTimeLog
           Mod_IsViewTimesheet    (added 2026-10-20, after Updatedby)
+          Mod_IsUserLeaveApply   (added 2026-10-25, with the four below)
+          Mod_IsLeaveSetup
+          Mod_IsLeaveAssignmentUser
+          Mod_IsLeaveApproveReject
+          Mod_IsReportView
         Map each one by its exact name. 1 presumably grants the module; all
         are nullable, so a module may be neither granted nor refused.
       - Audit columns are irregularly cased too: Updatedby (lower-case "by"),
@@ -80,6 +89,11 @@ CREATE TABLE dbo.Timesheet_role_assignment
     CreatedBy               int         NULL,
     UpdatedDate             datetime    NULL,
     Updatedby               int         NULL,
-    Mod_IsViewTimesheet     bit         NULL
+    Mod_IsViewTimesheet     bit         NULL,
+    Mod_IsUserLeaveApply        bit     NULL,
+    Mod_IsLeaveSetup            bit     NULL,
+    Mod_IsLeaveAssignmentUser   bit     NULL,
+    Mod_IsLeaveApproveReject    bit     NULL,
+    Mod_IsReportView            bit     NULL
 );
 GO

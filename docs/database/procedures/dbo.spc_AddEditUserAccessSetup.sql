@@ -3,6 +3,9 @@
     Status:    DRAFT for review - not applied to any database.
     Recorded:  2026-10-18 - DRAFT: new procedure.
     Revised:   2026-10-20 - DRAFT: Mod_IsViewTimesheet added (AS IsViewTimesheet).
+    Revised:   2026-10-25 - DRAFT: Mod_IsUserLeaveApply, Mod_IsLeaveSetup,
+               Mod_IsLeaveAssignmentUser, Mod_IsLeaveApproveReject and
+               Mod_IsReportView added (AS IsUserLeaveApply .. IsReportView).
 
     Adds a user's module assignment to dbo.Timesheet_role_assignment, or edits
     one, and returns the saved row. Called by
@@ -13,7 +16,7 @@
                             edits that assignment.
       @PUserID              the user the assignment is for.
       @PIsClientSetup ..
-      @PIsViewTimesheet     1 grants that module, 0 refuses it - one per
+      @PIsReportView        1 grants that module, 0 refuses it - one per
                             Mod_ column.
       @PLoginUserID         written to CreatedBy on add, Updatedby on edit.
       @PDate                written to CreateDate on add, UpdatedDate on edit
@@ -25,7 +28,7 @@
       it; the new id is read back with SCOPE_IDENTITY().
 
     Edit (@PAssignmentID > 0):
-      Updates UserID and the nine module flags. CreateDate / CreatedBy are
+      Updates UserID and the fourteen module flags. CreateDate / CreatedBy are
       left as they were.
 
     One assignment per user:
@@ -62,6 +65,11 @@ CREATE OR ALTER PROCEDURE [dbo].[spc_AddEditUserAccessSetup]
     @PIsUserSetup         BIT,
     @PIsTimeLog           BIT,
     @PIsViewTimesheet     BIT,
+    @PIsUserLeaveApply    BIT,
+    @PIsLeaveSetup        BIT,
+    @PIsLeaveAssignmentUser BIT,
+    @PIsLeaveApproveReject BIT,
+    @PIsReportView        BIT,
     @PLoginUserID         INT,
     @PDate                DATETIME
 AS
@@ -94,13 +102,15 @@ BEGIN
             (UserID,
              Mod_IsclientSetup, Mod_Isproject, Mod_IsProjectbudget, Mod_IsProjectCategory,
              Mod_IsStatusSetup, Mod_IsRoleSetup, Mod_IsUsersetup, Mod_IsTimeLog,
-             Mod_IsViewTimesheet,
+             Mod_IsViewTimesheet, Mod_IsUserLeaveApply, Mod_IsLeaveSetup,
+             Mod_IsLeaveAssignmentUser, Mod_IsLeaveApproveReject, Mod_IsReportView,
              CreateDate, CreatedBy)
         VALUES
             (@PUserID,
              @PIsClientSetup, @PIsProject, @PIsProjectBudget, @PIsProjectCategory,
              @PIsStatusSetup, @PIsRoleSetup, @PIsUserSetup, @PIsTimeLog,
-             @PIsViewTimesheet,
+             @PIsViewTimesheet, @PIsUserLeaveApply, @PIsLeaveSetup,
+             @PIsLeaveAssignmentUser, @PIsLeaveApproveReject, @PIsReportView,
              @PDate, @PLoginUserID);
 
         SET @AssignmentID = CAST(SCOPE_IDENTITY() AS INT);
@@ -118,6 +128,11 @@ BEGIN
             Mod_IsUsersetup       = @PIsUserSetup,
             Mod_IsTimeLog         = @PIsTimeLog,
             Mod_IsViewTimesheet   = @PIsViewTimesheet,
+            Mod_IsUserLeaveApply  = @PIsUserLeaveApply,
+            Mod_IsLeaveSetup      = @PIsLeaveSetup,
+            Mod_IsLeaveAssignmentUser = @PIsLeaveAssignmentUser,
+            Mod_IsLeaveApproveReject  = @PIsLeaveApproveReject,
+            Mod_IsReportView      = @PIsReportView,
             UpdatedDate           = @PDate,
             Updatedby             = @PLoginUserID
         WHERE AssignmentID = @AssignmentID;
@@ -143,6 +158,11 @@ BEGIN
         tra.Mod_IsUsersetup         AS IsUserSetup,
         tra.Mod_IsTimeLog           AS IsTimeLog,
         tra.Mod_IsViewTimesheet     AS IsViewTimesheet,
+        tra.Mod_IsUserLeaveApply    AS IsUserLeaveApply,
+        tra.Mod_IsLeaveSetup        AS IsLeaveSetup,
+        tra.Mod_IsLeaveAssignmentUser AS IsLeaveAssignmentUser,
+        tra.Mod_IsLeaveApproveReject AS IsLeaveApproveReject,
+        tra.Mod_IsReportView        AS IsReportView,
         tra.CreateDate              AS CreateDate,
         tra.CreatedBy               AS CreatedBy,
         tra.UpdatedDate             AS UpdatedDate,

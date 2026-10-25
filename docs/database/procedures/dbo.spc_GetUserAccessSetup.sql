@@ -3,6 +3,9 @@
     Status:    DRAFT for review - not applied to any database.
     Recorded:  2026-10-18 - DRAFT: new procedure.
     Revised:   2026-10-20 - DRAFT: Mod_IsViewTimesheet added (AS IsViewTimesheet).
+    Revised:   2026-10-25 - DRAFT: Mod_IsUserLeaveApply, Mod_IsLeaveSetup,
+               Mod_IsLeaveAssignmentUser, Mod_IsLeaveApproveReject and
+               Mod_IsReportView added (AS IsUserLeaveApply .. IsReportView).
 
     Returns the module assignments in dbo.Timesheet_role_assignment, filtered
     by organisation, user or both, for
@@ -38,7 +41,9 @@
       AssignmentID, UserID, UserName (from dbo.Signup.Name), Email,
       OrganizationID (from dbo.Signup), IsClientSetup, IsProject,
       IsProjectBudget, IsProjectCategory, IsStatusSetup, IsRoleSetup,
-      IsUserSetup, IsTimeLog, IsViewTimesheet (aliased from the Mod_ columns), CreateDate,
+      IsUserSetup, IsTimeLog, IsViewTimesheet, IsUserLeaveApply, IsLeaveSetup,
+      IsLeaveAssignmentUser, IsLeaveApproveReject, IsReportView (aliased from the Mod_
+      columns), CreateDate,
       CreatedBy, UpdatedDate, UpdatedBy (aliased from Updatedby). The aliases
       are what the EF Core result mapping binds to.
 
@@ -76,6 +81,11 @@ BEGIN
         tra.Mod_IsUsersetup         AS IsUserSetup,
         tra.Mod_IsTimeLog           AS IsTimeLog,
         tra.Mod_IsViewTimesheet     AS IsViewTimesheet,
+        tra.Mod_IsUserLeaveApply    AS IsUserLeaveApply,
+        tra.Mod_IsLeaveSetup        AS IsLeaveSetup,
+        tra.Mod_IsLeaveAssignmentUser AS IsLeaveAssignmentUser,
+        tra.Mod_IsLeaveApproveReject AS IsLeaveApproveReject,
+        tra.Mod_IsReportView        AS IsReportView,
         tra.CreateDate              AS CreateDate,
         tra.CreatedBy               AS CreatedBy,
         tra.UpdatedDate             AS UpdatedDate,

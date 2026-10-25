@@ -43,6 +43,8 @@ public class TimesheetApproverSetupConfiguration : IEntityTypeConfiguration<Time
 
         builder.Property(setup => setup.IsTimesheetApprover).HasColumnName("IsTimesheetApprover");
 
+        builder.Property(setup => setup.IsLeaveApprover).HasColumnName("IsLeaveApprover");
+
         builder.Property(setup => setup.OrganizationId).HasColumnName("OrgID");
 
         // Soft delete: NULL and 0 are both live, so the test is "not true"

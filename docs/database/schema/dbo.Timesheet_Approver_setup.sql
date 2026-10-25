@@ -5,14 +5,22 @@
     Revised:  2026-10-20 - TimesheetApproverSetupID int IDENTITY(1,1) NOT
               NULL added as the primary key (PK_Timesheet_Approver_setup), per
               the database owner.
+    Revised:  2026-10-26 - per the owner, an organisation has ONE leave
+              approver, whatever the project; ProjectID may be NULL on a
+              leave-only row.
+    Revised:  2026-10-25 - IsLeaveApprover bit NULL added as the last column
+              by the database owner. A project now has one approver PER
+              AREA - one timesheet approver and one leave approver - rather
+              than one setup per project.
 
-    The timesheet approver of each project - one per project - with
-    audit and soft-delete columns.
+    The timesheet approver of each project and the leave approver of each
+    organisation - at most one live one of each - with audit and soft-delete
+    columns.
 
     Mapped by:
       src/ETimeSheet.Application/Models/Entities/TimesheetApproverSetup.cs
       src/ETimeSheet.Infrastructure/Data/Configurations/TimesheetApproverSetupConfiguration.cs
-      (for the one-approver-per-project check and the soft delete in
+      (for the one-approver-per-project-per-area checks and the soft delete in
       POST api/v1/TimesheetProject/remove-timesheet-approver-setup)
 
     Read by:
@@ -41,8 +49,15 @@
         dbo.Timesheet_Users_Project_setup, where it is an int. The add writes
         0 and the API's soft delete writes 1; the API and both procedures
         treat 0 or NULL as live.
-      - IsTimesheetApprover is a bit, nullable; 1 presumably makes the user an
-        approver on the project.
+      - IsTimesheetApprover is a bit, nullable; 1 makes the user the approver
+        of the project's timesheets. Only that row may approve or reject them.
+      - IsLeaveApprover is a bit, nullable (added 2026-10-25); 1 makes the
+        user the organisation's leave approver - one per organisation
+        (stated by the owner on 2026-10-26), whatever ProjectID says.
+      - One row may carry both flags - the same user approving both areas.
+        NULL counts as 0 for both.
+      - ProjectID may be NULL on a leave-only row. A timesheet approver
+        always has a project.
       - CreateDate and DeletedDate are plain datetime - local or UTC is not
         stated.
       - CreatedBy and DeletedBy are int user ids; no foreign key was reported.
@@ -53,10 +68,13 @@
       - The column position of TimesheetApproverSetupID. It is recorded
         first; if it was added with ALTER TABLE ... ADD it is last in the
         live table instead. Position does not affect the EF mapping.
-      - One live approver per project is a rule of the API and of
-        spc_AddEditTimesheetApproverSetup (stated by the owner on
-        2026-10-20), not of the table: no unique constraint on ProjectID was
-        reported.
+      - One live timesheet approver per project and one live leave approver
+        per organisation (stated by the owner on 2026-10-25 and 2026-10-26)
+        are rules of the API and of spc_AddEditTimesheetApproverSetup, not
+        of the table: no unique constraint was reported. Filtered unique
+        indexes - on ProjectID WHERE IsTimesheetApprover = 1, and on OrgID
+        WHERE IsLeaveApprover = 1, live rows only - would make the table
+        enforce them; that is the owner's call.
       - Defaults, constraints and indexes - none were supplied.
 */
 
@@ -76,6 +94,7 @@ CREATE TABLE dbo.Timesheet_Approver_setup
     DeletedBy               int         NULL,
     IsTimesheetApprover     bit         NULL,
     OrgID                   int         NULL,
+    IsLeaveApprover         bit         NULL,
     CONSTRAINT PK_Timesheet_Approver_setup PRIMARY KEY (TimesheetApproverSetupID)
 );
 GO

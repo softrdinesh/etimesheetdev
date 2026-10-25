@@ -550,6 +550,11 @@ public class TimesheetProjectRepository : ITimesheetProjectRepository
         bool isUserSetup,
         bool isTimeLog,
         bool isViewTimesheet,
+        bool isUserLeaveApply,
+        bool isLeaveSetup,
+        bool isLeaveAssignmentUser,
+        bool isLeaveApproveReject,
+        bool isReportView,
         int loginUserId,
         DateTime now,
         CancellationToken cancellationToken = default)
@@ -570,6 +575,11 @@ public class TimesheetProjectRepository : ITimesheetProjectRepository
                 @PIsUserSetup = {isUserSetup},
                 @PIsTimeLog = {isTimeLog},
                 @PIsViewTimesheet = {isViewTimesheet},
+                @PIsUserLeaveApply = {isUserLeaveApply},
+                @PIsLeaveSetup = {isLeaveSetup},
+                @PIsLeaveAssignmentUser = {isLeaveAssignmentUser},
+                @PIsLeaveApproveReject = {isLeaveApproveReject},
+                @PIsReportView = {isReportView},
                 @PLoginUserID = {loginUserId},
                 @PDate = {now}")
             .ToListAsync(cancellationToken);
@@ -923,9 +933,10 @@ public class TimesheetProjectRepository : ITimesheetProjectRepository
     public async Task<TimesheetApproverSetupSaveDetail?> SaveApproverSetupAsync(
         int? timesheetApproverSetupId,
         int organizationId,
-        int projectId,
+        int? projectId,
         int approverId,
         bool isTimesheetApprover,
+        bool isLeaveApprover,
         int loginUserId,
         DateTime now,
         CancellationToken cancellationToken = default)
@@ -940,6 +951,7 @@ public class TimesheetProjectRepository : ITimesheetProjectRepository
                 @PProjectID = {projectId},
                 @PApproverID = {approverId},
                 @PIsTimesheetApprover = {isTimesheetApprover},
+                @PIsLeaveApprover = {isLeaveApprover},
                 @PLoginUserID = {loginUserId},
                 @PDate = {now}")
             .ToListAsync(cancellationToken);
@@ -947,15 +959,30 @@ public class TimesheetProjectRepository : ITimesheetProjectRepository
         return rows.FirstOrDefault();
     }
 
-    public async Task<bool> ApproverSetupExistsForProjectAsync(
+    public async Task<bool> TimesheetApproverExistsForProjectAsync(
         int projectId,
         int excludedTimesheetApproverSetupId,
         CancellationToken cancellationToken = default) =>
         // The query filter hides deleted setups, so a deleted one does not
-        // count.
+        // count. A NULL IsTimesheetApprover does not hold the area.
         await _db.Timesheet_Approver_setup
             .AnyAsync(
                 setup => setup.ProjectId == projectId
+                         && setup.IsTimesheetApprover == true
+                         && setup.TimesheetApproverSetupId != excludedTimesheetApproverSetupId,
+                cancellationToken);
+
+    public async Task<bool> LeaveApproverExistsForOrganizationAsync(
+        int organizationId,
+        int excludedTimesheetApproverSetupId,
+        CancellationToken cancellationToken = default) =>
+        // The query filter hides deleted setups. The project does not matter:
+        // the organisation has one leave approver. A NULL IsLeaveApprover does
+        // not hold the slot.
+        await _db.Timesheet_Approver_setup
+            .AnyAsync(
+                setup => setup.OrganizationId == organizationId
+                         && setup.IsLeaveApprover == true
                          && setup.TimesheetApproverSetupId != excludedTimesheetApproverSetupId,
                 cancellationToken);
 
@@ -991,4 +1018,298 @@ public class TimesheetProjectRepository : ITimesheetProjectRepository
         await _db.Signup
             .AsNoTracking()
             .FirstOrDefaultAsync(user => user.UserId == userId, cancellationToken);
+
+    public async Task<IReadOnlyList<TimesheetLeaveSetupDetail>> GetLeaveSetupListAsync(
+        int organizationId,
+        CancellationToken cancellationToken = default) =>
+        // The procedure does the filter and the ordering; no LINQ is composed
+        // on top, because SQL Server cannot wrap an EXEC.
+        await _db.spc_GetTimesheetLeaveSetup
+            .FromSqlInterpolated($"EXEC dbo.spc_GetTimesheetLeaveSetup @POrgID = {organizationId}")
+            .ToListAsync(cancellationToken);
+
+    public async Task<TimesheetLeaveSetupSaveDetail?> SaveLeaveSetupAsync(
+        int? leaveTypeId,
+        int organizationId,
+        string leaveType,
+        decimal noOfLeaveAllocated,
+        int loginUserId,
+        DateTime now,
+        CancellationToken cancellationToken = default)
+    {
+        // Materialised as a list, then the first row taken in memory:
+        // FirstOrDefault on the query would try to compose SELECT TOP(1) around
+        // the EXEC, which SQL Server cannot do.
+        var rows = await _db.spc_AddEditTimesheetLeaveSetup
+            .FromSqlInterpolated($@"EXEC dbo.spc_AddEditTimesheetLeaveSetup
+                @PLeaveTypeID = {leaveTypeId},
+                @POrgID = {organizationId},
+                @PLeaveType = {leaveType},
+                @PNoOfLeaveAllocated = {noOfLeaveAllocated},
+                @PLoginUserID = {loginUserId},
+                @PDate = {now}")
+            .ToListAsync(cancellationToken);
+
+        return rows.FirstOrDefault();
+    }
+
+    public async Task<TimesheetLeaveTypeSetup?> GetLeaveSetupForUpdateAsync(
+        int leaveTypeId,
+        int organizationId,
+        CancellationToken cancellationToken = default) =>
+        // Tracked on purpose - this is the write path. The query filter still
+        // applies, so a leave type deleted already is not found.
+        await _db.Timesheet_Leavetype_Setup
+            .FirstOrDefaultAsync(
+                leaveType => leaveType.LeaveTypeId == leaveTypeId && leaveType.OrganizationId == organizationId,
+                cancellationToken);
+
+    public async Task UpdateLeaveSetupAsync(
+        TimesheetLeaveTypeSetup leaveType,
+        CancellationToken cancellationToken = default) =>
+        await _db.SaveChangesAsync(cancellationToken);
+
+    public async Task<IReadOnlyList<TimesheetUserLeaveAssignmentDetail>> GetUserLeaveAssignmentListAsync(
+        int? organizationId,
+        int? userId,
+        CancellationToken cancellationToken = default) =>
+        // The procedure does the joins, the filters and the ordering; no LINQ
+        // is composed on top, because SQL Server cannot wrap an EXEC.
+        await _db.spc_GetTimesheetUserLeaveAssignment
+            .FromSqlInterpolated($"EXEC dbo.spc_GetTimesheetUserLeaveAssignment @POrgID = {organizationId}, @PUserID = {userId}")
+            .ToListAsync(cancellationToken);
+
+    public async Task<TimesheetUserLeaveAssignmentAddDetail?> AddUserLeaveAssignmentAsync(
+        int organizationId,
+        int userId,
+        int leaveTypeId,
+        int loginUserId,
+        DateTime now,
+        CancellationToken cancellationToken = default)
+    {
+        // Materialised as a list, then the first row taken in memory:
+        // FirstOrDefault on the query would try to compose SELECT TOP(1) around
+        // the EXEC, which SQL Server cannot do.
+        var rows = await _db.spc_AddTimesheetUserLeaveAssignment
+            .FromSqlInterpolated($@"EXEC dbo.spc_AddTimesheetUserLeaveAssignment
+                @POrgID = {organizationId},
+                @PUserID = {userId},
+                @PLeaveTypeID = {leaveTypeId},
+                @PLoginUserID = {loginUserId},
+                @PDate = {now}")
+            .ToListAsync(cancellationToken);
+
+        return rows.FirstOrDefault();
+    }
+
+    public async Task<TimesheetUserLeaveAssignmentEditDetail?> EditUserLeaveAssignmentAsync(
+        int timesheetLeaveAssignmentUserId,
+        int organizationId,
+        int userId,
+        int leaveTypeId,
+        decimal? balanceLeave,
+        int loginUserId,
+        DateTime now,
+        CancellationToken cancellationToken = default)
+    {
+        // As AddUserLeaveAssignmentAsync: the list, then the first row.
+        var rows = await _db.spc_EditTimesheetUserLeaveAssignment
+            .FromSqlInterpolated($@"EXEC dbo.spc_EditTimesheetUserLeaveAssignment
+                @PTimesheetLeaveAssignmentUserID = {timesheetLeaveAssignmentUserId},
+                @POrgID = {organizationId},
+                @PUserID = {userId},
+                @PLeaveTypeID = {leaveTypeId},
+                @PBalanceLeave = {balanceLeave},
+                @PLoginUserID = {loginUserId},
+                @PDate = {now}")
+            .ToListAsync(cancellationToken);
+
+        return rows.FirstOrDefault();
+    }
+
+    public async Task<bool> LeaveTypeExistsAsync(
+        int leaveTypeId,
+        int organizationId,
+        CancellationToken cancellationToken = default) =>
+        // The query filter hides deleted leave types.
+        await _db.Timesheet_Leavetype_Setup
+            .AnyAsync(
+                leaveType => leaveType.LeaveTypeId == leaveTypeId && leaveType.OrganizationId == organizationId,
+                cancellationToken);
+
+    public async Task<bool> UserLeaveAssignmentExistsAsync(
+        int userId,
+        int leaveTypeId,
+        int excludedTimesheetLeaveAssignmentUserId,
+        CancellationToken cancellationToken = default) =>
+        // The query filter hides deleted assignments, so a removed one does not
+        // count and the leave type may be assigned again.
+        await _db.Timesheet_Leave_assignment_user
+            .AnyAsync(
+                assignment => assignment.UserId == userId
+                              && assignment.LeaveTypeId == leaveTypeId
+                              && assignment.TimesheetLeaveAssignmentUserId != excludedTimesheetLeaveAssignmentUserId,
+                cancellationToken);
+
+    public async Task<TimesheetLeaveAssignmentUser?> GetUserLeaveAssignmentForUpdateAsync(
+        int timesheetLeaveAssignmentUserId,
+        int organizationId,
+        CancellationToken cancellationToken = default) =>
+        // Tracked on purpose - this is the write path. The table has no
+        // organisation column, so the organisation is the user's. The query
+        // filter still applies, so an assignment deleted already is not found.
+        await _db.Timesheet_Leave_assignment_user
+            .FirstOrDefaultAsync(
+                assignment => assignment.TimesheetLeaveAssignmentUserId == timesheetLeaveAssignmentUserId
+                              && _db.Signup.Any(user => user.UserId == assignment.UserId
+                                                        && user.OrganizationId == organizationId),
+                cancellationToken);
+
+    public async Task UpdateUserLeaveAssignmentAsync(
+        TimesheetLeaveAssignmentUser assignment,
+        CancellationToken cancellationToken = default) =>
+        await _db.SaveChangesAsync(cancellationToken);
+
+    public async Task<IReadOnlyList<TimesheetUserLeaveApplyDetail>> GetUserLeaveApplyListAsync(
+        int? organizationId,
+        int? userId,
+        CancellationToken cancellationToken = default) =>
+        // The procedure does the joins, the filters and the ordering; no LINQ
+        // is composed on top, because SQL Server cannot wrap an EXEC.
+        await _db.spc_GetTimesheetUserLeaveApply
+            .FromSqlInterpolated($"EXEC dbo.spc_GetTimesheetUserLeaveApply @POrgID = {organizationId}, @PUserID = {userId}")
+            .ToListAsync(cancellationToken);
+
+    public async Task<TimesheetUserLeaveApplySaveDetail?> SaveUserLeaveApplyAsync(
+        int? timesheetLeaveUserApplyId,
+        int organizationId,
+        int userId,
+        int leaveTypeId,
+        DateTime startDate,
+        DateTime endDate,
+        decimal noOfDays,
+        string? userComments,
+        int loginUserId,
+        DateTime now,
+        CancellationToken cancellationToken = default)
+    {
+        // Materialised as a list, then the first row taken in memory:
+        // FirstOrDefault on the query would try to compose SELECT TOP(1) around
+        // the EXEC, which SQL Server cannot do.
+        var rows = await _db.spc_AddEditTimesheetUserLeaveApply
+            .FromSqlInterpolated($@"EXEC dbo.spc_AddEditTimesheetUserLeaveApply
+                @PTimesheetLeaveUserApplyID = {timesheetLeaveUserApplyId},
+                @POrgID = {organizationId},
+                @PUserID = {userId},
+                @PLeaveTypeID = {leaveTypeId},
+                @PStartDate = {startDate},
+                @PEndDate = {endDate},
+                @PNoOfDays = {noOfDays},
+                @PUserComments = {userComments},
+                @PLoginUserID = {loginUserId},
+                @PDate = {now}")
+            .ToListAsync(cancellationToken);
+
+        return rows.FirstOrDefault();
+    }
+
+    public async Task<TimesheetLeaveUserApply?> GetUserLeaveApplyForUpdateAsync(
+        int timesheetLeaveUserApplyId,
+        int organizationId,
+        CancellationToken cancellationToken = default) =>
+        // Tracked on purpose - the remove deletes it.
+        await _db.Timesheet_Leave_User_apply
+            .FirstOrDefaultAsync(
+                application => application.TimesheetLeaveUserApplyId == timesheetLeaveUserApplyId
+                               && application.OrganizationId == organizationId,
+                cancellationToken);
+
+    public async Task<int?> GetLeaveStatusValueAsync(
+        string statusText,
+        CancellationToken cancellationToken = default) =>
+        // The lowest ID wins if the lookup ever holds the same text twice, as
+        // in the add/edit procedure.
+        await _db.TimesheetLeaveStatus_Lookup
+            .AsNoTracking()
+            .Where(status => status.Text == statusText)
+            .OrderBy(status => status.Id)
+            .Select(status => status.Value)
+            .FirstOrDefaultAsync(cancellationToken);
+
+    public async Task<TimesheetLeaveAssignmentUser?> GetUserLeaveAssignmentForBalanceAsync(
+        int userId,
+        int leaveTypeId,
+        CancellationToken cancellationToken = default) =>
+        // Tracked on purpose - the balance is written back. The query filter
+        // hides removed assignments.
+        await _db.Timesheet_Leave_assignment_user
+            .OrderBy(assignment => assignment.TimesheetLeaveAssignmentUserId)
+            .FirstOrDefaultAsync(
+                assignment => assignment.UserId == userId && assignment.LeaveTypeId == leaveTypeId,
+                cancellationToken);
+
+    public async Task RemoveUserLeaveApplyAsync(
+        TimesheetLeaveUserApply application,
+        CancellationToken cancellationToken = default)
+    {
+        _db.Timesheet_Leave_User_apply.Remove(application);
+
+        await _db.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task<bool> IsOrganizationLeaveApproverAsync(
+        int organizationId,
+        int approverId,
+        CancellationToken cancellationToken = default) =>
+        // The query filter hides deleted setups, so a removed approver no
+        // longer counts. A NULL IsLeaveApprover is not an approver.
+        await _db.Timesheet_Approver_setup
+            .AnyAsync(
+                setup => setup.OrganizationId == organizationId
+                         && setup.ApproverId == approverId
+                         && setup.IsLeaveApprover == true,
+                cancellationToken);
+
+    public async Task UpdateUserLeaveApplyAsync(
+        TimesheetLeaveUserApply application,
+        CancellationToken cancellationToken = default) =>
+        await _db.SaveChangesAsync(cancellationToken);
+
+    public async Task<IReadOnlyList<TimesheetLeaveUserApply>> GetLeaveApplyOverlappingAsync(
+        int? organizationId,
+        int? userId,
+        int leaveStatus,
+        DateTime fromDate,
+        DateTime toDate,
+        CancellationToken cancellationToken = default) =>
+        // Compared as datetime: StartDate / EndDate are stored at midnight, so
+        // "starts on or before the last day and ends on or after the first" is
+        // the overlap.
+        await _db.Timesheet_Leave_User_apply
+            .AsNoTracking()
+            .Where(application => application.LeaveStatus == leaveStatus
+                                  && application.StartDate <= toDate
+                                  && application.EndDate >= fromDate
+                                  && (organizationId == null || application.OrganizationId == organizationId)
+                                  && (userId == null || application.UserId == userId))
+            .ToListAsync(cancellationToken);
+
+    public async Task<IReadOnlyDictionary<int, string?>> GetUserTimeZonesAsync(
+        IReadOnlyCollection<int> userIds,
+        CancellationToken cancellationToken = default)
+    {
+        // One query for every user. The query filter hides deleted setups;
+        // the lowest SetupId wins when a user has two, as in
+        // GetUserTimeZoneAsync.
+        var setups = await _db.TimesheetMasterSetup
+            .AsNoTracking()
+            .Where(setup => setup.UserId != null && userIds.Contains(setup.UserId.Value))
+            .OrderBy(setup => setup.SetupId)
+            .Select(setup => new { UserId = setup.UserId!.Value, setup.TimeZone })
+            .ToListAsync(cancellationToken);
+
+        return setups
+            .GroupBy(setup => setup.UserId)
+            .ToDictionary(group => group.Key, group => group.First().TimeZone);
+    }
 }
