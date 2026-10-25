@@ -45,6 +45,16 @@ public class TimesheetRoleAssignmentConfiguration : IEntityTypeConfiguration<Tim
 
         builder.Property(assignment => assignment.IsViewTimesheet).HasColumnName("Mod_IsViewTimesheet");
 
+        builder.Property(assignment => assignment.IsUserLeaveApply).HasColumnName("Mod_IsUserLeaveApply");
+
+        builder.Property(assignment => assignment.IsLeaveSetup).HasColumnName("Mod_IsLeaveSetup");
+
+        builder.Property(assignment => assignment.IsLeaveAssignmentUser).HasColumnName("Mod_IsLeaveAssignmentUser");
+
+        builder.Property(assignment => assignment.IsLeaveApproveReject).HasColumnName("Mod_IsLeaveApproveReject");
+
+        builder.Property(assignment => assignment.IsReportView).HasColumnName("Mod_IsReportView");
+
         builder.Property(assignment => assignment.CreateDate)
             .HasColumnName("CreateDate")
             .HasColumnType("datetime");

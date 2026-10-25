@@ -304,6 +304,11 @@ internal static class TimesheetProjectMappings
         IsUserSetup = assignment.IsUserSetup,
         IsTimeLog = assignment.IsTimeLog,
         IsViewTimesheet = assignment.IsViewTimesheet,
+        IsUserLeaveApply = assignment.IsUserLeaveApply,
+        IsLeaveSetup = assignment.IsLeaveSetup,
+        IsLeaveAssignmentUser = assignment.IsLeaveAssignmentUser,
+        IsLeaveApproveReject = assignment.IsLeaveApproveReject,
+        IsReportView = assignment.IsReportView,
         CreateDate = assignment.CreateDate,
         CreatedBy = assignment.CreatedBy,
         UpdatedDate = assignment.UpdatedDate,
@@ -327,6 +332,11 @@ internal static class TimesheetProjectMappings
         IsUserSetup = assignment.IsUserSetup,
         IsTimeLog = assignment.IsTimeLog,
         IsViewTimesheet = assignment.IsViewTimesheet,
+        IsUserLeaveApply = assignment.IsUserLeaveApply,
+        IsLeaveSetup = assignment.IsLeaveSetup,
+        IsLeaveAssignmentUser = assignment.IsLeaveAssignmentUser,
+        IsLeaveApproveReject = assignment.IsLeaveApproveReject,
+        IsReportView = assignment.IsReportView,
         CreateDate = assignment.CreateDate,
         CreatedBy = assignment.CreatedBy,
         UpdatedDate = assignment.UpdatedDate,
@@ -405,6 +415,7 @@ internal static class TimesheetProjectMappings
         ApproverName = setup.ApproverName,
         ApproverEmail = setup.ApproverEmail,
         IsTimesheetApprover = setup.IsTimesheetApprover,
+        IsLeaveApprover = setup.IsLeaveApprover,
         CreateDate = setup.CreateDate,
         CreatedBy = setup.CreatedBy,
     };
@@ -421,7 +432,116 @@ internal static class TimesheetProjectMappings
         ApproverName = setup.ApproverName,
         ApproverEmail = setup.ApproverEmail,
         IsTimesheetApprover = setup.IsTimesheetApprover,
+        IsLeaveApprover = setup.IsLeaveApprover,
         CreateDate = setup.CreateDate,
         CreatedBy = setup.CreatedBy,
+    };
+
+    /// <summary>Projects a leave type row from <c>spc_GetTimesheetLeaveSetup</c> to the leave setup response.</summary>
+    internal static TimesheetLeaveSetupResponse ToResponse(this TimesheetLeaveSetupDetail leaveType) => new()
+    {
+        LeaveTypeId = leaveType.LeaveTypeId,
+        OrganizationId = leaveType.OrganizationId,
+        LeaveType = leaveType.LeaveType,
+        NoOfLeaveAllocated = leaveType.NoOfLeaveAllocated,
+    };
+
+    /// <summary>Projects the row <c>spc_AddEditTimesheetLeaveSetup</c> returns to the leave setup response.</summary>
+    internal static TimesheetLeaveSetupResponse ToResponse(this TimesheetLeaveSetupSaveDetail leaveType) => new()
+    {
+        LeaveTypeId = leaveType.LeaveTypeId,
+        OrganizationId = leaveType.OrganizationId,
+        LeaveType = leaveType.LeaveType,
+        NoOfLeaveAllocated = leaveType.NoOfLeaveAllocated,
+    };
+
+    /// <summary>Projects an assignment row from <c>spc_GetTimesheetUserLeaveAssignment</c> to the leave assignment response.</summary>
+    internal static TimesheetUserLeaveAssignmentResponse ToResponse(this TimesheetUserLeaveAssignmentDetail assignment) => new()
+    {
+        TimesheetLeaveAssignmentUserId = assignment.TimesheetLeaveAssignmentUserId,
+        UserId = assignment.UserId,
+        UserName = assignment.UserName,
+        Email = assignment.Email,
+        OrganizationId = assignment.OrganizationId,
+        LeaveTypeId = assignment.LeaveTypeId,
+        LeaveType = assignment.LeaveType,
+        NoOfLeaveAllocated = assignment.NoOfLeaveAllocated,
+        BalanceLeave = assignment.BalanceLeave,
+    };
+
+    /// <summary>Projects the row <c>spc_AddTimesheetUserLeaveAssignment</c> returns to the leave assignment response.</summary>
+    internal static TimesheetUserLeaveAssignmentResponse ToResponse(this TimesheetUserLeaveAssignmentAddDetail assignment) => new()
+    {
+        TimesheetLeaveAssignmentUserId = assignment.TimesheetLeaveAssignmentUserId,
+        UserId = assignment.UserId,
+        UserName = assignment.UserName,
+        Email = assignment.Email,
+        OrganizationId = assignment.OrganizationId,
+        LeaveTypeId = assignment.LeaveTypeId,
+        LeaveType = assignment.LeaveType,
+        NoOfLeaveAllocated = assignment.NoOfLeaveAllocated,
+        BalanceLeave = assignment.BalanceLeave,
+    };
+
+    /// <summary>Projects the row <c>spc_EditTimesheetUserLeaveAssignment</c> returns to the leave assignment response.</summary>
+    internal static TimesheetUserLeaveAssignmentResponse ToResponse(this TimesheetUserLeaveAssignmentEditDetail assignment) => new()
+    {
+        TimesheetLeaveAssignmentUserId = assignment.TimesheetLeaveAssignmentUserId,
+        UserId = assignment.UserId,
+        UserName = assignment.UserName,
+        Email = assignment.Email,
+        OrganizationId = assignment.OrganizationId,
+        LeaveTypeId = assignment.LeaveTypeId,
+        LeaveType = assignment.LeaveType,
+        NoOfLeaveAllocated = assignment.NoOfLeaveAllocated,
+        BalanceLeave = assignment.BalanceLeave,
+    };
+
+    /// <summary>Projects an application row from <c>spc_GetTimesheetUserLeaveApply</c> to the leave apply response.</summary>
+    internal static TimesheetUserLeaveApplyResponse ToResponse(this TimesheetUserLeaveApplyDetail application) => new()
+    {
+        TimesheetLeaveUserApplyId = application.TimesheetLeaveUserApplyId,
+        LeaveId = application.LeaveId,
+        UserId = application.UserId,
+        UserName = application.UserName,
+        Email = application.Email,
+        OrganizationId = application.OrganizationId,
+        LeaveTypeId = application.LeaveTypeId,
+        LeaveType = application.LeaveType,
+        StartDate = application.StartDate,
+        EndDate = application.EndDate,
+        NoOfDays = application.NoOfDays,
+        UserComments = application.UserComments,
+        ApproverComments = application.ApproverComments,
+        LeaveStatus = application.LeaveStatus,
+        LeaveStatusName = application.LeaveStatusName,
+        ApprovedDate = application.ApprovedDate,
+        ApprovedBy = application.ApprovedBy,
+        RejectedDate = application.RejectedDate,
+        RejectedBy = application.RejectedBy,
+    };
+
+    /// <summary>Projects the row <c>spc_AddEditTimesheetUserLeaveApply</c> returns to the leave apply response.</summary>
+    internal static TimesheetUserLeaveApplyResponse ToResponse(this TimesheetUserLeaveApplySaveDetail application) => new()
+    {
+        TimesheetLeaveUserApplyId = application.TimesheetLeaveUserApplyId,
+        LeaveId = application.LeaveId,
+        UserId = application.UserId,
+        UserName = application.UserName,
+        Email = application.Email,
+        OrganizationId = application.OrganizationId,
+        LeaveTypeId = application.LeaveTypeId,
+        LeaveType = application.LeaveType,
+        StartDate = application.StartDate,
+        EndDate = application.EndDate,
+        NoOfDays = application.NoOfDays,
+        UserComments = application.UserComments,
+        ApproverComments = application.ApproverComments,
+        LeaveStatus = application.LeaveStatus,
+        LeaveStatusName = application.LeaveStatusName,
+        ApprovedDate = application.ApprovedDate,
+        ApprovedBy = application.ApprovedBy,
+        RejectedDate = application.RejectedDate,
+        RejectedBy = application.RejectedBy,
     };
 }

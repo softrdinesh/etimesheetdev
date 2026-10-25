@@ -455,6 +455,11 @@ public interface ITimesheetProjectRepository
         bool isUserSetup,
         bool isTimeLog,
         bool isViewTimesheet,
+        bool isUserLeaveApply,
+        bool isLeaveSetup,
+        bool isLeaveAssignmentUser,
+        bool isLeaveApproveReject,
+        bool isReportView,
         int loginUserId,
         DateTime now,
         CancellationToken cancellationToken = default);
@@ -699,19 +704,31 @@ public interface ITimesheetProjectRepository
     Task<TimesheetApproverSetupSaveDetail?> SaveApproverSetupAsync(
         int? timesheetApproverSetupId,
         int organizationId,
-        int projectId,
+        int? projectId,
         int approverId,
         bool isTimesheetApprover,
+        bool isLeaveApprover,
         int loginUserId,
         DateTime now,
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Whether the project has a live approver setup other than
-    /// <paramref name="excludedTimesheetApproverSetupId"/>.
+    /// Whether the project has a live setup with <c>IsTimesheetApprover</c> = 1
+    /// other than <paramref name="excludedTimesheetApproverSetupId"/>.
     /// </summary>
-    Task<bool> ApproverSetupExistsForProjectAsync(
+    Task<bool> TimesheetApproverExistsForProjectAsync(
         int projectId,
+        int excludedTimesheetApproverSetupId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Whether the organisation has a live setup with <c>IsLeaveApprover</c> =
+    /// 1, whatever its project, other than
+    /// <paramref name="excludedTimesheetApproverSetupId"/> - an organisation
+    /// has one leave approver.
+    /// </summary>
+    Task<bool> LeaveApproverExistsForOrganizationAsync(
+        int organizationId,
         int excludedTimesheetApproverSetupId,
         CancellationToken cancellationToken = default);
 
@@ -744,5 +761,218 @@ public interface ITimesheetProjectRepository
     /// </summary>
     Task<Signup?> GetUserByIdAsync(
         int userId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The live leave types of an organisation, via
+    /// <c>spc_GetTimesheetLeaveSetup</c>. Empty when it has none.
+    /// </summary>
+    Task<IReadOnlyList<TimesheetLeaveSetupDetail>> GetLeaveSetupListAsync(
+        int organizationId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Adds a leave type (<paramref name="leaveTypeId"/> null) or edits one,
+    /// via <c>spc_AddEditTimesheetLeaveSetup</c>, and returns the saved row.
+    /// <see langword="null"/> when an edit names a leave type that does not
+    /// exist, is deleted, or belongs to another organisation.
+    /// </summary>
+    Task<TimesheetLeaveSetupSaveDetail?> SaveLeaveSetupAsync(
+        int? leaveTypeId,
+        int organizationId,
+        string leaveType,
+        decimal noOfLeaveAllocated,
+        int loginUserId,
+        DateTime now,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns the live leave type with this id in this organisation,
+    /// <b>tracked</b>; <see langword="null"/> when there is none.
+    /// </summary>
+    Task<TimesheetLeaveTypeSetup?> GetLeaveSetupForUpdateAsync(
+        int leaveTypeId,
+        int organizationId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Saves the changes made to a tracked leave type.</summary>
+    Task UpdateLeaveSetupAsync(
+        TimesheetLeaveTypeSetup leaveType,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The live leave assignments of an organisation, a user or both, via
+    /// <c>spc_GetTimesheetUserLeaveAssignment</c>. A null filter matches
+    /// anything. Empty when none match.
+    /// </summary>
+    Task<IReadOnlyList<TimesheetUserLeaveAssignmentDetail>> GetUserLeaveAssignmentListAsync(
+        int? organizationId,
+        int? userId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Adds a leave assignment via <c>spc_AddTimesheetUserLeaveAssignment</c>
+    /// - the balance starts at the leave type's allocation - and returns the
+    /// new row. <see langword="null"/> only if it cannot be read back.
+    /// </summary>
+    Task<TimesheetUserLeaveAssignmentAddDetail?> AddUserLeaveAssignmentAsync(
+        int organizationId,
+        int userId,
+        int leaveTypeId,
+        int loginUserId,
+        DateTime now,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Edits a leave assignment via <c>spc_EditTimesheetUserLeaveAssignment</c>
+    /// - a null <paramref name="balanceLeave"/> keeps the balance - and returns
+    /// the saved row. <see langword="null"/> when the assignment does not
+    /// exist, is deleted, or belongs to another organisation.
+    /// </summary>
+    Task<TimesheetUserLeaveAssignmentEditDetail?> EditUserLeaveAssignmentAsync(
+        int timesheetLeaveAssignmentUserId,
+        int organizationId,
+        int userId,
+        int leaveTypeId,
+        decimal? balanceLeave,
+        int loginUserId,
+        DateTime now,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Whether the organisation has a live leave type with this id.</summary>
+    Task<bool> LeaveTypeExistsAsync(
+        int leaveTypeId,
+        int organizationId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Whether the user holds the leave type in a live assignment other than
+    /// <paramref name="excludedTimesheetLeaveAssignmentUserId"/>.
+    /// </summary>
+    Task<bool> UserLeaveAssignmentExistsAsync(
+        int userId,
+        int leaveTypeId,
+        int excludedTimesheetLeaveAssignmentUserId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns the live leave assignment with this id whose user belongs to the
+    /// organisation, <b>tracked</b>; <see langword="null"/> when there is none.
+    /// </summary>
+    Task<TimesheetLeaveAssignmentUser?> GetUserLeaveAssignmentForUpdateAsync(
+        int timesheetLeaveAssignmentUserId,
+        int organizationId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Saves the changes made to a tracked leave assignment.</summary>
+    Task UpdateUserLeaveAssignmentAsync(
+        TimesheetLeaveAssignmentUser assignment,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The leave applications of an organisation, a user or both, via
+    /// <c>spc_GetTimesheetUserLeaveApply</c>. A null filter matches anything.
+    /// Empty when none match.
+    /// </summary>
+    Task<IReadOnlyList<TimesheetUserLeaveApplyDetail>> GetUserLeaveApplyListAsync(
+        int? organizationId,
+        int? userId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Adds a leave application (<paramref name="timesheetLeaveUserApplyId"/>
+    /// null) or edits one, via <c>spc_AddEditTimesheetUserLeaveApply</c>, and
+    /// returns the saved row. <see langword="null"/> when an edit names an
+    /// application that does not exist, belongs to another user or
+    /// organisation, or is approved.
+    /// </summary>
+    Task<TimesheetUserLeaveApplySaveDetail?> SaveUserLeaveApplyAsync(
+        int? timesheetLeaveUserApplyId,
+        int organizationId,
+        int userId,
+        int leaveTypeId,
+        DateTime startDate,
+        DateTime endDate,
+        decimal noOfDays,
+        string? userComments,
+        int loginUserId,
+        DateTime now,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns the leave application with this id in the organisation,
+    /// <b>tracked</b>; <see langword="null"/> when there is none.
+    /// </summary>
+    Task<TimesheetLeaveUserApply?> GetUserLeaveApplyForUpdateAsync(
+        int timesheetLeaveUserApplyId,
+        int organizationId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The <c>Value</c> of the <c>dbo.TimesheetLeaveStatus_Lookup</c> row with
+    /// this <c>Text</c> - what <c>LeaveStatus</c> stores for that status -
+    /// or <see langword="null"/> when the lookup has no such row.
+    /// </summary>
+    Task<int?> GetLeaveStatusValueAsync(
+        string statusText,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns the user's live assignment of the leave type, <b>tracked</b>, so
+    /// its balance can be changed; <see langword="null"/> when there is none.
+    /// </summary>
+    Task<TimesheetLeaveAssignmentUser?> GetUserLeaveAssignmentForBalanceAsync(
+        int userId,
+        int leaveTypeId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Deletes a tracked leave application and saves, in one
+    /// <c>SaveChanges</c> - so a balance change made to a tracked assignment
+    /// beforehand is written in the same transaction, or not at all.
+    /// </summary>
+    Task RemoveUserLeaveApplyAsync(
+        TimesheetLeaveUserApply application,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Whether the user is a leave approver of the organisation - the approver
+    /// of a live <c>dbo.Timesheet_Approver_setup</c> row of it with
+    /// <c>IsLeaveApprover</c> = 1, for any project.
+    /// </summary>
+    Task<bool> IsOrganizationLeaveApproverAsync(
+        int organizationId,
+        int approverId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Saves the changes made to a tracked leave application - and to any
+    /// tracked assignment whose balance was changed with it - in one
+    /// <c>SaveChanges</c>: both or neither.
+    /// </summary>
+    Task UpdateUserLeaveApplyAsync(
+        TimesheetLeaveUserApply application,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The leave applications with this <c>LeaveStatus</c> that overlap
+    /// <paramref name="fromDate"/> to <paramref name="toDate"/>, of an
+    /// organisation (<c>OrgID</c>), a user or both, untracked. A null filter
+    /// matches anything.
+    /// </summary>
+    Task<IReadOnlyList<TimesheetLeaveUserApply>> GetLeaveApplyOverlappingAsync(
+        int? organizationId,
+        int? userId,
+        int leaveStatus,
+        DateTime fromDate,
+        DateTime toDate,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The time zone of each user's timesheet setup, keyed by user id. A user
+    /// with no live setup is not in the result.
+    /// </summary>
+    Task<IReadOnlyDictionary<int, string?>> GetUserTimeZonesAsync(
+        IReadOnlyCollection<int> userIds,
         CancellationToken cancellationToken = default);
 }

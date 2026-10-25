@@ -49,11 +49,15 @@ docs/database/
 │   ├── dbo.SchedulerConfiguration.sql
 │   ├── dbo.TimeLog.sql
 │   ├── dbo.Timesheet_Approver_setup.sql
+│   ├── dbo.Timesheet_Leave_assignment_user.sql
+│   ├── dbo.Timesheet_Leave_User_apply.sql
+│   ├── dbo.Timesheet_Leavetype_Setup.sql
 │   ├── dbo.Timesheet_role_assignment.sql
 │   ├── dbo.Timesheet_Users_Project_setup.sql
 │   ├── dbo.TimeSheet_Weekend_setup.sql
 │   ├── dbo.Timesheetclientsetup.sql
 │   ├── dbo.TimesheetHolidaysetup.sql
+│   ├── dbo.TimesheetLeaveStatus_Lookup.sql
 │   ├── dbo.TimesheetMasterSetup.sql
 │   ├── dbo.TimesheetProject.sql
 │   ├── dbo.TimesheetProjectBudget.sql
@@ -67,14 +71,18 @@ docs/database/
 ├── procedures/                  one file per stored procedure / function
 │   ├── dbo.spc_AddEditClientSetup.sql
 │   ├── dbo.spc_AddEditTimesheetHolidaySetup.sql
+│   ├── dbo.spc_AddEditTimesheetLeaveSetup.sql
 │   ├── dbo.spc_AddEditTimesheetProject.sql
 │   ├── dbo.spc_AddEditTimesheetProjectBudget.sql
 │   ├── dbo.spc_AddEditTimesheetProjectCategory.sql
 │   ├── dbo.spc_AddEditTimesheetApproverSetup.sql
 │   ├── dbo.spc_AddEditTimesheetProjectStatus.sql
+│   ├── dbo.spc_AddEditTimesheetUserLeaveApply.sql
+│   ├── dbo.spc_AddTimesheetUserLeaveAssignment.sql
 │   ├── dbo.spc_AddEditTimesheetWeekendSetup.sql
 │   ├── dbo.spc_AddEditUserAccessSetup.sql
 │   ├── dbo.spc_AddEditUserRoleByAdmin.sql
+│   ├── dbo.spc_EditTimesheetUserLeaveAssignment.sql
 │   ├── dbo.spc_GetAdminDashboardSummaryByOrgID.sql
 │   ├── dbo.spc_GetClientListForMasterAdmin.sql
 │   ├── dbo.spc_GetEmployeeListByPOrgID.sql
@@ -83,6 +91,7 @@ docs/database/
 │   ├── dbo.spc_GetTimeLoggedDetailsForTask.sql
 │   ├── dbo.spc_GetTimesheetApproverSetup.sql
 │   ├── dbo.spc_GetTimesheetHolidaySetup.sql
+│   ├── dbo.spc_GetTimesheetLeaveSetup.sql
 │   ├── dbo.spc_GetTimesheetMasterSetupByUserID.sql
 │   ├── dbo.spc_GetTimesheetProject.sql
 │   ├── dbo.spc_GetTimesheetProjectBudget.sql
@@ -90,6 +99,8 @@ docs/database/
 │   ├── dbo.spc_GetTimesheetProjectCategory.sql
 │   ├── dbo.spc_GetTimesheetProjectStatus.sql
 │   ├── dbo.spc_GetTimesheetUserDetailsByUserID.sql
+│   ├── dbo.spc_GetTimesheetUserLeaveApply.sql
+│   ├── dbo.spc_GetTimesheetUserLeaveAssignment.sql
 │   ├── dbo.spc_GetTimesheetUserListByOrgID.sql
 │   ├── dbo.spc_GetTimesheetWeekendSetup.sql
 │   ├── dbo.spc_GetUserAccessSetup.sql
@@ -97,6 +108,8 @@ docs/database/
 │   ├── dbo.spc_GetUserRoleListByOrgID.sql
 │   ├── dbo.spc_GetUsersTaskList.sql
 │   └── dbo.spc_Signup_timesheet_user.sql
+├── deploy/                      one-off deployment scripts for the owner, run by hand, never by the tests
+│   └── 2026-10-25_RenameLookupTables.sql
 └── data/                        one-off data scripts, run by hand, never by the tests
     ├── dbo.Country_UpdateTimeZone.sql
     ├── dbo.CountryCurrency_Lookup_Insert.sql

@@ -36,6 +36,20 @@ public class TimesheetProjectService : ITimesheetProjectService
     /// <summary><c>dbo.TimesheetProjectStatus.Status</c> is <c>nvarchar(20)</c>.</summary>
     private const int StatusNameMaximumLength = 20;
 
+    // dbo.Timesheet_Leavetype_Setup: LeaveType nvarchar(50), NoofLeaveAllocated decimal(4,2).
+    private const int LeaveTypeMaximumLength = 50;
+
+    private const decimal NoOfLeaveAllocatedMaximum = 99.99m;
+
+    // dbo.TimesheetLeaveStatus_Lookup.Text of the leave statuses the rules turn
+    // on. The lookup owns the ids; the API names a status only to find its
+    // Value, and never hard-codes it.
+    private const string LeaveStatusApprovedText = "Approved";
+
+    private const string LeaveStatusRejectedText = "Rejected";
+
+    private const string LeaveStatusSubmittedText = "Submitted";
+
     /// <summary><c>dbo.TimesheetProjectStatus.Colorcode</c> is <c>nvarchar(25)</c>.</summary>
     private const int ColorCodeMaximumLength = 25;
 
@@ -79,6 +93,11 @@ public class TimesheetProjectService : ITimesheetProjectService
     private const string ProjectSheetSubmittedEmailTemplateName = "ProjectSheetSubmittedTemplate.html";
 
     private const string ProjectSheetSubmittedEmailSubject = "Timesheet Submitted for Approval";
+
+    /// <summary>The email to an organisation's leave approvers when leave is applied for, in <c>Infrastructure/Assets/EmailTemplates/</c>.</summary>
+    private const string LeaveAppliedEmailTemplateName = "LeaveAppliedTemplate.html";
+
+    private const string LeaveAppliedEmailSubject = "Leave Applied for Approval";
 
     private readonly ITimesheetProjectRepository _timesheetProjectRepository;
     private readonly IDateTimeProvider _dateTimeProvider;
@@ -1269,7 +1288,85 @@ public class TimesheetProjectService : ITimesheetProjectService
             organizationId,
             cancellationToken);
 
-        return users.Select(user => user.ToResponse()).ToList();
+        var usersOnLeave = users.Count == 0
+            ? new HashSet<int>()
+            : await GetUsersOnLeaveTodayAsync(organizationId, null, cancellationToken);
+
+        return users
+            .Select(user =>
+            {
+                var response = user.ToResponse();
+                response.IsOnLeave = usersOnLeave.Contains(user.UserId);
+                return response;
+            })
+            .ToList();
+    }
+
+    /// <summary>
+    /// The users - of an organisation, or one user - on approved leave today,
+    /// each judged on their own date in the time zone of their timesheet setup
+    /// (UTC without one, or with a zone this system does not recognise).
+    /// Approved is the <c>dbo.TimesheetLeaveStatus_Lookup</c> row named so; a
+    /// lookup without one means nobody is on leave.
+    /// </summary>
+    private async Task<HashSet<int>> GetUsersOnLeaveTodayAsync(
+        int? organizationId,
+        int? userId,
+        CancellationToken cancellationToken)
+    {
+        var usersOnLeave = new HashSet<int>();
+
+        var approvedStatus = await _timesheetProjectRepository.GetLeaveStatusValueAsync(
+            LeaveStatusApprovedText,
+            cancellationToken);
+
+        if (approvedStatus is null)
+        {
+            return usersOnLeave;
+        }
+
+        // Every time zone's today lies within a day of UTC's, so one query for
+        // that window finds every leave that could cover anyone's today; each
+        // is then checked against its own user's date.
+        var utcNow = _dateTimeProvider.UtcNow;
+        var leaves = await _timesheetProjectRepository.GetLeaveApplyOverlappingAsync(
+            organizationId,
+            userId,
+            approvedStatus.Value,
+            utcNow.Date.AddDays(-1),
+            utcNow.Date.AddDays(1),
+            cancellationToken);
+
+        if (leaves.Count == 0)
+        {
+            return usersOnLeave;
+        }
+
+        var leaveUserIds = leaves
+            .Where(leave => leave.UserId is not null)
+            .Select(leave => leave.UserId!.Value)
+            .Distinct()
+            .ToList();
+
+        var timeZones = await _timesheetProjectRepository.GetUserTimeZonesAsync(leaveUserIds, cancellationToken);
+
+        foreach (var leave in leaves)
+        {
+            if (leave.UserId is not { } leaveUserId || leave.StartDate is not { } startDate || leave.EndDate is not { } endDate)
+            {
+                continue;
+            }
+
+            var zone = EmployeeClock.FindZone(timeZones.GetValueOrDefault(leaveUserId));
+            var today = EmployeeClock.At(utcNow, zone).Today;
+
+            if (startDate.Date <= today && endDate.Date >= today)
+            {
+                usersOnLeave.Add(leaveUserId);
+            }
+        }
+
+        return usersOnLeave;
     }
 
     public async Task<TimesheetUserDetailsResponse> GetTimesheetUserDetailsAsync(
@@ -1309,7 +1406,10 @@ public class TimesheetProjectService : ITimesheetProjectService
                 row.CurrentSheetStatusId is { } statusId ? ProjectSheetStatusName(statusId) : null))
             .ToList();
 
-        return rows[0].ToUserDetailsResponse(projects);
+        var details = rows[0].ToUserDetailsResponse(projects);
+        details.IsOnLeave = (await GetUsersOnLeaveTodayAsync(null, userId, cancellationToken)).Contains(userId);
+
+        return details;
     }
 
     public async Task<IReadOnlyList<TimesheetHolidaySetupResponse>> GetHolidaySetupListAsync(
@@ -1880,6 +1980,11 @@ public class TimesheetProjectService : ITimesheetProjectService
                 request.IsUserSetup,
                 request.IsTimeLog,
                 request.IsViewTimesheet,
+                request.IsUserLeaveApply,
+                request.IsLeaveSetup,
+                request.IsLeaveAssignmentUser,
+                request.IsLeaveApproveReject,
+                request.IsReportView,
                 request.LoginUserId,
                 _dateTimeProvider.UtcNow,
                 cancellationToken)
@@ -3026,11 +3131,23 @@ public class TimesheetProjectService : ITimesheetProjectService
             };
         }
 
-        if (request.ProjectId <= 0)
+        // Null and 0 both mean "no project" - allowed for a leave-only setup:
+        // leave is approved for the whole organisation. Timesheets are approved
+        // per project, so a timesheet approver needs one.
+        var projectId = request.ProjectId is > 0 ? request.ProjectId : null;
+
+        if (request.ProjectId < 0)
         {
             failures[nameof(TimesheetApproverSetupSaveRequest.ProjectId)] = new[]
             {
-                "ProjectId is required and must be greater than 0."
+                "ProjectId must be greater than 0, or left out for a leave-only setup."
+            };
+        }
+        else if (projectId is null && request.IsTimesheetApprover)
+        {
+            failures[nameof(TimesheetApproverSetupSaveRequest.ProjectId)] = new[]
+            {
+                "ProjectId is required for a timesheet approver: timesheets are approved per project."
             };
         }
 
@@ -3050,6 +3167,16 @@ public class TimesheetProjectService : ITimesheetProjectService
             };
         }
 
+        // A setup approves at least one area. One that approves neither would
+        // hold nothing, so it is refused rather than saved.
+        if (!request.IsTimesheetApprover && !request.IsLeaveApprover)
+        {
+            failures[nameof(TimesheetApproverSetupSaveRequest.IsTimesheetApprover)] = new[]
+            {
+                "At least one of IsTimesheetApprover and IsLeaveApprover must be true."
+            };
+        }
+
         if (failures.Count > 0)
         {
             throw new ValidationException(failures);
@@ -3057,14 +3184,17 @@ public class TimesheetProjectService : ITimesheetProjectService
 
         // Then the database. No foreign key protects any of these columns, and
         // the procedure checks none of them, so a wrong id would be saved as is.
-        var project = await _timesheetProjectRepository.GetByIdAsync(request.ProjectId, cancellationToken);
-
-        if (project is null || project.OrganizationId != request.OrganizationId)
+        if (projectId is not null)
         {
-            failures[nameof(TimesheetApproverSetupSaveRequest.ProjectId)] = new[]
+            var project = await _timesheetProjectRepository.GetByIdAsync(projectId.Value, cancellationToken);
+
+            if (project is null || project.OrganizationId != request.OrganizationId)
             {
-                $"Project '{request.ProjectId}' does not exist in organization '{request.OrganizationId}'."
-            };
+                failures[nameof(TimesheetApproverSetupSaveRequest.ProjectId)] = new[]
+                {
+                    $"Project '{projectId}' does not exist in organization '{request.OrganizationId}'."
+                };
+            }
         }
 
         if (!await _timesheetProjectRepository.UserExistsAsync(request.ApproverId, request.OrganizationId, cancellationToken))
@@ -3083,16 +3213,36 @@ public class TimesheetProjectService : ITimesheetProjectService
         // Null and 0 both mean "add" - a negative id was refused above.
         var timesheetApproverSetupId = request.TimesheetApproverSetupId is > 0 ? request.TimesheetApproverSetupId : null;
 
-        // One approver per project. The setup being edited is excluded, so an
-        // edit that keeps its project is not a conflict with itself. The
-        // procedure checks again under a lock, for two saves racing.
-        if (await _timesheetProjectRepository.ApproverSetupExistsForProjectAsync(
-                request.ProjectId,
+        // One timesheet approver per project, and one leave approver per
+        // organisation - who may be different users. Only the areas this setup
+        // claims are checked, so a free area can still be taken. The setup
+        // being edited is excluded, so an edit is not a conflict with itself.
+        // The procedure checks again under a lock, for two saves racing.
+        var takenAreas = new List<string>();
+
+        // projectId is set whenever IsTimesheetApprover is - refused above
+        // otherwise.
+        if (request.IsTimesheetApprover
+            && await _timesheetProjectRepository.TimesheetApproverExistsForProjectAsync(
+                projectId!.Value,
                 timesheetApproverSetupId ?? 0,
                 cancellationToken))
         {
-            throw new ConflictException(
-                $"Project '{request.ProjectId}' already has an approver. Edit that setup instead.");
+            takenAreas.Add($"Project '{projectId}' already has a timesheet approver.");
+        }
+
+        if (request.IsLeaveApprover
+            && await _timesheetProjectRepository.LeaveApproverExistsForOrganizationAsync(
+                request.OrganizationId,
+                timesheetApproverSetupId ?? 0,
+                cancellationToken))
+        {
+            takenAreas.Add($"Organization '{request.OrganizationId}' already has a leave approver.");
+        }
+
+        if (takenAreas.Count > 0)
+        {
+            throw new ConflictException($"{string.Join(" ", takenAreas)} Edit that setup instead.");
         }
 
         // Only an edit can come back empty: the setup it names does not
@@ -3100,9 +3250,10 @@ public class TimesheetProjectService : ITimesheetProjectService
         var saved = await _timesheetProjectRepository.SaveApproverSetupAsync(
                 timesheetApproverSetupId,
                 request.OrganizationId,
-                request.ProjectId,
+                projectId,
                 request.ApproverId,
                 request.IsTimesheetApprover,
+                request.IsLeaveApprover,
                 request.LoginUserId,
                 _dateTimeProvider.UtcNow,
                 cancellationToken)
@@ -3112,7 +3263,7 @@ public class TimesheetProjectService : ITimesheetProjectService
             "Approver setup {TimesheetApproverSetupId} {Action} for project {ProjectId} of organization {OrganizationId} by user {LoginUserId}.",
             saved.TimesheetApproverSetupId,
             timesheetApproverSetupId is null ? "added" : "updated",
-            request.ProjectId,
+            projectId,
             request.OrganizationId,
             request.LoginUserId);
 
@@ -3167,4 +3318,1034 @@ public class TimesheetProjectService : ITimesheetProjectService
             setup.ProjectId,
             request.DeletedBy);
     }
+
+    #region Leave Setup
+
+    public async Task<IReadOnlyList<TimesheetLeaveSetupResponse>> GetLeaveSetupListAsync(
+        int? organizationId,
+        CancellationToken cancellationToken = default)
+    {
+        // Required: without it the whole table would come back, across every
+        // organisation.
+        if (organizationId is null or <= 0)
+        {
+            throw new ValidationException(new Dictionary<string, string[]>
+            {
+                ["orgID"] = new[] { "orgID is required and must be greater than 0." }
+            });
+        }
+
+        var leaveTypes = await _timesheetProjectRepository.GetLeaveSetupListAsync(
+            organizationId.Value,
+            cancellationToken);
+
+        return leaveTypes.Select(leaveType => leaveType.ToResponse()).ToList();
+    }
+
+    public async Task<TimesheetLeaveSetupResponse> SaveLeaveSetupAsync(
+        TimesheetLeaveSetupSaveRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        // Every rule is checked here, before anything is written, and every
+        // failure is collected - the caller is told about all of them in one
+        // 400, keyed on the field names it sent.
+        var leaveTypeName = request.LeaveType?.Trim();
+        var failures = new Dictionary<string, string[]>();
+
+        if (request.LeaveTypeId < 0)
+        {
+            failures[nameof(TimesheetLeaveSetupSaveRequest.LeaveTypeId)] = new[]
+            {
+                "LeaveTypeId must be 0 (or left out) to add a leave type, or the id of the leave type to edit."
+            };
+        }
+
+        if (request.OrganizationId <= 0)
+        {
+            failures[nameof(TimesheetLeaveSetupSaveRequest.OrganizationId)] = new[]
+            {
+                "OrganizationId is required and must be greater than 0."
+            };
+        }
+
+        if (string.IsNullOrEmpty(leaveTypeName))
+        {
+            failures[nameof(TimesheetLeaveSetupSaveRequest.LeaveType)] = new[] { "LeaveType is required." };
+        }
+        else if (leaveTypeName.Length > LeaveTypeMaximumLength)
+        {
+            failures[nameof(TimesheetLeaveSetupSaveRequest.LeaveType)] = new[]
+            {
+                $"LeaveType must be {LeaveTypeMaximumLength} characters or fewer."
+            };
+        }
+
+        // decimal(4,2): anything past two places would be rounded silently by
+        // the column, so it is refused instead.
+        if (request.NoOfLeaveAllocated is null)
+        {
+            failures[nameof(TimesheetLeaveSetupSaveRequest.NoOfLeaveAllocated)] = new[] { "NoOfLeaveAllocated is required." };
+        }
+        else if (request.NoOfLeaveAllocated < 0
+                 || request.NoOfLeaveAllocated > NoOfLeaveAllocatedMaximum
+                 || decimal.Round(request.NoOfLeaveAllocated.Value, 2) != request.NoOfLeaveAllocated.Value)
+        {
+            failures[nameof(TimesheetLeaveSetupSaveRequest.NoOfLeaveAllocated)] = new[]
+            {
+                $"NoOfLeaveAllocated must be from 0 to {NoOfLeaveAllocatedMaximum}, with at most two decimal places."
+            };
+        }
+
+        if (request.LoginUserId <= 0)
+        {
+            failures[nameof(TimesheetLeaveSetupSaveRequest.LoginUserId)] = new[]
+            {
+                "LoginUserId is required: the row records who created or last updated it."
+            };
+        }
+
+        if (failures.Count > 0)
+        {
+            throw new ValidationException(failures);
+        }
+
+        // Null and 0 both mean "add" - a negative id was refused above.
+        var leaveTypeId = request.LeaveTypeId is > 0 ? request.LeaveTypeId : null;
+
+        // Only an edit can come back empty: the leave type it names does not
+        // exist, is deleted, or belongs to another organisation.
+        var saved = await _timesheetProjectRepository.SaveLeaveSetupAsync(
+                leaveTypeId,
+                request.OrganizationId,
+                leaveTypeName!,
+                request.NoOfLeaveAllocated!.Value,
+                request.LoginUserId,
+                _dateTimeProvider.UtcNow,
+                cancellationToken)
+            ?? throw NotFoundException.For("Leave type", leaveTypeId ?? 0);
+
+        _logger.LogInformation(
+            "Leave type {LeaveTypeId} {Action} for organization {OrganizationId} by user {LoginUserId}.",
+            saved.LeaveTypeId,
+            leaveTypeId is null ? "added" : "updated",
+            request.OrganizationId,
+            request.LoginUserId);
+
+        return saved.ToResponse();
+    }
+
+    public async Task DeleteLeaveSetupAsync(
+        TimesheetLeaveSetupDeleteRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var failures = new Dictionary<string, string[]>();
+
+        if (request.LeaveTypeId <= 0)
+        {
+            failures[nameof(TimesheetLeaveSetupDeleteRequest.LeaveTypeId)] = new[]
+            {
+                "LeaveTypeId is required and must be greater than 0."
+            };
+        }
+
+        if (request.OrganizationId <= 0)
+        {
+            failures[nameof(TimesheetLeaveSetupDeleteRequest.OrganizationId)] = new[]
+            {
+                "OrganizationId is required and must be greater than 0."
+            };
+        }
+
+        if (request.DeletedBy <= 0)
+        {
+            failures[nameof(TimesheetLeaveSetupDeleteRequest.DeletedBy)] = new[]
+            {
+                "DeletedBy is required: a soft delete records who performed it."
+            };
+        }
+
+        if (failures.Count > 0)
+        {
+            throw new ValidationException(failures);
+        }
+
+        // The repository hides deleted leave types, so one deleted already is
+        // a 404 - never re-stamped over the first DeletedDate.
+        var leaveType = await _timesheetProjectRepository.GetLeaveSetupForUpdateAsync(
+                request.LeaveTypeId,
+                request.OrganizationId,
+                cancellationToken)
+            ?? throw NotFoundException.For("Leave type", request.LeaveTypeId);
+
+        // A soft delete, never a DELETE statement: the row stays, and the
+        // entity's query filter and both leave setup procedures stop
+        // returning it.
+        leaveType.IsDelete = true;
+        leaveType.DeletedDate = _dateTimeProvider.UtcNow;
+        leaveType.DeletedBy = request.DeletedBy;
+
+        await _timesheetProjectRepository.UpdateLeaveSetupAsync(leaveType, cancellationToken);
+
+        _logger.LogInformation(
+            "Leave type {LeaveTypeId} of organization {OrganizationId} soft-deleted by user {DeletedBy}.",
+            leaveType.LeaveTypeId,
+            request.OrganizationId,
+            request.DeletedBy);
+    }
+
+    #endregion
+
+    #region User Leave Assignment
+
+    public async Task<IReadOnlyList<TimesheetUserLeaveAssignmentResponse>> GetUserLeaveAssignmentListAsync(
+        int? organizationId,
+        int? userId,
+        CancellationToken cancellationToken = default)
+    {
+        var failures = new Dictionary<string, string[]>();
+
+        if (organizationId < 0)
+        {
+            failures["orgID"] = new[] { "orgID must be greater than 0, or left out." };
+        }
+
+        if (userId < 0)
+        {
+            failures["userID"] = new[] { "userID must be greater than 0, or left out." };
+        }
+
+        // Null and 0 both mean "not filtered". With neither filter the whole
+        // table would come back, across every organisation - refused.
+        var organizationFilter = organizationId is > 0 ? organizationId : null;
+        var userFilter = userId is > 0 ? userId : null;
+
+        if (failures.Count == 0 && organizationFilter is null && userFilter is null)
+        {
+            failures["orgID"] = new[] { "orgID or userID is required." };
+        }
+
+        if (failures.Count > 0)
+        {
+            throw new ValidationException(failures);
+        }
+
+        var assignments = await _timesheetProjectRepository.GetUserLeaveAssignmentListAsync(
+            organizationFilter,
+            userFilter,
+            cancellationToken);
+
+        return assignments.Select(assignment => assignment.ToResponse()).ToList();
+    }
+
+    public async Task<TimesheetUserLeaveAssignmentResponse> AddUserLeaveAssignmentAsync(
+        TimesheetUserLeaveAssignmentAddRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        await RequireValidUserLeaveAssignmentAsync(
+            null,
+            request.OrganizationId,
+            request.UserId,
+            request.LeaveTypeId,
+            request.LoginUserId,
+            new Dictionary<string, string[]>(),
+            cancellationToken);
+
+        // No balance: the procedure starts it at the leave type's allocation.
+        // The row was just written, so it can only fail to come back if the
+        // user left the organisation in between.
+        var saved = await _timesheetProjectRepository.AddUserLeaveAssignmentAsync(
+                request.OrganizationId,
+                request.UserId,
+                request.LeaveTypeId,
+                request.LoginUserId,
+                _dateTimeProvider.UtcNow,
+                cancellationToken)
+            ?? throw new ConflictException(
+                $"The leave assignment of user '{request.UserId}' was saved, but the user is no longer in organization '{request.OrganizationId}'.");
+
+        _logger.LogInformation(
+            "Leave assignment {TimesheetLeaveAssignmentUserId} added: leave type {LeaveTypeId} for user {UserId} by user {LoginUserId}.",
+            saved.TimesheetLeaveAssignmentUserId,
+            request.LeaveTypeId,
+            request.UserId,
+            request.LoginUserId);
+
+        return saved.ToResponse();
+    }
+
+    public async Task<TimesheetUserLeaveAssignmentResponse> EditUserLeaveAssignmentAsync(
+        TimesheetUserLeaveAssignmentEditRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var failures = new Dictionary<string, string[]>();
+
+        if (request.TimesheetLeaveAssignmentUserId <= 0)
+        {
+            failures[nameof(TimesheetUserLeaveAssignmentEditRequest.TimesheetLeaveAssignmentUserId)] = new[]
+            {
+                "TimesheetLeaveAssignmentUserId is required and must be greater than 0."
+            };
+        }
+
+        // decimal(4,2), as NoofLeaveAllocated: anything past two places would
+        // be rounded silently by the column, so it is refused instead. Null
+        // keeps the balance.
+        if (request.BalanceLeave is { } balanceLeave
+            && (balanceLeave < 0
+                || balanceLeave > NoOfLeaveAllocatedMaximum
+                || decimal.Round(balanceLeave, 2) != balanceLeave))
+        {
+            failures[nameof(TimesheetUserLeaveAssignmentEditRequest.BalanceLeave)] = new[]
+            {
+                $"BalanceLeave must be from 0 to {NoOfLeaveAllocatedMaximum}, with at most two decimal places, or left out."
+            };
+        }
+
+        await RequireValidUserLeaveAssignmentAsync(
+            request.TimesheetLeaveAssignmentUserId,
+            request.OrganizationId,
+            request.UserId,
+            request.LeaveTypeId,
+            request.LoginUserId,
+            failures,
+            cancellationToken);
+
+        // Empty when the assignment does not exist, is deleted, or belongs to
+        // another organisation.
+        var saved = await _timesheetProjectRepository.EditUserLeaveAssignmentAsync(
+                request.TimesheetLeaveAssignmentUserId,
+                request.OrganizationId,
+                request.UserId,
+                request.LeaveTypeId,
+                request.BalanceLeave,
+                request.LoginUserId,
+                _dateTimeProvider.UtcNow,
+                cancellationToken)
+            ?? throw NotFoundException.For("Leave assignment", request.TimesheetLeaveAssignmentUserId);
+
+        _logger.LogInformation(
+            "Leave assignment {TimesheetLeaveAssignmentUserId} updated: leave type {LeaveTypeId} for user {UserId} by user {LoginUserId}.",
+            saved.TimesheetLeaveAssignmentUserId,
+            request.LeaveTypeId,
+            request.UserId,
+            request.LoginUserId);
+
+        return saved.ToResponse();
+    }
+
+    /// <summary>
+    /// The rules add and edit share. <paramref name="assignmentId"/> is the
+    /// assignment being edited, or null for an add; <paramref name="failures"/>
+    /// carries what the caller has already found, so every failure is still
+    /// reported in one 400.
+    /// </summary>
+    private async Task RequireValidUserLeaveAssignmentAsync(
+        int? assignmentId,
+        int organizationId,
+        int userId,
+        int leaveTypeId,
+        int loginUserId,
+        Dictionary<string, string[]> failures,
+        CancellationToken cancellationToken)
+    {
+        // The request types share these names, so the keys match either body.
+        if (organizationId <= 0)
+        {
+            failures[nameof(TimesheetUserLeaveAssignmentAddRequest.OrganizationId)] = new[]
+            {
+                "OrganizationId is required and must be greater than 0."
+            };
+        }
+
+        if (userId <= 0)
+        {
+            failures[nameof(TimesheetUserLeaveAssignmentAddRequest.UserId)] = new[]
+            {
+                "UserId is required and must be greater than 0."
+            };
+        }
+
+        if (leaveTypeId <= 0)
+        {
+            failures[nameof(TimesheetUserLeaveAssignmentAddRequest.LeaveTypeId)] = new[]
+            {
+                "LeaveTypeId is required and must be greater than 0."
+            };
+        }
+
+        if (loginUserId <= 0)
+        {
+            failures[nameof(TimesheetUserLeaveAssignmentAddRequest.LoginUserId)] = new[]
+            {
+                "LoginUserId is required: the row records who created or last updated it."
+            };
+        }
+
+        if (failures.Count > 0)
+        {
+            throw new ValidationException(failures);
+        }
+
+        // Then the database. No foreign key protects either column, and the
+        // procedures check neither, so a wrong id would be saved as is.
+        if (!await _timesheetProjectRepository.UserExistsAsync(userId, organizationId, cancellationToken))
+        {
+            failures[nameof(TimesheetUserLeaveAssignmentAddRequest.UserId)] = new[]
+            {
+                $"User '{userId}' is not a live user of organization '{organizationId}'."
+            };
+        }
+
+        if (!await _timesheetProjectRepository.LeaveTypeExistsAsync(leaveTypeId, organizationId, cancellationToken))
+        {
+            failures[nameof(TimesheetUserLeaveAssignmentAddRequest.LeaveTypeId)] = new[]
+            {
+                $"Leave type '{leaveTypeId}' is not a live leave type of organization '{organizationId}'."
+            };
+        }
+
+        if (failures.Count > 0)
+        {
+            throw new ValidationException(failures);
+        }
+
+        // One assignment per user and leave type. The assignment being edited
+        // is excluded, so an edit that keeps both is not a conflict with
+        // itself. The procedures check again under a lock, for two saves
+        // racing.
+        if (await _timesheetProjectRepository.UserLeaveAssignmentExistsAsync(
+                userId,
+                leaveTypeId,
+                assignmentId ?? 0,
+                cancellationToken))
+        {
+            throw new ConflictException(
+                $"User '{userId}' already has leave type '{leaveTypeId}' assigned. Edit that assignment instead.");
+        }
+    }
+
+    public async Task DeleteUserLeaveAssignmentAsync(
+        TimesheetUserLeaveAssignmentDeleteRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var failures = new Dictionary<string, string[]>();
+
+        if (request.TimesheetLeaveAssignmentUserId <= 0)
+        {
+            failures[nameof(TimesheetUserLeaveAssignmentDeleteRequest.TimesheetLeaveAssignmentUserId)] = new[]
+            {
+                "TimesheetLeaveAssignmentUserId is required and must be greater than 0."
+            };
+        }
+
+        if (request.OrganizationId <= 0)
+        {
+            failures[nameof(TimesheetUserLeaveAssignmentDeleteRequest.OrganizationId)] = new[]
+            {
+                "OrganizationId is required and must be greater than 0."
+            };
+        }
+
+        if (request.DeletedBy <= 0)
+        {
+            failures[nameof(TimesheetUserLeaveAssignmentDeleteRequest.DeletedBy)] = new[]
+            {
+                "DeletedBy is required: a soft delete records who performed it."
+            };
+        }
+
+        if (failures.Count > 0)
+        {
+            throw new ValidationException(failures);
+        }
+
+        // The repository hides deleted assignments, so one deleted already is
+        // a 404 - never re-stamped over the first DeletedDate.
+        var assignment = await _timesheetProjectRepository.GetUserLeaveAssignmentForUpdateAsync(
+                request.TimesheetLeaveAssignmentUserId,
+                request.OrganizationId,
+                cancellationToken)
+            ?? throw NotFoundException.For("Leave assignment", request.TimesheetLeaveAssignmentUserId);
+
+        // A soft delete, never a DELETE statement: the row stays, and the
+        // entity's query filter and both assignment procedures stop returning
+        // it.
+        assignment.IsDelete = true;
+        assignment.DeletedDate = _dateTimeProvider.UtcNow;
+        assignment.DeletedBy = request.DeletedBy;
+
+        await _timesheetProjectRepository.UpdateUserLeaveAssignmentAsync(assignment, cancellationToken);
+
+        _logger.LogInformation(
+            "Leave assignment {TimesheetLeaveAssignmentUserId} of user {UserId} soft-deleted by user {DeletedBy}.",
+            assignment.TimesheetLeaveAssignmentUserId,
+            assignment.UserId,
+            request.DeletedBy);
+    }
+
+    #endregion
+
+    #region User Leave Apply
+
+    public async Task<IReadOnlyList<TimesheetUserLeaveApplyResponse>> GetUserLeaveApplyListAsync(
+        int? organizationId,
+        int? userId,
+        CancellationToken cancellationToken = default)
+    {
+        var failures = new Dictionary<string, string[]>();
+
+        if (organizationId < 0)
+        {
+            failures["orgID"] = new[] { "orgID must be greater than 0, or left out." };
+        }
+
+        if (userId < 0)
+        {
+            failures["userID"] = new[] { "userID must be greater than 0, or left out." };
+        }
+
+        // Null and 0 both mean "not filtered". With neither filter the whole
+        // table would come back, across every organisation - refused.
+        var organizationFilter = organizationId is > 0 ? organizationId : null;
+        var userFilter = userId is > 0 ? userId : null;
+
+        if (failures.Count == 0 && organizationFilter is null && userFilter is null)
+        {
+            failures["orgID"] = new[] { "orgID or userID is required." };
+        }
+
+        if (failures.Count > 0)
+        {
+            throw new ValidationException(failures);
+        }
+
+        var applications = await _timesheetProjectRepository.GetUserLeaveApplyListAsync(
+            organizationFilter,
+            userFilter,
+            cancellationToken);
+
+        return applications.Select(application => application.ToResponse()).ToList();
+    }
+
+    public async Task<TimesheetUserLeaveApplyResponse> SaveUserLeaveApplyAsync(
+        TimesheetUserLeaveApplySaveRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        // Every rule is checked here, before anything is written, and every
+        // failure is collected - the caller is told about all of them in one
+        // 400, keyed on the field names it sent.
+        var userComments = string.IsNullOrWhiteSpace(request.UserComments) ? null : request.UserComments.Trim();
+        var startDate = request.StartDate?.Date;
+        var endDate = request.EndDate?.Date;
+        var failures = new Dictionary<string, string[]>();
+
+        if (request.TimesheetLeaveUserApplyId < 0)
+        {
+            failures[nameof(TimesheetUserLeaveApplySaveRequest.TimesheetLeaveUserApplyId)] = new[]
+            {
+                "TimesheetLeaveUserApplyId must be 0 (or left out) to apply, or the id of the application to edit."
+            };
+        }
+
+        if (request.OrganizationId <= 0)
+        {
+            failures[nameof(TimesheetUserLeaveApplySaveRequest.OrganizationId)] = new[]
+            {
+                "OrganizationId is required and must be greater than 0."
+            };
+        }
+
+        if (request.UserId <= 0)
+        {
+            failures[nameof(TimesheetUserLeaveApplySaveRequest.UserId)] = new[]
+            {
+                "UserId is required and must be greater than 0."
+            };
+        }
+
+        if (request.LeaveTypeId <= 0)
+        {
+            failures[nameof(TimesheetUserLeaveApplySaveRequest.LeaveTypeId)] = new[]
+            {
+                "LeaveTypeId is required and must be greater than 0."
+            };
+        }
+
+        if (startDate is null)
+        {
+            failures[nameof(TimesheetUserLeaveApplySaveRequest.StartDate)] = new[] { "StartDate is required." };
+        }
+
+        if (endDate is null)
+        {
+            failures[nameof(TimesheetUserLeaveApplySaveRequest.EndDate)] = new[] { "EndDate is required." };
+        }
+        else if (endDate < startDate)
+        {
+            failures[nameof(TimesheetUserLeaveApplySaveRequest.EndDate)] = new[] { "EndDate must not be before StartDate." };
+        }
+        // NoofDays is decimal(4,2), so the dates may span at most 99 days.
+        else if (startDate is not null && (endDate.Value - startDate.Value).Days + 1 > NoOfLeaveAllocatedMaximum)
+        {
+            failures[nameof(TimesheetUserLeaveApplySaveRequest.EndDate)] = new[]
+            {
+                $"The leave may span at most {(int)NoOfLeaveAllocatedMaximum} days; StartDate to EndDate is {(endDate.Value - startDate.Value).Days + 1}."
+            };
+        }
+
+        if (request.LoginUserId <= 0)
+        {
+            failures[nameof(TimesheetUserLeaveApplySaveRequest.LoginUserId)] = new[]
+            {
+                "LoginUserId is required: the row records who created it."
+            };
+        }
+
+        if (failures.Count > 0)
+        {
+            throw new ValidationException(failures);
+        }
+
+        // Then the database. No foreign key protects these columns, and the
+        // procedure checks none of them, so a wrong id would be saved as is.
+        if (!await _timesheetProjectRepository.UserExistsAsync(request.UserId, request.OrganizationId, cancellationToken))
+        {
+            failures[nameof(TimesheetUserLeaveApplySaveRequest.UserId)] = new[]
+            {
+                $"User '{request.UserId}' is not a live user of organization '{request.OrganizationId}'."
+            };
+        }
+
+        if (!await _timesheetProjectRepository.LeaveTypeExistsAsync(request.LeaveTypeId, request.OrganizationId, cancellationToken))
+        {
+            failures[nameof(TimesheetUserLeaveApplySaveRequest.LeaveTypeId)] = new[]
+            {
+                $"Leave type '{request.LeaveTypeId}' is not a live leave type of organization '{request.OrganizationId}'."
+            };
+        }
+        // Leave is taken from a balance, so the user must hold the leave type.
+        else if (!await _timesheetProjectRepository.UserLeaveAssignmentExistsAsync(
+                     request.UserId,
+                     request.LeaveTypeId,
+                     0,
+                     cancellationToken))
+        {
+            failures[nameof(TimesheetUserLeaveApplySaveRequest.LeaveTypeId)] = new[]
+            {
+                $"User '{request.UserId}' is not assigned leave type '{request.LeaveTypeId}'."
+            };
+        }
+
+        if (failures.Count > 0)
+        {
+            throw new ValidationException(failures);
+        }
+
+        // Null and 0 both mean "add" - a negative id was refused above.
+        var applicationId = request.TimesheetLeaveUserApplyId is > 0 ? request.TimesheetLeaveUserApplyId : null;
+
+        if (applicationId is not null)
+        {
+            // An edit is of the user's own application, in this organisation.
+            var existing = await _timesheetProjectRepository.GetUserLeaveApplyForUpdateAsync(
+                applicationId.Value,
+                request.OrganizationId,
+                cancellationToken);
+
+            if (existing is null || existing.UserId != request.UserId)
+            {
+                throw NotFoundException.For("Leave application", applicationId.Value);
+            }
+
+            // Approved leave is final. The procedure refuses it too, but would
+            // only return no row - this says why.
+            var approvedStatus = await _timesheetProjectRepository.GetLeaveStatusValueAsync(
+                LeaveStatusApprovedText,
+                cancellationToken);
+
+            if (approvedStatus is not null && existing.LeaveStatus == approvedStatus)
+            {
+                throw new BusinessException(
+                    $"Leave application '{existing.LeaveId}' is approved, so it can no longer be changed.");
+            }
+        }
+
+        // The days are not sent: they are the calendar days from the start to
+        // the end date, both counted - 2 to 3 November is 2.
+        var noOfDays = (decimal)((endDate!.Value - startDate!.Value).Days + 1);
+
+        var saved = await _timesheetProjectRepository.SaveUserLeaveApplyAsync(
+                applicationId,
+                request.OrganizationId,
+                request.UserId,
+                request.LeaveTypeId,
+                startDate.Value,
+                endDate.Value,
+                noOfDays,
+                userComments,
+                request.LoginUserId,
+                _dateTimeProvider.UtcNow,
+                cancellationToken)
+            ?? throw NotFoundException.For("Leave application", applicationId ?? 0);
+
+        _logger.LogInformation(
+            "Leave application {TimesheetLeaveUserApplyId} (leave {LeaveId}) {Action} for user {UserId} by user {LoginUserId}.",
+            saved.TimesheetLeaveUserApplyId,
+            saved.LeaveId,
+            applicationId is null ? "added" : "updated",
+            request.UserId,
+            request.LoginUserId);
+
+        // A new application only: an edit is the same leave, already announced.
+        if (applicationId is null)
+        {
+            await SendLeaveAppliedEmailAsync(request.OrganizationId, saved);
+        }
+
+        return saved.ToResponse();
+    }
+
+    /// <summary>
+    /// Emails the organisation's leave approver - the approver of its live
+    /// <c>dbo.Timesheet_Approver_setup</c> row with <c>IsLeaveApprover</c> = 1;
+    /// one per organisation, though every distinct one found is emailed, so a
+    /// row written around the API still hears - that leave was applied for, directly through
+    /// the email service. Never throws: the application is saved by now, and
+    /// failing the request would tell the user it was not. An organisation with
+    /// no leave approver, an approver with no email, or a failed send is logged
+    /// and skipped.
+    /// </summary>
+    private async Task SendLeaveAppliedEmailAsync(int organizationId, TimesheetUserLeaveApplySaveDetail application)
+    {
+        try
+        {
+            // CancellationToken.None throughout: the application is already
+            // saved, so a caller that disconnects now must not cost the
+            // approvers their email. The email service's own timeout still
+            // bounds the wait.
+            //
+            // Leave approvers are set per project; the same user may approve
+            // the leave of several projects, and is emailed once.
+            var approvers = (await _timesheetProjectRepository.GetApproverSetupListAsync(
+                    organizationId,
+                    null,
+                    CancellationToken.None))
+                .Where(setup => setup.IsLeaveApprover == true && !string.IsNullOrWhiteSpace(setup.ApproverEmail))
+                .GroupBy(setup => setup.ApproverEmail!.Trim(), StringComparer.OrdinalIgnoreCase)
+                .Select(group => group.First())
+                .ToList();
+
+            if (approvers.Count == 0)
+            {
+                _logger.LogWarning(
+                    "Leave {LeaveId} applied for by user {UserId}, but organization {OrganizationId} has no leave approver with an email; no email sent.",
+                    application.LeaveId,
+                    application.UserId,
+                    organizationId);
+                return;
+            }
+
+            var template = await _emailTemplateStore.GetAsync(LeaveAppliedEmailTemplateName, CancellationToken.None);
+
+            foreach (var approver in approvers)
+            {
+                // Every value is HTML-encoded: a name with a '<' in it is text, not markup.
+                var values = new Dictionary<string, string>
+                {
+                    ["ApproverName"] = approver.ApproverName ?? string.Empty,
+                    ["EmployeeName"] = application.UserName ?? string.Empty,
+                    ["LeaveType"] = application.LeaveType ?? "leave",
+                    ["StartDate"] = application.StartDate?.ToString("dd MMM yyyy", CultureInfo.InvariantCulture) ?? string.Empty,
+                    ["EndDate"] = application.EndDate?.ToString("dd MMM yyyy", CultureInfo.InvariantCulture) ?? string.Empty,
+                    ["NoOfDays"] = application.NoOfDays?.ToString("0.##", CultureInfo.InvariantCulture) ?? string.Empty,
+                    ["UserComments"] = string.IsNullOrWhiteSpace(application.UserComments) ? "None" : application.UserComments,
+                };
+
+                var body = template;
+
+                foreach (var (placeholder, value) in values)
+                {
+                    body = body.Replace($"[{placeholder}]", WebUtility.HtmlEncode(value), StringComparison.Ordinal);
+                }
+
+                var result = await _emailSender.SendAsync(
+                    new EmailMessage(approver.ApproverEmail!, LeaveAppliedEmailSubject, body),
+                    CancellationToken.None);
+
+                if (!result.Succeeded)
+                {
+                    _logger.LogWarning(
+                        "Leave applied email for leave {LeaveId} to approver {ApproverId} was not sent: {Error}",
+                        application.LeaveId,
+                        approver.ApproverId,
+                        result.Error);
+                }
+            }
+        }
+        catch (Exception exception)
+        {
+            _logger.LogError(
+                exception,
+                "Leave applied email for leave {LeaveId} could not be built or sent.",
+                application.LeaveId);
+        }
+    }
+
+    public async Task DeleteUserLeaveApplyAsync(
+        TimesheetUserLeaveApplyDeleteRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var failures = new Dictionary<string, string[]>();
+
+        if (request.TimesheetLeaveUserApplyId <= 0)
+        {
+            failures[nameof(TimesheetUserLeaveApplyDeleteRequest.TimesheetLeaveUserApplyId)] = new[]
+            {
+                "TimesheetLeaveUserApplyId is required and must be greater than 0."
+            };
+        }
+
+        if (request.OrganizationId <= 0)
+        {
+            failures[nameof(TimesheetUserLeaveApplyDeleteRequest.OrganizationId)] = new[]
+            {
+                "OrganizationId is required and must be greater than 0."
+            };
+        }
+
+        if (request.DeletedBy <= 0)
+        {
+            failures[nameof(TimesheetUserLeaveApplyDeleteRequest.DeletedBy)] = new[]
+            {
+                "DeletedBy is required: the remove records who performed it."
+            };
+        }
+
+        if (failures.Count > 0)
+        {
+            throw new ValidationException(failures);
+        }
+
+        var application = await _timesheetProjectRepository.GetUserLeaveApplyForUpdateAsync(
+                request.TimesheetLeaveUserApplyId,
+                request.OrganizationId,
+                cancellationToken)
+            ?? throw NotFoundException.For("Leave application", request.TimesheetLeaveUserApplyId);
+
+        var approvedStatus = await _timesheetProjectRepository.GetLeaveStatusValueAsync(
+            LeaveStatusApprovedText,
+            cancellationToken);
+
+        var wasApproved = approvedStatus is not null && application.LeaveStatus == approvedStatus;
+        var daysGivenBack = 0m;
+
+        // Approved leave was taken from the balance, so removing it gives the
+        // days back. Leave that was never approved took nothing, and the
+        // balance is not touched.
+        if (wasApproved && application.UserId is { } userId && application.LeaveTypeId is { } leaveTypeId
+            && application.NoOfDays is > 0)
+        {
+            var assignment = await _timesheetProjectRepository.GetUserLeaveAssignmentForBalanceAsync(
+                userId,
+                leaveTypeId,
+                cancellationToken);
+
+            if (assignment is null)
+            {
+                // The assignment was removed after the leave was approved:
+                // there is no balance left to give the days back to.
+                _logger.LogWarning(
+                    "Approved leave application {TimesheetLeaveUserApplyId} of user {UserId} removed, but the user no longer holds leave type {LeaveTypeId}; {NoOfDays} day(s) were not given back.",
+                    application.TimesheetLeaveUserApplyId,
+                    userId,
+                    leaveTypeId,
+                    application.NoOfDays);
+            }
+            else
+            {
+                var restoredBalance = (assignment.BalanceLeave ?? 0m) + application.NoOfDays.Value;
+
+                if (restoredBalance > NoOfLeaveAllocatedMaximum)
+                {
+                    throw new BusinessException(
+                        $"Giving back {application.NoOfDays.Value} day(s) would take the balance of leave type " +
+                        $"'{leaveTypeId}' to {restoredBalance}, past the {NoOfLeaveAllocatedMaximum} the balance can hold.");
+                }
+
+                // Written by the same SaveChanges as the delete: both or neither.
+                assignment.BalanceLeave = restoredBalance;
+                assignment.UpdatedDate = _dateTimeProvider.UtcNow;
+                assignment.UpdatedBy = request.DeletedBy;
+                daysGivenBack = application.NoOfDays.Value;
+            }
+        }
+
+        await _timesheetProjectRepository.RemoveUserLeaveApplyAsync(application, cancellationToken);
+
+        _logger.LogInformation(
+            "Leave application {TimesheetLeaveUserApplyId} (leave {LeaveId}) of user {UserId} deleted by user {DeletedBy}; {DaysGivenBack} day(s) given back to the balance.",
+            application.TimesheetLeaveUserApplyId,
+            application.LeaveId,
+            application.UserId,
+            request.DeletedBy,
+            daysGivenBack);
+    }
+
+
+    public async Task<TimesheetUserLeaveApplyResponse> UpdateUserLeaveApplyStatusAsync(
+        TimesheetUserLeaveApplyStatusUpdateRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var approverComments = string.IsNullOrWhiteSpace(request.ApproverComments) ? null : request.ApproverComments.Trim();
+        var failures = new Dictionary<string, string[]>();
+
+        if (request.TimesheetLeaveUserApplyId <= 0)
+        {
+            failures[nameof(TimesheetUserLeaveApplyStatusUpdateRequest.TimesheetLeaveUserApplyId)] = new[]
+            {
+                "TimesheetLeaveUserApplyId is required and must be greater than 0."
+            };
+        }
+
+        if (request.OrganizationId <= 0)
+        {
+            failures[nameof(TimesheetUserLeaveApplyStatusUpdateRequest.OrganizationId)] = new[]
+            {
+                "OrganizationId is required and must be greater than 0."
+            };
+        }
+
+        if (request.AddedBy <= 0)
+        {
+            failures[nameof(TimesheetUserLeaveApplyStatusUpdateRequest.AddedBy)] = new[]
+            {
+                "AddedBy is required: the row records who approved or rejected it."
+            };
+        }
+
+        // The statuses come from the lookup, by name: only its Approved and
+        // Rejected rows are decisions an approver can make.
+        var approvedStatus = await _timesheetProjectRepository.GetLeaveStatusValueAsync(LeaveStatusApprovedText, cancellationToken);
+        var rejectedStatus = await _timesheetProjectRepository.GetLeaveStatusValueAsync(LeaveStatusRejectedText, cancellationToken);
+        var isApproval = approvedStatus is not null && request.LeaveStatus == approvedStatus;
+        var isRejection = rejectedStatus is not null && request.LeaveStatus == rejectedStatus;
+
+        if (!isApproval && !isRejection)
+        {
+            failures[nameof(TimesheetUserLeaveApplyStatusUpdateRequest.LeaveStatus)] = new[]
+            {
+                $"LeaveStatus must be {approvedStatus} ({LeaveStatusApprovedText}) or {rejectedStatus} ({LeaveStatusRejectedText})."
+            };
+        }
+        else if (isRejection && approverComments is null)
+        {
+            failures[nameof(TimesheetUserLeaveApplyStatusUpdateRequest.ApproverComments)] = new[]
+            {
+                "ApproverComments is required when rejecting: the user is told why."
+            };
+        }
+
+        if (failures.Count > 0)
+        {
+            throw new ValidationException(failures);
+        }
+
+        // Only a leave approver of the organisation decides its leave - and
+        // only its leave: the application is looked up in that organisation.
+        if (!await _timesheetProjectRepository.UserExistsAsync(request.AddedBy, request.OrganizationId, cancellationToken)
+            || !await _timesheetProjectRepository.IsOrganizationLeaveApproverAsync(
+                request.OrganizationId,
+                request.AddedBy,
+                cancellationToken))
+        {
+            throw new ForbiddenException(
+                $"User '{request.AddedBy}' is not a leave approver of organization '{request.OrganizationId}'.");
+        }
+
+        var application = await _timesheetProjectRepository.GetUserLeaveApplyForUpdateAsync(
+                request.TimesheetLeaveUserApplyId,
+                request.OrganizationId,
+                cancellationToken)
+            ?? throw NotFoundException.For("Leave application", request.TimesheetLeaveUserApplyId);
+
+        // A decision is made once, on a submitted application. Approved is
+        // final; a rejected one goes back to the user, who edits it to
+        // resubmit.
+        var submittedStatus = await _timesheetProjectRepository.GetLeaveStatusValueAsync(LeaveStatusSubmittedText, cancellationToken);
+
+        if (submittedStatus is null || application.LeaveStatus != submittedStatus)
+        {
+            throw new ConflictException(
+                $"Leave application '{application.LeaveId}' is not submitted, so it cannot be approved or rejected.");
+        }
+
+        var now = _dateTimeProvider.UtcNow;
+
+        if (isApproval)
+        {
+            // Approved leave is taken from the balance - the days the remove
+            // gives back. Written by the same SaveChanges as the status: both
+            // or neither.
+            var noOfDays = application.NoOfDays ?? 0m;
+            var assignment = application.UserId is { } userId && application.LeaveTypeId is { } leaveTypeId
+                ? await _timesheetProjectRepository.GetUserLeaveAssignmentForBalanceAsync(userId, leaveTypeId, cancellationToken)
+                : null;
+
+            if (assignment is null)
+            {
+                throw new BusinessException(
+                    $"Leave application '{application.LeaveId}' cannot be approved: the user is no longer assigned leave type '{application.LeaveTypeId}'.");
+            }
+
+            var balance = assignment.BalanceLeave ?? 0m;
+
+            if (noOfDays > balance)
+            {
+                throw new BusinessException(
+                    $"Leave application '{application.LeaveId}' is for {noOfDays} day(s), but the user's balance is {balance}.");
+            }
+
+            assignment.BalanceLeave = balance - noOfDays;
+            assignment.UpdatedDate = now;
+            assignment.UpdatedBy = request.AddedBy;
+
+            application.LeaveStatus = approvedStatus;
+            application.ApprovedDate = now;
+            application.ApprovedBy = request.AddedBy;
+        }
+        else
+        {
+            application.LeaveStatus = rejectedStatus;
+            application.RejectedDate = now;
+            application.RejectedBy = request.AddedBy;
+        }
+
+        // A note left out on approval keeps whatever was there.
+        if (approverComments is not null)
+        {
+            application.ApproverComments = approverComments;
+        }
+
+        await _timesheetProjectRepository.UpdateUserLeaveApplyAsync(application, cancellationToken);
+
+        _logger.LogInformation(
+            "Leave application {TimesheetLeaveUserApplyId} (leave {LeaveId}) of user {UserId} {Action} by user {AddedBy}.",
+            application.TimesheetLeaveUserApplyId,
+            application.LeaveId,
+            application.UserId,
+            isApproval ? "approved" : "rejected",
+            request.AddedBy);
+
+        // Read back through the list procedure, for the names it joins.
+        var saved = (await _timesheetProjectRepository.GetUserLeaveApplyListAsync(
+                request.OrganizationId,
+                application.UserId,
+                cancellationToken))
+            .FirstOrDefault(row => row.TimesheetLeaveUserApplyId == application.TimesheetLeaveUserApplyId)
+            ?? throw NotFoundException.For("Leave application", application.TimesheetLeaveUserApplyId);
+
+        return saved.ToResponse();
+    }
+
+    #endregion
 }

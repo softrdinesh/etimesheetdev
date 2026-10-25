@@ -994,6 +994,16 @@ public class TimesheetUserListResponse
     /// <summary>Not unique - "$" is shared by many currencies; show it beside <see cref="CurrencyName"/>.</summary>
     /// <example>₹</example>
     public string? CurrencySymbol { get; set; }
+
+    /// <summary>
+    /// Whether the user is on approved leave today - today being the user's
+    /// own date, in the time zone of their timesheet setup (UTC without one).
+    /// True when an <b>approved</b> leave application of this organisation
+    /// runs from on or before today to on or after it; submitted and rejected
+    /// leave do not count. The same on every row of one user.
+    /// </summary>
+    /// <example>false</example>
+    public bool IsOnLeave { get; set; }
 }
 
 /// <summary>
@@ -1098,6 +1108,16 @@ public class TimesheetUserDetailsResponse
     /// </summary>
     /// <example>Asia/Kolkata</example>
     public string? TimeZone { get; set; }
+
+    /// <summary>
+    /// Whether the user is on approved leave today - today being the user's
+    /// own date, in the time zone of their timesheet setup (UTC without one).
+    /// True when one of the user's <b>approved</b> leave applications runs from
+    /// on or before today to on or after it; submitted and rejected leave do
+    /// not count.
+    /// </summary>
+    /// <example>false</example>
+    public bool IsOnLeave { get; set; }
 
     /// <summary>Every live assignment, by project name. Empty when the user is on no project.</summary>
     public List<TimesheetUserProjectResponse> Projects { get; set; } = new();
@@ -1745,6 +1765,16 @@ public class TimesheetRoleAssignmentResponse
 
     public bool? IsViewTimesheet { get; set; }
 
+    public bool? IsUserLeaveApply { get; set; }
+
+    public bool? IsLeaveSetup { get; set; }
+
+    public bool? IsLeaveAssignmentUser { get; set; }
+
+    public bool? IsLeaveApproveReject { get; set; }
+
+    public bool? IsReportView { get; set; }
+
     public DateTime? CreateDate { get; set; }
 
     public int? CreatedBy { get; set; }
@@ -1788,6 +1818,16 @@ public class TimesheetRoleAssignmentDetail
     public bool? IsTimeLog { get; set; }
 
     public bool? IsViewTimesheet { get; set; }
+
+    public bool? IsUserLeaveApply { get; set; }
+
+    public bool? IsLeaveSetup { get; set; }
+
+    public bool? IsLeaveAssignmentUser { get; set; }
+
+    public bool? IsLeaveApproveReject { get; set; }
+
+    public bool? IsReportView { get; set; }
 
     public DateTime? CreateDate { get; set; }
 
@@ -1866,6 +1906,26 @@ public class TimesheetRoleAssignmentSaveRequest
     /// <example>true</example>
     public bool IsViewTimesheet { get; set; }
 
+    /// <summary>Whether the user may use the User Leave Apply module. Left out is <c>false</c>.</summary>
+    /// <example>true</example>
+    public bool IsUserLeaveApply { get; set; }
+
+    /// <summary>Whether the user may use the Leave Setup module. Left out is <c>false</c>.</summary>
+    /// <example>true</example>
+    public bool IsLeaveSetup { get; set; }
+
+    /// <summary>Whether the user may use the Leave Assignment User module. Left out is <c>false</c>.</summary>
+    /// <example>true</example>
+    public bool IsLeaveAssignmentUser { get; set; }
+
+    /// <summary>Whether the user may use the Leave Approve / Reject module. Left out is <c>false</c>.</summary>
+    /// <example>true</example>
+    public bool IsLeaveApproveReject { get; set; }
+
+    /// <summary>Whether the user may use the Report View module. Left out is <c>false</c>.</summary>
+    /// <example>true</example>
+    public bool IsReportView { get; set; }
+
     /// <summary>
     /// The user performing the save, written to <c>CreatedBy</c> on add and
     /// <c>Updatedby</c> on edit. Required, greater than 0. <b>Temporary</b>:
@@ -1910,6 +1970,16 @@ public class TimesheetRoleAssignmentSaveDetail
     public bool? IsTimeLog { get; set; }
 
     public bool? IsViewTimesheet { get; set; }
+
+    public bool? IsUserLeaveApply { get; set; }
+
+    public bool? IsLeaveSetup { get; set; }
+
+    public bool? IsLeaveAssignmentUser { get; set; }
+
+    public bool? IsLeaveApproveReject { get; set; }
+
+    public bool? IsReportView { get; set; }
 
     public DateTime? CreateDate { get; set; }
 
@@ -2311,6 +2381,8 @@ public class TimesheetApproverSetupResponse
 
     public bool? IsTimesheetApprover { get; set; }
 
+    public bool? IsLeaveApprover { get; set; }
+
     public DateTime? CreateDate { get; set; }
 
     public int? CreatedBy { get; set; }
@@ -2341,6 +2413,8 @@ public class TimesheetApproverSetupDetail
 
     public bool? IsTimesheetApprover { get; set; }
 
+    public bool? IsLeaveApprover { get; set; }
+
     public DateTime? CreateDate { get; set; }
 
     public int? CreatedBy { get; set; }
@@ -2350,7 +2424,8 @@ public class TimesheetApproverSetupDetail
 /// Body of <c>add-edit-timesheet-approver-setup</c> - <b>one payload for both
 /// add and edit</b>, chosen by <see cref="TimesheetApproverSetupId"/>.
 /// <para>
-/// A project has at most one approver.
+/// A project has at most one timesheet approver; an organisation has at most
+/// one leave approver, whatever project its setup names.
 /// </para>
 /// <para>
 /// Validated by <c>TimesheetProjectService</c>, not by a FluentValidation
@@ -2371,11 +2446,14 @@ public class TimesheetApproverSetupSaveRequest
     public int OrganizationId { get; set; }
 
     /// <summary>
-    /// The project whose timesheets the approver reviews - a project of the
-    /// organisation with no other approver. Required, greater than 0.
+    /// The project the approver is set up for - a project of the organisation.
+    /// Required when <see cref="IsTimesheetApprover"/> is true, and that
+    /// project must have no other timesheet approver. Optional for a
+    /// leave-only setup: leave is approved for the whole organisation, so null
+    /// or <c>0</c> is allowed.
     /// </summary>
     /// <example>5</example>
-    public int ProjectId { get; set; }
+    public int? ProjectId { get; set; }
 
     /// <summary>The approving user - a live user of the organisation. Required, greater than 0.</summary>
     /// <example>58</example>
@@ -2384,6 +2462,13 @@ public class TimesheetApproverSetupSaveRequest
     /// <summary>Whether the user approves the project's timesheets. Left out is <c>false</c>.</summary>
     /// <example>true</example>
     public bool IsTimesheetApprover { get; set; }
+
+    /// <summary>
+    /// Whether the user is the organisation's leave approver - one per
+    /// organisation. Left out is <c>false</c>.
+    /// </summary>
+    /// <example>false</example>
+    public bool IsLeaveApprover { get; set; }
 
     /// <summary>
     /// The user performing the save, written to <c>CreatedBy</c> on add. The
@@ -2420,6 +2505,8 @@ public class TimesheetApproverSetupSaveDetail
 
     public bool? IsTimesheetApprover { get; set; }
 
+    public bool? IsLeaveApprover { get; set; }
+
     public DateTime? CreateDate { get; set; }
 
     public int? CreatedBy { get; set; }
@@ -2451,4 +2538,654 @@ public class TimesheetApproverSetupDeleteRequest
     /// </summary>
     /// <example>7</example>
     public int DeletedBy { get; set; }
+}
+
+/// <summary>
+/// A leave type of one organisation from <c>dbo.Timesheet_Leavetype_Setup</c>,
+/// as <c>get-timesheet-leave-setup</c> and <c>add-edit-timesheet-leave-setup</c>
+/// return it.
+/// </summary>
+public class TimesheetLeaveSetupResponse
+{
+    public int LeaveTypeId { get; set; }
+
+    public int? OrganizationId { get; set; }
+
+    public string? LeaveType { get; set; }
+
+    public decimal? NoOfLeaveAllocated { get; set; }
+}
+
+/// <summary>
+/// One row of <c>dbo.spc_GetTimesheetLeaveSetup</c>. Property names follow
+/// the procedure's column aliases; the mapping is in
+/// <c>Context.ConfigureStoredProcedureResults</c>.
+/// </summary>
+public class TimesheetLeaveSetupDetail
+{
+    public int LeaveTypeId { get; set; }
+
+    public int? OrganizationId { get; set; }
+
+    public string? LeaveType { get; set; }
+
+    public decimal? NoOfLeaveAllocated { get; set; }
+}
+
+/// <summary>
+/// Body of <c>add-edit-timesheet-leave-setup</c> - <b>one payload for both
+/// add and edit</b>, chosen by <see cref="LeaveTypeId"/>.
+/// <para>
+/// Validated by <c>TimesheetProjectService</c>, not by a FluentValidation
+/// validator.
+/// </para>
+/// </summary>
+public class TimesheetLeaveSetupSaveRequest
+{
+    /// <summary>Absent or <c>0</c> to add; the id of an existing leave type to edit it.</summary>
+    /// <example>0</example>
+    public int? LeaveTypeId { get; set; }
+
+    /// <summary>
+    /// The organisation the leave type belongs to. Required, greater than 0.
+    /// Not changed by an edit: an edit must name a leave type of this
+    /// organisation.
+    /// </summary>
+    /// <example>12</example>
+    public int OrganizationId { get; set; }
+
+    /// <summary>The leave type's name. Required, at most 50 characters; trimmed.</summary>
+    /// <example>Sick Leave</example>
+    public string? LeaveType { get; set; }
+
+    /// <summary>
+    /// The days allocated for this leave type. Required, from 0 to 99.99, with
+    /// at most two decimal places - <c>1.5</c> is a day and a half.
+    /// </summary>
+    /// <example>12</example>
+    public decimal? NoOfLeaveAllocated { get; set; }
+
+    /// <summary>
+    /// The user performing the save, written to <c>CreatedBy</c> on add and
+    /// <c>UpdatedBy</c> on edit. Required, greater than 0. <b>Temporary</b>:
+    /// it comes from the token once authentication is on.
+    /// </summary>
+    /// <example>7</example>
+    public int LoginUserId { get; set; }
+}
+
+/// <summary>
+/// The row <c>dbo.spc_AddEditTimesheetLeaveSetup</c> returns - the leave type
+/// just saved. The same columns as <see cref="TimesheetLeaveSetupDetail"/>,
+/// but its own type: EF Core maps one CLR type to one result set.
+/// </summary>
+public class TimesheetLeaveSetupSaveDetail
+{
+    public int LeaveTypeId { get; set; }
+
+    public int? OrganizationId { get; set; }
+
+    public string? LeaveType { get; set; }
+
+    public decimal? NoOfLeaveAllocated { get; set; }
+}
+
+/// <summary>
+/// Body of <c>remove-timesheet-leave-setup</c>.
+/// <para>
+/// A <b>soft</b> delete: the row is never removed. It is stamped with
+/// <c>IsDelete</c> = 1, <c>DeletedDate</c> and <c>DeletedBy</c>, and from then
+/// on the list and <c>add-edit-timesheet-leave-setup</c> no longer see it.
+/// </para>
+/// <para>
+/// Validated by <c>TimesheetProjectService</c>, not by a FluentValidation
+/// validator.
+/// </para>
+/// </summary>
+public class TimesheetLeaveSetupDeleteRequest
+{
+    /// <summary>The leave type to remove. Required, greater than 0.</summary>
+    /// <example>3</example>
+    public int LeaveTypeId { get; set; }
+
+    /// <summary>The organisation the leave type belongs to. Required, greater than 0.</summary>
+    /// <example>12</example>
+    public int OrganizationId { get; set; }
+
+    /// <summary>
+    /// The user performing the remove, written to <c>DeletedBy</c>. Required,
+    /// greater than 0. <b>Temporary</b>: it comes from the token once
+    /// authentication is on.
+    /// </summary>
+    /// <example>7</example>
+    public int DeletedBy { get; set; }
+}
+
+/// <summary>
+/// A leave type assigned to a user, from
+/// <c>dbo.Timesheet_Leave_assignment_user</c>, as
+/// <c>get-timesheet-user-leave-assignment</c> and
+/// <c>add-timesheet-user-leave-assignment</c> /
+/// <c>edit-timesheet-user-leave-assignment</c> return it - with the user's
+/// name and email, the leave type's name and allocation, and the balance left.
+/// </summary>
+public class TimesheetUserLeaveAssignmentResponse
+{
+    public int TimesheetLeaveAssignmentUserId { get; set; }
+
+    public int? UserId { get; set; }
+
+    public string? UserName { get; set; }
+
+    public string? Email { get; set; }
+
+    public int? OrganizationId { get; set; }
+
+    public int? LeaveTypeId { get; set; }
+
+    public string? LeaveType { get; set; }
+
+    public decimal? NoOfLeaveAllocated { get; set; }
+
+    public decimal? BalanceLeave { get; set; }
+}
+
+/// <summary>
+/// One row of <c>dbo.spc_GetTimesheetUserLeaveAssignment</c>. Property names
+/// follow the procedure's column aliases; the mapping is in
+/// <c>Context.ConfigureStoredProcedureResults</c>.
+/// </summary>
+public class TimesheetUserLeaveAssignmentDetail
+{
+    public int TimesheetLeaveAssignmentUserId { get; set; }
+
+    public int? UserId { get; set; }
+
+    public string? UserName { get; set; }
+
+    public string? Email { get; set; }
+
+    public int? OrganizationId { get; set; }
+
+    public int? LeaveTypeId { get; set; }
+
+    public string? LeaveType { get; set; }
+
+    public decimal? NoOfLeaveAllocated { get; set; }
+
+    public decimal? BalanceLeave { get; set; }
+}
+
+/// <summary>
+/// Body of <c>add-timesheet-user-leave-assignment</c> - assigns a leave type
+/// to a user.
+/// <para>
+/// There is no balance field: the balance starts at the leave type's
+/// <c>NoofLeaveAllocated</c>. A user holds each leave type at most once.
+/// </para>
+/// <para>
+/// Validated by <c>TimesheetProjectService</c>, not by a FluentValidation
+/// validator.
+/// </para>
+/// </summary>
+public class TimesheetUserLeaveAssignmentAddRequest
+{
+    /// <summary>
+    /// The organisation of the user. Required, greater than 0. Not stored -
+    /// the table has no organisation column - but the user and the leave type
+    /// must both belong to it.
+    /// </summary>
+    /// <example>12</example>
+    public int OrganizationId { get; set; }
+
+    /// <summary>
+    /// The user the leave type is assigned to - a live user of the
+    /// organisation who does not hold this leave type already. Required,
+    /// greater than 0.
+    /// </summary>
+    /// <example>58</example>
+    public int UserId { get; set; }
+
+    /// <summary>A live leave type of the organisation. Required, greater than 0.</summary>
+    /// <example>3</example>
+    public int LeaveTypeId { get; set; }
+
+    /// <summary>
+    /// The user performing the add, written to <c>CreatedBy</c>. Required,
+    /// greater than 0. <b>Temporary</b>: it comes from the token once
+    /// authentication is on.
+    /// </summary>
+    /// <example>7</example>
+    public int LoginUserId { get; set; }
+}
+
+/// <summary>
+/// Body of <c>edit-timesheet-user-leave-assignment</c> - changes an existing
+/// assignment.
+/// <para>
+/// The user and the leave type are overwritten, so send both. The balance is
+/// optional: sent, it replaces the balance; left out or null, the balance is
+/// not changed - even when the leave type is.
+/// </para>
+/// <para>
+/// Validated by <c>TimesheetProjectService</c>, not by a FluentValidation
+/// validator.
+/// </para>
+/// </summary>
+public class TimesheetUserLeaveAssignmentEditRequest
+{
+    /// <summary>The assignment to edit - a live assignment of the organisation. Required, greater than 0.</summary>
+    /// <example>4</example>
+    public int TimesheetLeaveAssignmentUserId { get; set; }
+
+    /// <summary>
+    /// The organisation of the user. Required, greater than 0. Not stored, but
+    /// the assignment's current user, the new user and the leave type must all
+    /// belong to it.
+    /// </summary>
+    /// <example>12</example>
+    public int OrganizationId { get; set; }
+
+    /// <summary>
+    /// The user the leave type is assigned to - a live user of the
+    /// organisation who does not hold this leave type in another assignment.
+    /// Required, greater than 0.
+    /// </summary>
+    /// <example>58</example>
+    public int UserId { get; set; }
+
+    /// <summary>A live leave type of the organisation. Required, greater than 0.</summary>
+    /// <example>3</example>
+    public int LeaveTypeId { get; set; }
+
+    /// <summary>
+    /// The leave left. Optional: sent, from 0 to 99.99 with at most two
+    /// decimal places, it replaces the balance; left out or null, the balance
+    /// is not changed.
+    /// </summary>
+    /// <example>10.5</example>
+    public decimal? BalanceLeave { get; set; }
+
+    /// <summary>
+    /// The user performing the edit, written to <c>UpdatedBy</c>. Required,
+    /// greater than 0. <b>Temporary</b>: it comes from the token once
+    /// authentication is on.
+    /// </summary>
+    /// <example>7</example>
+    public int LoginUserId { get; set; }
+}
+
+/// <summary>
+/// The row <c>dbo.spc_AddTimesheetUserLeaveAssignment</c> returns - the
+/// assignment just added. The same columns as
+/// <see cref="TimesheetUserLeaveAssignmentDetail"/>, but its own type: EF Core
+/// maps one CLR type to one result set.
+/// </summary>
+public class TimesheetUserLeaveAssignmentAddDetail
+{
+    public int TimesheetLeaveAssignmentUserId { get; set; }
+
+    public int? UserId { get; set; }
+
+    public string? UserName { get; set; }
+
+    public string? Email { get; set; }
+
+    public int? OrganizationId { get; set; }
+
+    public int? LeaveTypeId { get; set; }
+
+    public string? LeaveType { get; set; }
+
+    public decimal? NoOfLeaveAllocated { get; set; }
+
+    public decimal? BalanceLeave { get; set; }
+}
+
+/// <summary>
+/// The row <c>dbo.spc_EditTimesheetUserLeaveAssignment</c> returns - the
+/// assignment just edited. The same columns as
+/// <see cref="TimesheetUserLeaveAssignmentDetail"/>, but its own type: EF Core
+/// maps one CLR type to one result set.
+/// </summary>
+public class TimesheetUserLeaveAssignmentEditDetail
+{
+    public int TimesheetLeaveAssignmentUserId { get; set; }
+
+    public int? UserId { get; set; }
+
+    public string? UserName { get; set; }
+
+    public string? Email { get; set; }
+
+    public int? OrganizationId { get; set; }
+
+    public int? LeaveTypeId { get; set; }
+
+    public string? LeaveType { get; set; }
+
+    public decimal? NoOfLeaveAllocated { get; set; }
+
+    public decimal? BalanceLeave { get; set; }
+}
+
+/// <summary>
+/// Body of <c>remove-timesheet-user-leave-assignment</c>.
+/// <para>
+/// A <b>soft</b> delete: the row is never removed. It is stamped with
+/// <c>IsDelete</c> = 1, <c>DeletedDate</c> and <c>DeletedBy</c>, and from then
+/// on the list and <c>edit-timesheet-user-leave-assignment</c> no longer
+/// see it - so the user may be assigned the leave type again.
+/// </para>
+/// <para>
+/// Validated by <c>TimesheetProjectService</c>, not by a FluentValidation
+/// validator.
+/// </para>
+/// </summary>
+public class TimesheetUserLeaveAssignmentDeleteRequest
+{
+    /// <summary>The assignment to remove. Required, greater than 0.</summary>
+    /// <example>4</example>
+    public int TimesheetLeaveAssignmentUserId { get; set; }
+
+    /// <summary>The organisation of the assignment's user. Required, greater than 0.</summary>
+    /// <example>12</example>
+    public int OrganizationId { get; set; }
+
+    /// <summary>
+    /// The user performing the remove, written to <c>DeletedBy</c>. Required,
+    /// greater than 0. <b>Temporary</b>: it comes from the token once
+    /// authentication is on.
+    /// </summary>
+    /// <example>7</example>
+    public int DeletedBy { get; set; }
+}
+
+/// <summary>
+/// A leave application from <c>dbo.Timesheet_Leave_User_apply</c>, as
+/// <c>get-timesheet-user-leave-apply</c> and
+/// <c>add-edit-timesheet-user-leave-apply</c> return it - with the user's name
+/// and email, the leave type's name, and the status's name from
+/// <c>dbo.TimesheetLeaveStatus_Lookup</c>.
+/// </summary>
+public class TimesheetUserLeaveApplyResponse
+{
+    public int TimesheetLeaveUserApplyId { get; set; }
+
+    public int LeaveId { get; set; }
+
+    public int? UserId { get; set; }
+
+    public string? UserName { get; set; }
+
+    public string? Email { get; set; }
+
+    public int? OrganizationId { get; set; }
+
+    public int? LeaveTypeId { get; set; }
+
+    public string? LeaveType { get; set; }
+
+    public DateTime? StartDate { get; set; }
+
+    public DateTime? EndDate { get; set; }
+
+    public decimal? NoOfDays { get; set; }
+
+    public string? UserComments { get; set; }
+
+    public string? ApproverComments { get; set; }
+
+    public int? LeaveStatus { get; set; }
+
+    public string? LeaveStatusName { get; set; }
+
+    public DateTime? ApprovedDate { get; set; }
+
+    public int? ApprovedBy { get; set; }
+
+    public DateTime? RejectedDate { get; set; }
+
+    public int? RejectedBy { get; set; }
+}
+
+/// <summary>
+/// One row of <c>dbo.spc_GetTimesheetUserLeaveApply</c>. Property names follow
+/// the procedure's column aliases; the mapping is in
+/// <c>Context.ConfigureStoredProcedureResults</c>.
+/// </summary>
+public class TimesheetUserLeaveApplyDetail
+{
+    public int TimesheetLeaveUserApplyId { get; set; }
+
+    public int LeaveId { get; set; }
+
+    public int? UserId { get; set; }
+
+    public string? UserName { get; set; }
+
+    public string? Email { get; set; }
+
+    public int? OrganizationId { get; set; }
+
+    public int? LeaveTypeId { get; set; }
+
+    public string? LeaveType { get; set; }
+
+    public DateTime? StartDate { get; set; }
+
+    public DateTime? EndDate { get; set; }
+
+    public decimal? NoOfDays { get; set; }
+
+    public string? UserComments { get; set; }
+
+    public string? ApproverComments { get; set; }
+
+    public int? LeaveStatus { get; set; }
+
+    public string? LeaveStatusName { get; set; }
+
+    public DateTime? ApprovedDate { get; set; }
+
+    public int? ApprovedBy { get; set; }
+
+    public DateTime? RejectedDate { get; set; }
+
+    public int? RejectedBy { get; set; }
+}
+
+/// <summary>
+/// Body of <c>add-edit-timesheet-user-leave-apply</c> - <b>one payload for
+/// both add and edit</b>, chosen by <see cref="TimesheetLeaveUserApplyId"/>.
+/// <para>
+/// An approved application cannot be edited. Editing a submitted or rejected
+/// one puts it back to Submitted.
+/// </para>
+/// <para>
+/// There is no days field: the days are the calendar days from
+/// <see cref="StartDate"/> to <see cref="EndDate"/>, both counted, worked out
+/// by the API.
+/// </para>
+/// <para>
+/// Validated by <c>TimesheetProjectService</c>, not by a FluentValidation
+/// validator.
+/// </para>
+/// </summary>
+public class TimesheetUserLeaveApplySaveRequest
+{
+    /// <summary>Absent or <c>0</c> to apply; the id of an existing, not approved application to edit it.</summary>
+    /// <example>0</example>
+    public int? TimesheetLeaveUserApplyId { get; set; }
+
+    /// <summary>
+    /// The organisation the application belongs to, written to <c>OrgID</c>.
+    /// Required, greater than 0; the user and the leave type must both belong
+    /// to it. Not changed by an edit: an edit must name an application of this
+    /// organisation.
+    /// </summary>
+    /// <example>12</example>
+    public int OrganizationId { get; set; }
+
+    /// <summary>
+    /// The user applying - a live user of the organisation who holds the leave
+    /// type. Required, greater than 0. On edit, it must be the application's
+    /// own user.
+    /// </summary>
+    /// <example>58</example>
+    public int UserId { get; set; }
+
+    /// <summary>A live leave type of the organisation that the user is assigned. Required, greater than 0.</summary>
+    /// <example>3</example>
+    public int LeaveTypeId { get; set; }
+
+    /// <summary>The first day of leave. Required; any time part is ignored.</summary>
+    /// <example>2026-11-02</example>
+    public DateTime? StartDate { get; set; }
+
+    /// <summary>
+    /// The last day of leave. Required, not before <see cref="StartDate"/>, and
+    /// at most 99 days from it (both counted) - the days column holds no more.
+    /// Any time part is ignored.
+    /// </summary>
+    /// <example>2026-11-03</example>
+    public DateTime? EndDate { get; set; }
+
+    /// <summary>Optional note from the user; trimmed. An edit that leaves it out clears it.</summary>
+    /// <example>Family function</example>
+    public string? UserComments { get; set; }
+
+    /// <summary>
+    /// The user performing the save, written to <c>CreatedBy</c> on add. The
+    /// table has no updated columns, so an edit records nothing. Required,
+    /// greater than 0. <b>Temporary</b>: it comes from the token once
+    /// authentication is on.
+    /// </summary>
+    /// <example>58</example>
+    public int LoginUserId { get; set; }
+}
+
+/// <summary>
+/// The row <c>dbo.spc_AddEditTimesheetUserLeaveApply</c> returns - the
+/// application just saved. The same columns as
+/// <see cref="TimesheetUserLeaveApplyDetail"/>, but its own type: EF Core maps
+/// one CLR type to one result set.
+/// </summary>
+public class TimesheetUserLeaveApplySaveDetail
+{
+    public int TimesheetLeaveUserApplyId { get; set; }
+
+    public int LeaveId { get; set; }
+
+    public int? UserId { get; set; }
+
+    public string? UserName { get; set; }
+
+    public string? Email { get; set; }
+
+    public int? OrganizationId { get; set; }
+
+    public int? LeaveTypeId { get; set; }
+
+    public string? LeaveType { get; set; }
+
+    public DateTime? StartDate { get; set; }
+
+    public DateTime? EndDate { get; set; }
+
+    public decimal? NoOfDays { get; set; }
+
+    public string? UserComments { get; set; }
+
+    public string? ApproverComments { get; set; }
+
+    public int? LeaveStatus { get; set; }
+
+    public string? LeaveStatusName { get; set; }
+
+    public DateTime? ApprovedDate { get; set; }
+
+    public int? ApprovedBy { get; set; }
+
+    public DateTime? RejectedDate { get; set; }
+
+    public int? RejectedBy { get; set; }
+}
+
+/// <summary>
+/// Body of <c>remove-timesheet-user-leave-apply</c>.
+/// <para>
+/// A <b>hard</b> delete: the table has no soft-delete column, so the row is
+/// physically removed. Removing an <b>approved</b> application gives its days
+/// back to the user's <c>BalanceLeave</c> for that leave type; removing one
+/// that is not approved leaves the balance alone.
+/// </para>
+/// <para>
+/// Validated by <c>TimesheetProjectService</c>, not by a FluentValidation
+/// validator.
+/// </para>
+/// </summary>
+public class TimesheetUserLeaveApplyDeleteRequest
+{
+    /// <summary>The application to remove. Required, greater than 0.</summary>
+    /// <example>9</example>
+    public int TimesheetLeaveUserApplyId { get; set; }
+
+    /// <summary>The organisation the application belongs to. Required, greater than 0.</summary>
+    /// <example>12</example>
+    public int OrganizationId { get; set; }
+
+    /// <summary>
+    /// The user performing the remove. Required, greater than 0. The deleted
+    /// row cannot record it; it is written to the balance's <c>UpdatedBy</c>
+    /// when days are given back, and to the log. <b>Temporary</b>: it comes
+    /// from the token once authentication is on.
+    /// </summary>
+    /// <example>7</example>
+    public int DeletedBy { get; set; }
+}
+
+/// <summary>
+/// Body of <c>update-timesheet-user-leave-apply-status</c> - approves or
+/// rejects a submitted leave application.
+/// <para>
+/// Validated by <c>TimesheetProjectService</c>, not by a FluentValidation
+/// validator.
+/// </para>
+/// </summary>
+public class TimesheetUserLeaveApplyStatusUpdateRequest
+{
+    /// <summary>The submitted application. Required, greater than 0.</summary>
+    /// <example>9</example>
+    public int TimesheetLeaveUserApplyId { get; set; }
+
+    /// <summary>
+    /// The organisation the application belongs to. Required, greater than 0.
+    /// The approver must be a live user and a leave approver of it.
+    /// </summary>
+    /// <example>12</example>
+    public int OrganizationId { get; set; }
+
+    /// <summary>
+    /// The new status - the <c>Value</c> of the Approved or the Rejected row
+    /// of <c>dbo.TimesheetLeaveStatus_Lookup</c> (2 or 3 today). Required.
+    /// </summary>
+    /// <example>2</example>
+    public int LeaveStatus { get; set; }
+
+    /// <summary>
+    /// The approver's note, written to <c>ApproverComments</c>; trimmed.
+    /// Required when rejecting, optional when approving.
+    /// </summary>
+    /// <example>Enjoy your break.</example>
+    public string? ApproverComments { get; set; }
+
+    /// <summary>
+    /// The user approving or rejecting, written to <c>ApprovedBy</c> or
+    /// <c>RejectedBy</c>. Required, greater than 0; a live user and a leave
+    /// approver of the organisation. <b>Temporary</b>: it comes from the token
+    /// once authentication is on.
+    /// </summary>
+    /// <example>3</example>
+    public int AddedBy { get; set; }
 }

@@ -1,11 +1,11 @@
 namespace ETimeSheet.Application.Models.Entities;
 
 /// <summary>
-/// The timesheet approver of one project, mapped onto the
+/// A timesheet and/or leave approver of one project, mapped onto the
 /// existing <c>dbo.Timesheet_Approver_setup</c> table. This is a
 /// persistence/domain model and is never returned from a controller.
 /// <para>
-/// Mapped for the soft delete and the one-approver-per-project check
+/// Mapped for the soft delete and the one-approver-per-project-per-area checks
 /// only: the list and the add/edit go through
 /// <c>spc_GetTimesheetApproverSetup</c> and
 /// <c>spc_AddEditTimesheetApproverSetup</c>.
@@ -38,6 +38,8 @@ public class TimesheetApproverSetup
     public int? DeletedBy { get; set; }
 
     public bool? IsTimesheetApprover { get; set; }
+
+    public bool? IsLeaveApprover { get; set; }
 
     /// <summary>The <c>OrgID</c> column.</summary>
     public int? OrganizationId { get; set; }

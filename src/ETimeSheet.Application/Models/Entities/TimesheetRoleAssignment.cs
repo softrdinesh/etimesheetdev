@@ -49,6 +49,21 @@ public class TimesheetRoleAssignment
     /// <summary>The <c>Mod_IsViewTimesheet</c> column.</summary>
     public bool? IsViewTimesheet { get; set; }
 
+    /// <summary>The <c>Mod_IsUserLeaveApply</c> column.</summary>
+    public bool? IsUserLeaveApply { get; set; }
+
+    /// <summary>The <c>Mod_IsLeaveSetup</c> column.</summary>
+    public bool? IsLeaveSetup { get; set; }
+
+    /// <summary>The <c>Mod_IsLeaveAssignmentUser</c> column.</summary>
+    public bool? IsLeaveAssignmentUser { get; set; }
+
+    /// <summary>The <c>Mod_IsLeaveApproveReject</c> column.</summary>
+    public bool? IsLeaveApproveReject { get; set; }
+
+    /// <summary>The <c>Mod_IsReportView</c> column.</summary>
+    public bool? IsReportView { get; set; }
+
     public DateTime? CreateDate { get; set; }
 
     public int? CreatedBy { get; set; }

@@ -539,15 +539,17 @@ public interface ITimesheetProjectService
     /// </summary>
     /// <returns>The saved setup, including its <c>TimesheetApproverSetupId</c>.</returns>
     /// <exception cref="ETimeSheet.Shared.Exceptions.ValidationException">
-    /// Any field fails its rule, names a project that is not in the
-    /// organisation, or an approver who is not a live user of it - every
+    /// Any field fails its rule (including neither approver flag true),
+    /// names a project that is not in the organisation, or an approver who is
+    /// not a live user of it - every
     /// failure is reported together.
     /// </exception>
     /// <exception cref="ETimeSheet.Shared.Exceptions.NotFoundException">
     /// An id was sent, but no live setup of this organisation has it.
     /// </exception>
     /// <exception cref="ETimeSheet.Shared.Exceptions.ConflictException">
-    /// The project already has another live approver setup.
+    /// The project already has another live timesheet approver or leave
+    /// approver, for an area this setup claims.
     /// </exception>
     Task<TimesheetApproverSetupResponse> SaveApproverSetupAsync(
         TimesheetApproverSetupSaveRequest request,
@@ -566,5 +568,204 @@ public interface ITimesheetProjectService
     /// </exception>
     Task DeleteApproverSetupAsync(
         TimesheetApproverSetupDeleteRequest request,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The live leave types of an organisation, via
+    /// <c>spc_GetTimesheetLeaveSetup</c>, ordered by name.
+    /// </summary>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.ValidationException">
+    /// <paramref name="organizationId"/> is missing or not positive.
+    /// </exception>
+    Task<IReadOnlyList<TimesheetLeaveSetupResponse>> GetLeaveSetupListAsync(
+        int? organizationId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Adds a leave type to an organisation, or edits one - <b>one method for
+    /// both</b>, via <c>spc_AddEditTimesheetLeaveSetup</c>. A
+    /// <see cref="TimesheetLeaveSetupSaveRequest.LeaveTypeId"/> absent or
+    /// <c>0</c> adds; any greater value edits that leave type.
+    /// </summary>
+    /// <returns>The saved leave type, including its <c>LeaveTypeId</c>.</returns>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.ValidationException">
+    /// Any field fails its rule - every failure is reported together.
+    /// </exception>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.NotFoundException">
+    /// An id was sent, but no live leave type of this organisation has it.
+    /// </exception>
+    Task<TimesheetLeaveSetupResponse> SaveLeaveSetupAsync(
+        TimesheetLeaveSetupSaveRequest request,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Soft-deletes a leave type: <c>IsDelete</c>, <c>DeletedDate</c> and
+    /// <c>DeletedBy</c> are stamped and the row is kept.
+    /// </summary>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.ValidationException">
+    /// A <c>LeaveTypeId</c>, <c>OrganizationId</c> or <c>DeletedBy</c> that is
+    /// not positive.
+    /// </exception>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.NotFoundException">
+    /// No live leave type of the organisation has that id - including one
+    /// removed already, so removing twice is a 404.
+    /// </exception>
+    Task DeleteLeaveSetupAsync(
+        TimesheetLeaveSetupDeleteRequest request,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The live leave assignments of an organisation, a user or both, via
+    /// <c>spc_GetTimesheetUserLeaveAssignment</c>. A filter that is null or
+    /// <c>0</c> is not applied, but at least one is required.
+    /// </summary>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.ValidationException">
+    /// A negative filter, or neither filter sent.
+    /// </exception>
+    Task<IReadOnlyList<TimesheetUserLeaveAssignmentResponse>> GetUserLeaveAssignmentListAsync(
+        int? organizationId,
+        int? userId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Assigns a leave type to a user, via
+    /// <c>spc_AddTimesheetUserLeaveAssignment</c>. The balance starts at the
+    /// leave type's <c>NoofLeaveAllocated</c>.
+    /// </summary>
+    /// <returns>The new assignment, including its <c>TimesheetLeaveAssignmentUserId</c>.</returns>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.ValidationException">
+    /// Any field fails its rule, names a user who is not a live user of the
+    /// organisation, or a leave type that is not a live leave type of it -
+    /// every failure is reported together.
+    /// </exception>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.ConflictException">
+    /// The user already holds this leave type.
+    /// </exception>
+    Task<TimesheetUserLeaveAssignmentResponse> AddUserLeaveAssignmentAsync(
+        TimesheetUserLeaveAssignmentAddRequest request,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Edits a leave assignment, via
+    /// <c>spc_EditTimesheetUserLeaveAssignment</c>. A null
+    /// <see cref="TimesheetUserLeaveAssignmentEditRequest.BalanceLeave"/> keeps
+    /// the balance as it is.
+    /// </summary>
+    /// <returns>The edited assignment.</returns>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.ValidationException">
+    /// Any field fails its rule, names a user who is not a live user of the
+    /// organisation, or a leave type that is not a live leave type of it -
+    /// every failure is reported together.
+    /// </exception>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.NotFoundException">
+    /// No live assignment of this organisation has the id.
+    /// </exception>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.ConflictException">
+    /// The user already holds this leave type in another live assignment.
+    /// </exception>
+    Task<TimesheetUserLeaveAssignmentResponse> EditUserLeaveAssignmentAsync(
+        TimesheetUserLeaveAssignmentEditRequest request,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Soft-deletes a leave assignment: <c>IsDelete</c>, <c>DeletedDate</c> and
+    /// <c>DeletedBy</c> are stamped and the row is kept.
+    /// </summary>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.ValidationException">
+    /// A <c>TimesheetLeaveAssignmentUserId</c>, <c>OrganizationId</c> or
+    /// <c>DeletedBy</c> that is not positive.
+    /// </exception>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.NotFoundException">
+    /// No live assignment of the organisation has that id - including one
+    /// removed already, so removing twice is a 404.
+    /// </exception>
+    Task DeleteUserLeaveAssignmentAsync(
+        TimesheetUserLeaveAssignmentDeleteRequest request,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The leave applications of an organisation, a user or both, via
+    /// <c>spc_GetTimesheetUserLeaveApply</c>, newest first. A filter that is
+    /// null or <c>0</c> is not applied, but at least one is required.
+    /// </summary>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.ValidationException">
+    /// A negative filter, or neither filter sent.
+    /// </exception>
+    Task<IReadOnlyList<TimesheetUserLeaveApplyResponse>> GetUserLeaveApplyListAsync(
+        int? organizationId,
+        int? userId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Applies for leave, or edits an application - <b>one method for both</b>,
+    /// via <c>spc_AddEditTimesheetUserLeaveApply</c>. A new application is
+    /// Submitted; an edit puts it back to Submitted. An approved application
+    /// cannot be edited.
+    /// </summary>
+    /// <returns>The saved application, including its <c>TimesheetLeaveUserApplyId</c> and <c>LeaveId</c>.</returns>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.ValidationException">
+    /// Any field fails its rule, names a user who is not a live user of the
+    /// organisation, a leave type that is not a live leave type of it, or a
+    /// leave type the user is not assigned - every failure is reported
+    /// together.
+    /// </exception>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.NotFoundException">
+    /// An id was sent, but no application of this user in this organisation
+    /// has it.
+    /// </exception>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.BusinessException">
+    /// The application is approved.
+    /// </exception>
+    Task<TimesheetUserLeaveApplyResponse> SaveUserLeaveApplyAsync(
+        TimesheetUserLeaveApplySaveRequest request,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Deletes a leave application. If it was approved, its days are given back
+    /// to the user's <c>BalanceLeave</c> for that leave type, in the same
+    /// transaction; otherwise the balance is not touched.
+    /// </summary>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.ValidationException">
+    /// A <c>TimesheetLeaveUserApplyId</c>, <c>OrganizationId</c> or
+    /// <c>DeletedBy</c> that is not positive.
+    /// </exception>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.NotFoundException">
+    /// No application of the organisation has that id - including one removed
+    /// already, so removing twice is a 404.
+    /// </exception>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.BusinessException">
+    /// Giving the days back would take the balance past 99.99, which the column
+    /// cannot hold.
+    /// </exception>
+    Task DeleteUserLeaveApplyAsync(
+        TimesheetUserLeaveApplyDeleteRequest request,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Approves or rejects a submitted leave application. Approving takes its
+    /// days from the user's <c>BalanceLeave</c> for that leave type, in the
+    /// same transaction; rejecting leaves the balance alone.
+    /// </summary>
+    /// <returns>The application after the change.</returns>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.ValidationException">
+    /// A field fails its rule, the status is not Approved or Rejected, or a
+    /// rejection has no comment - every failure is reported together.
+    /// </exception>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.ForbiddenException">
+    /// <c>AddedBy</c> is not a live user and a leave approver of the
+    /// organisation.
+    /// </exception>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.NotFoundException">
+    /// No application of the organisation has that id.
+    /// </exception>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.ConflictException">
+    /// The application is not submitted - already approved or rejected.
+    /// </exception>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.BusinessException">
+    /// Approving would take more days than the user's balance holds, or the
+    /// user is no longer assigned the leave type.
+    /// </exception>
+    Task<TimesheetUserLeaveApplyResponse> UpdateUserLeaveApplyStatusAsync(
+        TimesheetUserLeaveApplyStatusUpdateRequest request,
         CancellationToken cancellationToken = default);
 }
