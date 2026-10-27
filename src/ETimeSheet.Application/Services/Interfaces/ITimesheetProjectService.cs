@@ -174,14 +174,18 @@ public interface ITimesheetProjectService
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Edits one project assignment of a user through EF Core. The name and
-    /// email are saved to <c>dbo.Signup</c> when they change; every other field
-    /// to <c>dbo.Timesheet_Users_Project_setup</c>. Both in one transaction.
+    /// Edits one project assignment of a user through EF Core. The name,
+    /// email, country and address are saved to <c>dbo.Signup</c> when they
+    /// change; every other field to
+    /// <c>dbo.Timesheet_Users_Project_setup</c>. Both in one transaction.
     /// </summary>
-    /// <returns>The assignment and the user's name and email, as saved.</returns>
+    /// <returns>
+    /// The assignment and the user's name, email, country and address, as
+    /// saved.
+    /// </returns>
     /// <exception cref="ETimeSheet.Shared.Exceptions.ValidationException">
-    /// Any field fails its rule, or the project or role it names does not exist
-    /// in the organisation - every failure is reported together.
+    /// Any field fails its rule, or the country, project or role it names does
+    /// not exist - every failure is reported together.
     /// </exception>
     /// <exception cref="ETimeSheet.Shared.Exceptions.NotFoundException">
     /// No live assignment has that id, or its user is removed or belongs to

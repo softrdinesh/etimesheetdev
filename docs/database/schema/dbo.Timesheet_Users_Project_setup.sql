@@ -43,11 +43,11 @@
         was reported for either.
       - Cost_rate_per_hour and Billable_rate_per_hour are decimal(18,2).
       - Max_log_hour_day is a whole number of HOURS, nullable: NULL means this
-        assignment sets no cap of its own. Since 2026-10-22 it caps the day's
-        total in dbo.TimesheetProjectTimeLog (add-edit-timesheet-project-time-log;
-        24 when NULL). dbo.TimeLog's daily cap is still
-        dbo.TimesheetMasterSetup.MaxTimeInHrs, per user - the two are not
-        reconciled.
+        assignment sets no cap of its own. It is read and written by the user
+        setup endpoints, but no longer caps anything: since 2026-10-27
+        add-edit-timesheet-project-time-log enforces no daily maximum.
+        dbo.TimeLog's daily cap is still dbo.TimesheetMasterSetup.MaxTimeInHrs,
+        per user.
       - IsDelete is an int, nullable, as on dbo.Signup - not a bit.
         spc_Signup_timesheet_user writes 0 and the API's soft delete writes 1;
         the API treats 0 or NULL as live.
@@ -55,8 +55,8 @@
         writes CreateDate with GETDATE() - server local time, not UTC.
       - ProjectlocLatitude and ProjectlocLongtitude ("Longtitude" - the
         database's spelling) are nvarchar(25): text, not numbers.
-        spc_Signup_timesheet_user writes the latitude for a new user only, and
-        never writes the longitude.
+        spc_Signup_timesheet_user writes both, in both of its branches, since
+        its 2026-10-27 revision - which the owner has yet to apply.
       - Nothing stops the same user being assigned to the same project twice:
         no unique constraint was reported, and spc_Signup_timesheet_user does
         not check.

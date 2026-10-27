@@ -4392,12 +4392,12 @@ procedure nor the API checks for an existing assignment.
 
 `POST /api/v1/TimesheetProject/edit-timesheet-user`
 
-**Purpose** — Edit one project assignment of a user, and the user's name and
-email. Written through EF Core, not a procedure.
+**Purpose** — Edit one project assignment of a user, and the user's name,
+email, country and address. Written through EF Core, not a procedure.
 
 | Field | Saved to |
 |---|---|
-| `fullName`, `email` | The user in `dbo.Signup` — **only when they change**, with `UpdatedDate` / `UpdateBy`. They change for every project the user is on |
+| `fullName`, `email`, `countryId`, `address` | The user in `dbo.Signup` — **only when they change**, with `UpdatedDate` / `UpdateBy`. They change for every project the user is on |
 | everything else | The assignment in `dbo.Timesheet_Users_Project_setup` |
 
 Both are saved in one transaction — both or neither. **An edit overwrites every
@@ -4416,6 +4416,8 @@ assignment.
 | `organizationId` | int | yes | `> 0` | The assignment's user must belong to it |
 | `fullName` | string | yes | `<= 50` characters after trimming | |
 | `email` | string | yes | a valid address, `<= 50` characters; not another user's | Stored upper case. Compared ignoring case, so a case-only change is not a change |
+| `countryId` | int \| null | no | `> 0`; a `dbo.Country` id that exists | Saved to `dbo.Signup.CountryID`. Left out, the user's country is **cleared** |
+| `address` | string \| null | no | trimmed; no length limit | Saved to `dbo.Signup.Address`. Left out, the user's address is **cleared** |
 | `projectId` | int | yes | `> 0`; a project of `organizationId`; not one the user is on through another live assignment | May move the assignment to another project |
 | `projectRoleId` | int \| null | no | `> 0`; a live role of `organizationId` | |
 | `jobType` | int \| null | no | `> 0` | `1` work from office, `2` work from home. Not checked against the list |
@@ -4424,7 +4426,7 @@ assignment.
 | `workLocationRange` | int \| null | no | `>= 0` | |
 | `projectLocationLatitude` | string \| null | no | a number from -90 to 90, `<= 25` characters | |
 | `projectLocationLongitude` | string \| null | no | a number from -180 to 180, `<= 25` characters | |
-| `maxLogHoursPerDay` | int \| null | no | `0`–`24` | The day's cap on [Add / Edit Project Time Log](#50-add--edit-project-time-log); `null` caps the day at 24 |
+| `maxLogHoursPerDay` | int \| null | no | `0`–`24` | Stored only — [Add / Edit Project Time Log](#50-add--edit-project-time-log) enforces no daily cap |
 | `updatedBy` | int | yes | `> 0` | Temporary — from the token once authentication is on |
 
 #### Example request
@@ -4435,6 +4437,8 @@ assignment.
   "organizationId": 12,
   "fullName": "Priya Shah",
   "email": "priya.shah@example.com",
+  "countryId": 1,
+  "address": "14 MG Road, Pune",
   "projectId": 4,
   "projectRoleId": 3,
   "jobType": 1,
@@ -4470,7 +4474,9 @@ assignment.
     "workLocationRange": 500,
     "projectLocationLatitude": "18.5204",
     "projectLocationLongitude": "73.8567",
-    "maxLogHoursPerDay": 8
+    "maxLogHoursPerDay": 8,
+    "countryId": 1,
+    "address": "14 MG Road, Pune"
   },
   "errors": []
 }
@@ -4479,8 +4485,8 @@ assignment.
 #### Error responses
 
 **400 — validation** (every failure listed): a missing or malformed field from
-the table above, then — once the shape is right — a project or role that does
-not exist in the organisation.
+the table above, then — once the shape is right — a country, project or role
+that does not exist: `CountryId: Country '99' does not exist.`
 
 **404** — no live assignment has that id, or its user is removed or belongs to
 another organisation: `Timesheet user '21' was not found.`
@@ -7057,7 +7063,7 @@ authentication is off.
 | 34 | Remove Project Status | POST | `/api/v1/TimesheetProject/remove-timesheet-project-status` | Soft-delete a project status | `TimesheetProjectStatusDeleteRequest` | `null` | 400, 404, 500 |
 | 35 | Organisation Project Budget List | GET | `/api/v1/TimesheetProject/get-timesheet-project-budget-by-orgID/{orgID}` | Budget lines of every project of an organisation, with project and category name | route param | `TimesheetProjectBudgetByOrgResponse[]` | 400, 500 |
 | 36 | Create Timesheet User | POST | `/api/v1/TimesheetProject/create-timesheet-user` | Sign a user up and put them on a project; an existing user of the organisation gets the assignment only | `TimesheetUserCreateRequest` | `TimesheetUserCreateResponse` | 400, 409, 500 |
-| 37 | Edit Timesheet User | POST | `/api/v1/TimesheetProject/edit-timesheet-user` | Edit an assignment; name/email saved to `dbo.Signup` when changed | `TimesheetUserUpdateRequest` | `TimesheetUserResponse` | 400, 404, 409, 500 |
+| 37 | Edit Timesheet User | POST | `/api/v1/TimesheetProject/edit-timesheet-user` | Edit an assignment; name/email/country/address saved to `dbo.Signup` when changed | `TimesheetUserUpdateRequest` | `TimesheetUserResponse` | 400, 404, 409, 500 |
 | 38 | Remove Timesheet User | POST | `/api/v1/TimesheetProject/remove-timesheet-user` | Take a user off a project by `userId` + `projectId` (soft delete); the user is not touched | `TimesheetUserDeleteRequest` | `null` | 400, 404, 500 |
 | 39 | Organisation Timesheet User List | GET | `/api/v1/TimesheetProject/get-timesheet-user-by-orgID/{orgID}` | Every live project assignment of every live user of an organisation, with project and role name, and the user's country, address and currency | route param | `TimesheetUserListResponse[]` | 400, 500 |
 | 40 | Holiday List | GET | `/api/v1/TimesheetProject/get-timesheet-holiday-setup?orgID=&projectID=` | Live holidays of an organisation, a project or both, by date, with country, client and project names | query params (at least one) | `TimesheetHolidaySetupResponse[]` | 400, 500 |

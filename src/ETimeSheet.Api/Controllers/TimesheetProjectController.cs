@@ -313,18 +313,19 @@ public class TimesheetProjectController : ControllerBase
     /// Edits one project assignment of a user, identified by
     /// <c>timesheetUserProjectSetupId</c>.
     /// <para>
-    /// <c>fullName</c> and <c>email</c> are saved to the user in
-    /// <c>dbo.Signup</c> when they change - and so change for every project the
-    /// user is on. Every other field is saved to the assignment in
-    /// <c>dbo.Timesheet_Users_Project_setup</c>. Both are written together, or
-    /// neither is.
+    /// <c>fullName</c>, <c>email</c>, <c>countryId</c> and <c>address</c> are
+    /// saved to the user in <c>dbo.Signup</c> when they change - and so change
+    /// for every project the user is on. Every other field is saved to the
+    /// assignment in <c>dbo.Timesheet_Users_Project_setup</c>. Both are
+    /// written together, or neither is.
     /// </para>
     /// <para>
-    /// An edit overwrites every field, so send the whole assignment.
+    /// An edit overwrites every field, so send the whole assignment -
+    /// <c>countryId</c> or <c>address</c> left out clears the stored value.
     /// </para>
     /// </summary>
-    /// <response code="200">The saved assignment, with the user's name and email.</response>
-    /// <response code="400">The payload failed validation, or names a project or role that does not exist in the organisation - every failure is listed.</response>
+    /// <response code="200">The saved assignment, with the user's name, email, country and address.</response>
+    /// <response code="400">The payload failed validation, or names a country, project or role that does not exist - every failure is listed.</response>
     /// <response code="404">No live assignment has that id, or its user is removed or belongs to another organisation.</response>
     /// <response code="409">The email is used by another user, or the user is already on the project through another assignment.</response>
     [HttpPost("edit-timesheet-user")]
