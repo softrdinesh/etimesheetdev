@@ -505,22 +505,12 @@ public interface ITimesheetProjectRepository
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Returns a live time log day, <b>tracked</b> for a soft delete;
-    /// <see langword="null"/> when it does not exist or is deleted.
+    /// Returns a live time log entry, <b>tracked</b> so it can be edited or
+    /// soft-deleted; <see langword="null"/> when it does not exist or is
+    /// deleted.
     /// </summary>
     Task<TimesheetProjectTimeLog?> GetProjectTimeLogForUpdateAsync(
         int timesheetProjectTimeLogId,
-        CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// Returns the user's live time log for a project on one day,
-    /// <b>tracked</b> so hours can be added to it; <see langword="null"/> when
-    /// nothing is logged that day.
-    /// </summary>
-    Task<TimesheetProjectTimeLog?> GetProjectTimeLogForDayForUpdateAsync(
-        int userId,
-        int projectId,
-        DateTime logDate,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -543,17 +533,6 @@ public interface ITimesheetProjectRepository
     /// Longer codes rank higher, so <c>PSHT10000</c> outranks <c>PSHT9999</c>.
     /// </summary>
     Task<string?> GetLatestProjectSheetCodeAsync(
-        CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// The most hours a day the user may log on the project:
-    /// <c>Max_log_hour_day</c> of their live assignment in
-    /// <c>dbo.Timesheet_Users_Project_setup</c>. <see langword="null"/> when
-    /// the assignment sets no cap.
-    /// </summary>
-    Task<int?> GetUserProjectMaxLogHoursPerDayAsync(
-        int userId,
-        int projectId,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -974,5 +953,21 @@ public interface ITimesheetProjectRepository
     /// </summary>
     Task<IReadOnlyDictionary<int, string?>> GetUserTimeZonesAsync(
         IReadOnlyCollection<int> userIds,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The first live holiday on <paramref name="date"/> that covers this
+    /// project for this user, untracked; <see langword="null"/> when there is
+    /// none. A holiday belongs to an organisation and may be narrowed to a
+    /// country, a client or a project: it covers the day when it is of
+    /// <paramref name="organizationId"/>, and each of its country, client and
+    /// project is either empty or the one given.
+    /// </summary>
+    Task<TimesheetHolidaySetup?> GetHolidayForProjectOnDateAsync(
+        int organizationId,
+        int projectId,
+        int clientId,
+        int? countryId,
+        DateTime date,
         CancellationToken cancellationToken = default);
 }

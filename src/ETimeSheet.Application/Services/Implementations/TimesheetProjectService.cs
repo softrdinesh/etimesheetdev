@@ -2110,6 +2110,14 @@ public class TimesheetProjectService : ITimesheetProjectService
         // and every failure is reported together.
         var failures = new Dictionary<string, string[]>();
 
+        if (request.TimesheetProjectTimeLogId < 0)
+        {
+            failures[nameof(TimesheetProjectTimeLogSaveRequest.TimesheetProjectTimeLogId)] = new[]
+            {
+                "TimesheetProjectTimeLogId must be 0 to add a new entry, or the id of the entry to edit."
+            };
+        }
+
         if (request.UserId <= 0)
         {
             failures[nameof(TimesheetProjectTimeLogSaveRequest.UserId)] = new[]
@@ -2141,14 +2149,6 @@ public class TimesheetProjectService : ITimesheetProjectService
                 "HoursLogged is required and must be greater than 0."
             };
         }
-        else if (request.HoursLogged > MaxLogHoursPerDayMaximum)
-        {
-            failures[nameof(TimesheetProjectTimeLogSaveRequest.HoursLogged)] = new[]
-            {
-                $"HoursLogged must not be greater than {MaxLogHoursPerDayMaximum}: a day holds no more hours."
-            };
-        }
-
         if (request.AddedBy <= 0)
         {
             failures[nameof(TimesheetProjectTimeLogSaveRequest.AddedBy)] = new[]
@@ -2199,6 +2199,14 @@ public class TimesheetProjectService : ITimesheetProjectService
                 $"User '{request.UserId}' is not assigned to project '{request.ProjectId}'.");
         }
 
+        // No time on a day off - whenever it is logged, before or after.
+        await RequireNotOnLeaveOrHolidayAsync(
+            request.UserId,
+            project,
+            organizationId,
+            logDate,
+            cancellationToken);
+
         // A submitted or approved period is closed; a rejected one is open
         // again, and changing it leaves its sheet as it is until resubmitted.
         var submission = await _timesheetProjectRepository.GetProjectSubmissionForDateAsync(
@@ -2209,43 +2217,15 @@ public class TimesheetProjectService : ITimesheetProjectService
 
         RequireProjectSheetIsOpen(submission);
 
-        // The day's cap is the assignment's Max_log_hour_day; an assignment
-        // with none is capped only by the day itself.
-        var maxHoursPerDay = await _timesheetProjectRepository.GetUserProjectMaxLogHoursPerDayAsync(
-                request.UserId,
-                request.ProjectId,
-                cancellationToken)
-            ?? MaxLogHoursPerDayMaximum;
-
-        // One row per user, project and day: a later log of the same day adds
-        // its hours to the row the first one created.
-        var timeLog = await _timesheetProjectRepository.GetProjectTimeLogForDayForUpdateAsync(
-            request.UserId,
-            request.ProjectId,
-            logDate,
-            cancellationToken);
-
-        var alreadyLogged = timeLog?.HoursLogged ?? 0;
-
-        if (alreadyLogged + request.HoursLogged > maxHoursPerDay)
-        {
-            var remaining = Math.Max(maxHoursPerDay - alreadyLogged, 0);
-
-            throw new ValidationException(
-                nameof(TimesheetProjectTimeLogSaveRequest.HoursLogged),
-                $"You can log a maximum of {Hours(maxHoursPerDay)} per day on this project. " +
-                $"{Hours(alreadyLogged)} {(alreadyLogged == 1 ? "is" : "are")} already logged on {logDate:yyyy-MM-dd}, " +
-                (remaining > 0
-                    ? $"so you can log only {Hours(remaining)} more."
-                    : "so no more hours can be logged on that day."));
-        }
-
         var now = _dateTimeProvider.UtcNow;
-        var isNewDay = timeLog is null;
+        var isNewEntry = request.TimesheetProjectTimeLogId == 0;
         var (periodStartDate, periodEndDate) = SubmissionPeriodOf(logDate, projectStartDate, submissionFrequency);
 
-        if (timeLog is null)
+        TimesheetProjectTimeLog timeLog;
+
+        if (isNewEntry)
         {
+            // An id of 0 always adds: a day may hold more than one entry.
             timeLog = new TimesheetProjectTimeLog
             {
                 UserId = request.UserId,
@@ -2269,22 +2249,59 @@ public class TimesheetProjectService : ITimesheetProjectService
         }
         else
         {
-            timeLog.HoursLogged += request.HoursLogged;
+            // The repository hides deleted entries, so one already removed is
+            // a 404 rather than a silent resurrection.
+            timeLog = await _timesheetProjectRepository.GetProjectTimeLogForUpdateAsync(
+                    request.TimesheetProjectTimeLogId,
+                    cancellationToken)
+                ?? throw NotFoundException.For("Time log", request.TimesheetProjectTimeLogId);
 
-            // One flag for the day: the latest log that says replaces it, and
-            // one that does not say leaves it.
+            if (timeLog.UserId != request.UserId)
+            {
+                throw new BusinessException(
+                    $"Time log '{timeLog.TimesheetProjectTimeLogId}' does not belong to user " +
+                    $"'{request.UserId}', so it cannot be changed as theirs.");
+            }
+
+            if (timeLog.ProjectId != request.ProjectId)
+            {
+                throw new BusinessException(
+                    $"Time log '{timeLog.TimesheetProjectTimeLogId}' is on project " +
+                    $"'{timeLog.ProjectId}', not '{request.ProjectId}', so it cannot be moved between projects.");
+            }
+
+            // Moving an entry to another day: the period it leaves must be
+            // open too, and the day it joins takes that period's sheet code.
+            if (timeLog.LogDate.Date != logDate)
+            {
+                RequireProjectSheetIsOpen(await _timesheetProjectRepository.GetProjectSubmissionForDateAsync(
+                    timeLog.UserId,
+                    timeLog.ProjectId,
+                    timeLog.LogDate,
+                    cancellationToken));
+
+                timeLog.LogDate = logDate;
+                timeLog.SheetSubmissionCode = await ProjectTimeLogSheetCodeAsync(
+                    submission,
+                    request.UserId,
+                    request.ProjectId,
+                    periodStartDate,
+                    periodEndDate,
+                    cancellationToken);
+            }
+
+            // An edit states the entry's hours; it does not add to them.
+            timeLog.HoursLogged = request.HoursLogged;
+
+            // A value sent replaces the entry's; one left out leaves it.
             if (request.IsRemoteLog is not null)
             {
                 timeLog.IsRemoteLog = request.IsRemoteLog;
             }
 
-            // Each log's description is kept, one per line, so the morning's
-            // note is not lost to the afternoon's.
             if (description is not null)
             {
-                timeLog.Description = string.IsNullOrWhiteSpace(timeLog.Description)
-                    ? description
-                    : timeLog.Description + "\n" + description;
+                timeLog.Description = description;
             }
 
             timeLog.UpdateDate = now;
@@ -2295,15 +2312,13 @@ public class TimesheetProjectService : ITimesheetProjectService
 
         _logger.LogInformation(
             "Project time log {TimesheetProjectTimeLogId} {Action} for user {UserId} on project {ProjectId}: " +
-            "{HoursAdded} hours added on {LogDate:yyyy-MM-dd}, {HoursLogged} hours in total, sheet " +
-            "{SheetSubmissionCode}, by user {AddedBy}.",
+            "{HoursLogged} hours on {LogDate:yyyy-MM-dd}, sheet {SheetSubmissionCode}, by user {AddedBy}.",
             saved.TimesheetProjectTimeLogId,
-            isNewDay ? "added" : "updated",
+            isNewEntry ? "added" : "updated",
             request.UserId,
             request.ProjectId,
-            request.HoursLogged,
-            logDate,
             saved.HoursLogged,
+            logDate,
             saved.SheetSubmissionCode,
             request.AddedBy);
 
@@ -2408,6 +2423,67 @@ public class TimesheetProjectService : ITimesheetProjectService
             await _timesheetProjectRepository.GetLatestProjectSheetCodeAsync(cancellationToken));
 
     /// <summary>
+    /// Refuses time on a day the user is not working: a day of their
+    /// <b>approved</b> leave, or a holiday that covers the project for them.
+    /// Submitted and rejected leave do not count. The day is refused however
+    /// early or late it is logged - on the day itself, or days after.
+    /// </summary>
+    /// <exception cref="BusinessException">The day is leave or a holiday.</exception>
+    private async Task RequireNotOnLeaveOrHolidayAsync(
+        int userId,
+        TimesheetProject project,
+        int organizationId,
+        DateTime logDate,
+        CancellationToken cancellationToken)
+    {
+        // Approved is the lookup's row of that name; a lookup without one has
+        // no approved leave to find.
+        var approvedStatus = await _timesheetProjectRepository.GetLeaveStatusValueAsync(
+            LeaveStatusApprovedText,
+            cancellationToken);
+
+        if (approvedStatus is not null)
+        {
+            var leave = (await _timesheetProjectRepository.GetLeaveApplyOverlappingAsync(
+                    null,
+                    userId,
+                    approvedStatus.Value,
+                    logDate,
+                    logDate,
+                    cancellationToken))
+                .FirstOrDefault(application => application.StartDate?.Date <= logDate
+                                               && application.EndDate?.Date >= logDate);
+
+            if (leave is not null)
+            {
+                throw new BusinessException(
+                    $"You are on approved leave on {logDate:yyyy-MM-dd} (leave {leave.LeaveId}, " +
+                    $"{leave.StartDate:yyyy-MM-dd} to {leave.EndDate:yyyy-MM-dd}), so no time can be logged that day.");
+            }
+        }
+
+        // A holiday may be narrowed to a country - the user's - a client and a
+        // project - this one's.
+        var user = await _timesheetProjectRepository.GetUserByIdAsync(userId, cancellationToken);
+
+        var holiday = await _timesheetProjectRepository.GetHolidayForProjectOnDateAsync(
+            organizationId,
+            project.ProjectId,
+            project.ClientId,
+            user?.CountryId,
+            logDate,
+            cancellationToken);
+
+        if (holiday is not null)
+        {
+            var name = string.IsNullOrWhiteSpace(holiday.Description) ? "a holiday" : $"a holiday ({holiday.Description.Trim()})";
+
+            throw new BusinessException(
+                $"{logDate:yyyy-MM-dd} is {name}, so no time can be logged that day.");
+        }
+    }
+
+    /// <summary>
     /// Rejects a change to time in a period whose sheet is submitted or
     /// approved. No sheet, or a rejected one, is open.
     /// </summary>
@@ -2444,9 +2520,6 @@ public class TimesheetProjectService : ITimesheetProjectService
 
         return EmployeeClock.At(_dateTimeProvider.UtcNow, zone);
     }
-
-    /// <summary>A number of hours as words: "1 hour", "7 hours".</summary>
-    private static string Hours(int hours) => hours == 1 ? "1 hour" : $"{hours} hours";
 
     /// <summary>
     /// The project's start date, submission frequency and organisation.

@@ -653,8 +653,9 @@ public class TimesheetProjectController : ControllerBase
     #region Project Time Log
 
     /// <summary>
-    /// Returns a user's time on projects, from <c>dbo.TimesheetProjectTimeLog</c>
-    /// - one entry per project per day. Ordered by date, then project.
+    /// Returns a user's time on projects, from <c>dbo.TimesheetProjectTimeLog</c>.
+    /// Ordered by date, then project, then entry - a day may hold several
+    /// entries on one project.
     /// <para>
     /// <c>projectID</c>, <c>fromDate</c> and <c>toDate</c> narrow the list; one
     /// left out (or <c>projectID</c> sent as <c>0</c>) is not applied. The
@@ -688,15 +689,17 @@ public class TimesheetProjectController : ControllerBase
     }
 
     /// <summary>
-    /// Logs hours on a project for one day. Send <c>userId</c>,
-    /// <c>projectId</c>, <c>logDate</c>, <c>hoursLogged</c> (whole hours) and
-    /// <c>addedBy</c>; no start or end time.
+    /// Adds or edits an entry of hours on a project for one day. Send
+    /// <c>userId</c>, <c>projectId</c>, <c>logDate</c>, <c>hoursLogged</c>
+    /// (whole hours) and <c>addedBy</c>; no start or end time.
     /// <para>
-    /// A user has <b>one entry per project per day</b>, found by the date, not
-    /// by an id. The first log of the day creates it; every later log of the
-    /// same day adds its hours to it - 3 hours, then 4, is one entry of 7. A
-    /// description sent with a later log is added to the entry's on a new line.
-    /// Any day of the project may be logged, past days included.
+    /// <c>timesheetProjectTimeLogId</c> decides which it is. <b>0</b>, or left
+    /// out, <b>adds</b> a new entry - a day may hold several. An id
+    /// <b>greater than 0 edits</b> that entry, which must exist and belong to
+    /// <c>userId</c> on <c>projectId</c>: <c>hoursLogged</c> replaces its
+    /// hours, and <c>isRemoteLog</c> or <c>description</c> replace the
+    /// entry's when sent and leave them when left out. The hours are not
+    /// capped. Any day of the project may be logged, past days included.
     /// </para>
     /// <para>
     /// The day gets the <c>sheetSubmissionCode</c> of its submission period -
@@ -704,23 +707,20 @@ public class TimesheetProjectController : ControllerBase
     /// returned with <c>periodStartDate</c> and <c>periodEndDate</c>. Every day
     /// of the user on the project in one period shares one code: the first day
     /// logged in it takes the next <c>PSHT</c> code, whichever day that is.
-    /// </para>
-    /// <para>
-    /// The day's total may not exceed the user's <c>maxLogHoursPerDay</c> on
-    /// the project (<c>Max_log_hour_day</c> in
-    /// <c>dbo.Timesheet_Users_Project_setup</c>; 24 when it is not set). With a
-    /// cap of 8 and 7 already logged, adding 2 is refused with how many hours
-    /// are left.
+    /// An edit that moves an entry to another period takes that period's code,
+    /// and the period it leaves must be open as well.
     /// </para>
     /// <para>
     /// Logging time does not open a timesheet submission.
     /// </para>
     /// </summary>
-    /// <response code="200">The day's entry, with its new total.</response>
-    /// <response code="400">The payload failed validation, the user is not on the project, the date is outside the project's dates, the project has no start date, submission frequency or organization, the hours would take the day past its cap, or the day's period is submitted or approved.</response>
+    /// <response code="200">The entry as saved.</response>
+    /// <response code="400">The payload failed validation, the user is not on the project, the date is outside the project's dates, the project has no start date, submission frequency or organization, the day is leave or a holiday, the entry belongs to another user or project, or the period is submitted or approved.</response>
+    /// <response code="404">No live entry has that <c>timesheetProjectTimeLogId</c>.</response>
     [HttpPost("add-edit-timesheet-project-time-log")]
     [ProducesResponseType(typeof(ApiResponse<TimesheetProjectTimeLogResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> AddEditTimesheetProjectTimeLog(
         [FromBody] TimesheetProjectTimeLogSaveRequest request,
         CancellationToken cancellationToken)

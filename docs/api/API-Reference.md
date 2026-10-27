@@ -5467,19 +5467,21 @@ greater than 0.`), `projectID` negative, or `toDate` before `fromDate`.
 **Purpose** — Log hours on a project for one day. Written by the API through
 EF Core; no stored procedure.
 
-A user has **one entry per project per calendar day**, found by the date —
-no id is sent:
+`timesheetProjectTimeLogId` decides whether this adds or edits:
 
+- **`0`, or left out — add.** A new entry is created with `hoursLogged`. A day
+  may hold **several entries**: logging 3 hours and then 4 on one day leaves
+  **two** entries, not one of 7.
+- **Greater than 0 — edit.** That entry is updated. It must exist, not be
+  deleted, and belong to `userId` on `projectId`. `hoursLogged` **replaces**
+  the entry's hours rather than adding to them; `isRemoteLog` and
+  `description` replace the entry's when sent, and leave them as they are when
+  left out. Changing `logDate` moves the entry to that day — the period it
+  leaves must be open too, and it takes the new period's sheet code.
 - Any day of the project may be logged, past days included: with monthly
   submission, logging days 1–20 on the 20th is allowed.
-- The first log of the day creates the entry with `hoursLogged`.
-- Every later log of the same day **adds** its `hoursLogged` to that entry, and
-  its `description` (if any) on a new line. 3 hours in the morning, then 4,
-  is one entry of **7**.
-- The day's total may not exceed the user's `maxLogHoursPerDay` on the project
-  (`Max_log_hour_day` in `dbo.Timesheet_Users_Project_setup`, set through
-  [Edit Timesheet User](#37-edit-timesheet-user)). When it is not set, the cap
-  is 24.
+- Hours are **not capped**: neither the assignment's `Max_log_hour_day` nor
+  any fixed daily maximum is enforced here.
 - No start time, end time or duration is sent.
 - The day takes the **sheet code of its submission period** — see
   [periods and sheet codes](#project-timesheets-periods-and-sheet-codes).
@@ -5495,10 +5497,11 @@ no id is sent:
 
 | Field | Type | Required | Rules |
 |---|---|---|---|
+| `timesheetProjectTimeLogId` | int | no | `0` (the default) adds a new entry; `> 0` edits that entry, which must exist and belong to `userId` on `projectId` |
 | `userId` | int | yes | `> 0`. Whose time it is; must be assigned to `projectId` |
 | `projectId` | int | yes | `> 0`. Must exist and have a `StartDate`, a `SubmissionFrequency` and an organisation |
 | `logDate` | date | yes | Only the date part is used. Not before the project's `StartDate`, not after its `EndDate` (when set) |
-| `hoursLogged` | int | yes | `1`–`24`, whole hours. Added to the day's total |
+| `hoursLogged` | int | yes | `> 0`, whole hours, no upper limit. The new entry's hours on an add; the entry's hours on an edit — it replaces, it does not add |
 | `isRemoteLog` | bool \| null | no | Whether the work was remote. On a day already logged, a value sent replaces the day's; left out, the day keeps its value |
 | `description` | string \| null | no | Free text, no length limit |
 | `addedBy` | int | yes | `> 0`. Written to `CreatedBy` on the first log of the day, `UpdatedBy` on later ones. Temporary — from the token once authentication is on |
@@ -5507,6 +5510,7 @@ no id is sent:
 
 ```json
 {
+  "timesheetProjectTimeLogId": 0,
   "userId": 7,
   "projectId": 12,
   "logDate": "2026-10-22",
@@ -5519,9 +5523,14 @@ no id is sent:
 
 #### Success response — `200 OK`
 
-`data` is the day's entry with its new total, sheet code and period, in the
+`data` is the entry as saved, with its hours, sheet code and period, in the
 same shape as [Project Time Log List](#49-project-time-log-list), with
 `"message": "Time log saved."`.
+
+**Days off.** No time can be logged on a day the user is on approved leave or
+that is a holiday for them on this project — whether it is logged on the day
+itself or any day later. Every other day is unaffected. The request and the
+response are unchanged.
 
 #### Error responses
 
@@ -5537,9 +5546,14 @@ Also a 400, one at a time, after the payload passes:
 | Project not set up | `Project '12' needs a start date, a submission frequency and an organization before time can be logged or submitted on it.` |
 | Date outside the project | `LogDate: LogDate must not be before the project's start date, 2026-10-01.` (or after its end date) |
 | User not on the project | `ProjectId: User '7' is not assigned to project '12'.` |
-| Over the day's cap (8, with 7 logged, adding 2) | `HoursLogged: You can log a maximum of 8 hours per day on this project. 7 hours are already logged on 2026-10-22, so you can log only 1 hour more.` |
-| Day already full | `HoursLogged: You can log a maximum of 8 hours per day on this project. 8 hours are already logged on 2026-10-22, so no more hours can be logged on that day.` |
+| Editing another user's entry | `Time log '15' does not belong to user '7', so it cannot be changed as theirs.` |
+| Editing an entry of another project | `Time log '15' is on project '9', not '12', so it cannot be moved between projects.` |
 | Period submitted or approved | `Timesheet 'PSHT0004' for 2026-10-19 to 2026-10-25 is submitted, so its time can no longer be added to, changed or removed.` A rejected period is open again |
+| User on approved leave that day | `You are on approved leave on 2026-10-25 (leave 9, 2026-10-24 to 2026-10-26), so no time can be logged that day.` Only **approved** leave ([68](#68-approve--reject-user-leave-apply)) blocks the day; submitted and rejected leave do not |
+| Holiday that day | `2026-10-25 is a holiday (Diwali), so no time can be logged that day.` A holiday ([41](#41-add--edit-holiday)) of the project's organisation counts when each of its country, client and project is empty or matches — the user's country, the project's client, this project |
+
+**404** — `timesheetProjectTimeLogId` is greater than 0 but no live entry has
+it: `Time log '15' was not found.` A removed entry is not found either.
 
 **500** — unhandled defect.
 
@@ -7056,7 +7070,7 @@ authentication is off.
 | 47 | Add / Edit User Access Setup | POST | `/api/v1/TimesheetProject/add-edit-user-access-setup` | Add a user's module access (`assignmentId` 0 / absent) or edit it; one setup per user | `TimesheetRoleAssignmentSaveRequest` | `TimesheetRoleAssignmentResponse` | 400, 404, 409, 500 |
 | 48 | Remove User Access Setup | POST | `/api/v1/TimesheetProject/remove-user-access-setup` | Hard-delete a user access setup by its id | `TimesheetRoleAssignmentDeleteRequest` | `null` | 400, 404, 500 |
 | 49 | Project Time Log List | GET | `/api/v1/TimesheetProject/get-timesheet-project-time-log?userID=&projectID=&fromDate=&toDate=` | A user's project time, one entry per project per day | query params (`userID` required) | `TimesheetProjectTimeLogResponse[]` | 400, 500 |
-| 50 | Add / Edit Project Time Log | POST | `/api/v1/TimesheetProject/add-edit-timesheet-project-time-log` | Log `hoursLogged` on a day: the first log adds the day's entry, later ones add to it, capped at `Max_log_hour_day`; no submission opened | `TimesheetProjectTimeLogSaveRequest` | `TimesheetProjectTimeLogResponse` | 400, 500 |
+| 50 | Add / Edit Project Time Log | POST | `/api/v1/TimesheetProject/add-edit-timesheet-project-time-log` | Log `hoursLogged` on a day: `timesheetProjectTimeLogId` `0` adds an entry, greater than 0 edits that one; no daily cap, no submission opened | `TimesheetProjectTimeLogSaveRequest` | `TimesheetProjectTimeLogResponse` | 400, 404, 500 |
 | 51 | Remove Project Time Log | POST | `/api/v1/TimesheetProject/remove-timesheet-project-time-log` | Soft-delete a day's time entry | `TimesheetProjectTimeLogDeleteRequest` | `null` | 400, 404, 500 |
 | 52 | Project Timesheet List | GET | `/api/v1/TimesheetProject/get-timesheet-project-sheet?userID=&projectID=&orgID=` | Submitted sheets per user, project and period, with the time logged in each | query params (at least one) | `TimesheetProjectSheetResponse[]` | 400, 500 |
 | 53 | Submit Project Timesheet | POST | `/api/v1/TimesheetProject/submit-timesheet-project-sheet` | Submit one period, by code or `periodDate`, on or after its last day (user's time zone); first submit creates the row as Submitted with the time log's code; audit logged | `TimesheetProjectSheetSubmitRequest` | `TimesheetProjectSheetResponse` | 400, 409, 500 |
@@ -7306,12 +7320,11 @@ Documented so nobody has to rediscover them:
 56. **User access setup reads depend on `dbo.Signup`**, which is not recorded
     (see 6). `spc_GetUserAccessSetup` and `spc_AddEditUserAccessSetup` join it
     for the user's name, email and organisation.
-57. **Two daily caps, not reconciled.** The assignment's `Max_log_hour_day`
-    caps [Add / Edit Project Time Log](#50-add--edit-project-time-log), per
-    project. [Save Time Log](#3-save-time-log-add--edit) caps `dbo.TimeLog` by
-    the **user's** `dbo.TimesheetMasterSetup.MaxTimeInHrs` instead. Neither
-    looks at the other, and a user on two projects can log up to each
-    project's cap on the same day.
+57. **No daily cap on project time logs.**
+    [Add / Edit Project Time Log](#50-add--edit-project-time-log) no longer
+    enforces the assignment's `Max_log_hour_day`, so any number of hours can
+    be logged on a day. [Save Time Log](#3-save-time-log-add--edit) still caps
+    `dbo.TimeLog` by the **user's** `dbo.TimesheetMasterSetup.MaxTimeInHrs`.
 58. *(Resolved 2026-10-23.)* The sheet list no longer predicts codes for
     unsubmitted periods: it lists submitted sheets only, and a period's code
     is given by its first time-log day or its submit.
