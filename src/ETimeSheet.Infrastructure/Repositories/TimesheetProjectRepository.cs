@@ -650,21 +650,6 @@ public class TimesheetProjectRepository : ITimesheetProjectRepository
                 timeLog => timeLog.TimesheetProjectTimeLogId == timesheetProjectTimeLogId,
                 cancellationToken);
 
-    public async Task<TimesheetProjectTimeLog?> GetProjectTimeLogForDayForUpdateAsync(
-        int userId,
-        int projectId,
-        DateTime logDate,
-        CancellationToken cancellationToken = default) =>
-        // Tracked on purpose - the hours are added to it. Oldest first, should
-        // duplicates ever exist: nothing in the database stops two rows for one
-        // day.
-        await _db.TimesheetProjectTimeLog
-            .Where(timeLog => timeLog.UserId == userId
-                              && timeLog.ProjectId == projectId
-                              && timeLog.LogDate == logDate.Date)
-            .OrderBy(timeLog => timeLog.TimesheetProjectTimeLogId)
-            .FirstOrDefaultAsync(cancellationToken);
-
     public async Task<string?> GetProjectTimeLogSheetCodeForPeriodAsync(
         int userId,
         int projectId,
@@ -709,17 +694,6 @@ public class TimesheetProjectRepository : ITimesheetProjectRepository
     private static IQueryable<string> GeneratedSheetCodes(IQueryable<string> codes) =>
         codes.Where(code => EF.Functions.Like(code, "PSHT[0-9]%")
                             && !EF.Functions.Like(code.Substring(4), "%[^0-9]%"));
-
-    public async Task<int?> GetUserProjectMaxLogHoursPerDayAsync(
-        int userId,
-        int projectId,
-        CancellationToken cancellationToken = default) =>
-        // The query filter hides deleted assignments. Nothing stops a user
-        // being assigned to a project twice, so the strictest cap wins; Min
-        // over no non-null value is null - no cap.
-        await _db.Timesheet_Users_Project_setup
-            .Where(setup => setup.UserId == userId && setup.ProjectId == projectId)
-            .MinAsync(setup => setup.MaxLogHoursPerDay, cancellationToken);
 
     public async Task<TimesheetProjectSubmission?> GetProjectSubmissionForUpdateAsync(
         int timesheetProjectSubmissionId,
@@ -1312,4 +1286,23 @@ public class TimesheetProjectRepository : ITimesheetProjectRepository
             .GroupBy(setup => setup.UserId)
             .ToDictionary(group => group.Key, group => group.First().TimeZone);
     }
+
+    public async Task<TimesheetHolidaySetup?> GetHolidayForProjectOnDateAsync(
+        int organizationId,
+        int projectId,
+        int clientId,
+        int? countryId,
+        DateTime date,
+        CancellationToken cancellationToken = default) =>
+        // The query filter hides deleted holidays. HolidayDate is a date
+        // column, so the day compares exactly.
+        await _db.TimesheetHolidaysetup
+            .AsNoTracking()
+            .Where(holiday => holiday.HolidayDate == date.Date
+                              && holiday.OrganizationId == organizationId
+                              && (holiday.CountryId == null || holiday.CountryId == countryId)
+                              && (holiday.ClientId == null || holiday.ClientId == clientId)
+                              && (holiday.ProjectId == null || holiday.ProjectId == projectId))
+            .OrderBy(holiday => holiday.TimesheetHolidaySetupId)
+            .FirstOrDefaultAsync(cancellationToken);
 }

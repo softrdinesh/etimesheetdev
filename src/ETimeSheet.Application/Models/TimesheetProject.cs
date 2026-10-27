@@ -2048,7 +2048,7 @@ public class TimesheetProjectTimeLogResponse
     /// <summary>The day worked.</summary>
     public DateTime LogDate { get; set; }
 
-    /// <summary>The day's total on the project, in whole hours.</summary>
+    /// <summary>The entry's hours on the project, in whole hours.</summary>
     /// <example>7</example>
     public int HoursLogged { get; set; }
 
@@ -2071,11 +2071,10 @@ public class TimesheetProjectTimeLogResponse
 /// Body of <c>add-edit-timesheet-project-time-log</c>: hours worked on a
 /// project on one day.
 /// <para>
-/// The user has one entry per project per day, found by the date, never by
-/// an id. The first log of the day adds it; every later one adds
-/// <see cref="HoursLogged"/> to it - 3 hours, then 4, leaves one entry of 7.
-/// The day's total may not exceed the assignment's <c>Max_log_hour_day</c> in
-/// <c>dbo.Timesheet_Users_Project_setup</c>. Any day of the project may be
+/// <see cref="TimesheetProjectTimeLogId"/> decides which it is. <c>0</c> adds
+/// a new entry, so a day may hold several. An id greater than 0 edits that
+/// entry: <see cref="HoursLogged"/> <b>replaces</b> its hours rather than
+/// adding to them. The hours are not capped. Any day of the project may be
 /// logged, past ones included.
 /// </para>
 /// <para>
@@ -2090,6 +2089,14 @@ public class TimesheetProjectTimeLogResponse
 /// </summary>
 public class TimesheetProjectTimeLogSaveRequest
 {
+    /// <summary>
+    /// The entry to edit. <c>0</c> - or left out - adds a new entry; greater
+    /// than 0 edits that one, which must exist and belong to
+    /// <see cref="UserId"/> on <see cref="ProjectId"/>.
+    /// </summary>
+    /// <example>0</example>
+    public int TimesheetProjectTimeLogId { get; set; }
+
     /// <summary>The user the time is logged for. Required, greater than 0.</summary>
     /// <example>7</example>
     public int UserId { get; set; }
@@ -2103,30 +2110,30 @@ public class TimesheetProjectTimeLogSaveRequest
     public DateTime LogDate { get; set; }
 
     /// <summary>
-    /// The hours to add to the day, in whole hours. Required, greater than 0.
+    /// The hours worked, in whole hours. Required, greater than 0. On an edit
+    /// it replaces the entry's hours. Not capped.
     /// </summary>
     /// <example>3</example>
     public int HoursLogged { get; set; }
 
     /// <summary>
-    /// Whether the work was done remotely. Optional. On a day already logged,
-    /// a value sent replaces the day's; left out, the day keeps the one it has.
+    /// Whether the work was done remotely. Optional. On an edit, a value sent
+    /// replaces the entry's; left out, the entry keeps the one it has.
     /// </summary>
     /// <example>true</example>
     public bool? IsRemoteLog { get; set; }
 
     /// <summary>
-    /// What was done. Optional. On a day already logged, it is added to the
-    /// entry's description on a new line.
+    /// What was done. Optional. On an edit, a value sent replaces the entry's
+    /// description; left out, the entry keeps the one it has.
     /// </summary>
     /// <example>Sprint planning</example>
     public string? Description { get; set; }
 
     /// <summary>
     /// The user performing the save, written to <c>CreatedBy</c> on add and
-    /// <c>UpdatedBy</c> when hours are added to the day. Required, greater
-    /// than 0. <b>Temporary</b>: it comes from the token once authentication
-    /// is on.
+    /// <c>UpdatedBy</c> on edit. Required, greater than 0. <b>Temporary</b>:
+    /// it comes from the token once authentication is on.
     /// </summary>
     /// <example>7</example>
     public int AddedBy { get; set; }

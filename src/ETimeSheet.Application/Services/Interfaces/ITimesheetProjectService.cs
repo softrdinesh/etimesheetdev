@@ -407,25 +407,29 @@ public interface ITimesheetProjectService
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Logs hours on a project for one day. The user has one entry per project
-    /// per day, found by the date: the first log of the day adds it, every
-    /// later one adds its hours to it. The day's total may not exceed the
-    /// assignment's <c>Max_log_hour_day</c> (24 when it has none). A new day
-    /// takes the sheet code of its submission period - its sheet's, or the one
+    /// Adds or edits an entry of hours on a project for one day.
+    /// <c>TimesheetProjectTimeLogId</c> of 0 adds a new entry - a day may hold
+    /// several - and an id greater than 0 edits that one, replacing its hours
+    /// rather than adding to them. The hours are not capped. A new entry takes
+    /// the sheet code of its submission period - its sheet's, or the one
     /// already on the user's days on the project in that period, deleted ones
-    /// included, or else the next code. No submission is opened. A period that
-    /// is submitted or approved is closed; a rejected one is open, and its
-    /// sheet is left as it is.
+    /// included, or else the next code; an entry moved to another period takes
+    /// that period's. No submission is opened. A period that is submitted or
+    /// approved is closed; a rejected one is open, and its sheet is left as it
+    /// is.
     /// </summary>
-    /// <returns>The day's entry, with its new total, code and period.</returns>
+    /// <returns>The entry as saved, with its code and period.</returns>
     /// <exception cref="ETimeSheet.Shared.Exceptions.ValidationException">
     /// Any field fails its rule, the project does not exist, the user is not
-    /// assigned to it, the date is outside the project's dates, or the hours
-    /// would take the day past its cap.
+    /// assigned to it, or the date is outside the project's dates.
+    /// </exception>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.NotFoundException">
+    /// An id greater than 0 that no live entry has.
     /// </exception>
     /// <exception cref="ETimeSheet.Shared.Exceptions.BusinessException">
-    /// The project has no start date, submission frequency or organisation, or
-    /// the day's period is submitted or approved.
+    /// The project has no start date, submission frequency or organisation,
+    /// the day is approved leave or a holiday, the entry belongs to another
+    /// user or project, or a period involved is submitted or approved.
     /// </exception>
     Task<TimesheetProjectTimeLogResponse> SaveProjectTimeLogAsync(
         TimesheetProjectTimeLogSaveRequest request,
