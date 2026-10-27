@@ -747,12 +747,12 @@ public class TimesheetUserCreateResponse
 
 /// <summary>
 /// Body of <c>edit-timesheet-user</c> - edits one project assignment of a
-/// user, and the user's name and email.
+/// user, and the user's name, email, country and address.
 /// <para>
-/// <see cref="FullName"/> and <see cref="Email"/> are saved to
-/// <c>dbo.Signup</c>, and so change for every project the user is on. Every
-/// other field is saved to the assignment in
-/// <c>dbo.Timesheet_Users_Project_setup</c>.
+/// <see cref="FullName"/>, <see cref="Email"/>, <see cref="CountryId"/> and
+/// <see cref="Address"/> are saved to <c>dbo.Signup</c>, and so change for
+/// every project the user is on. Every other field is saved to the assignment
+/// in <c>dbo.Timesheet_Users_Project_setup</c>.
 /// </para>
 /// <para>
 /// An edit overwrites every field with what is sent - an optional field left
@@ -783,6 +783,20 @@ public class TimesheetUserUpdateRequest
     /// </summary>
     /// <example>priya.shah@example.com</example>
     public string? Email { get; set; }
+
+    /// <summary>
+    /// Optional. When sent, a <c>dbo.Country</c> id. Saved to
+    /// <c>dbo.Signup</c>; left out, the user's country is cleared.
+    /// </summary>
+    /// <example>1</example>
+    public int? CountryId { get; set; }
+
+    /// <summary>
+    /// Optional. The user's address, saved to <c>dbo.Signup</c>; left out,
+    /// the user's address is cleared.
+    /// </summary>
+    /// <example>14 MG Road, Pune</example>
+    public string? Address { get; set; }
 
     /// <summary>
     /// Required. A project of <see cref="OrganizationId"/> that the user is not
@@ -886,6 +900,12 @@ public class TimesheetUserResponse
     /// enforces it.
     /// </summary>
     public int? MaxLogHoursPerDay { get; set; }
+
+    /// <summary>The user's <c>dbo.Signup.CountryID</c>, as saved.</summary>
+    public int? CountryId { get; set; }
+
+    /// <summary>The user's <c>dbo.Signup.Address</c>, as saved.</summary>
+    public string? Address { get; set; }
 }
 
 /// <summary>

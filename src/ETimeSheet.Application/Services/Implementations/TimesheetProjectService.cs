@@ -902,6 +902,7 @@ public class TimesheetProjectService : ITimesheetProjectService
         // about all of them in one 400, keyed on the field names it sent.
         var fullName = string.IsNullOrWhiteSpace(request.FullName) ? null : request.FullName.Trim();
         var email = string.IsNullOrWhiteSpace(request.Email) ? null : request.Email.Trim();
+        var address = string.IsNullOrWhiteSpace(request.Address) ? null : request.Address.Trim();
         var latitude = string.IsNullOrWhiteSpace(request.ProjectLocationLatitude) ? null : request.ProjectLocationLatitude.Trim();
         var longitude = string.IsNullOrWhiteSpace(request.ProjectLocationLongitude) ? null : request.ProjectLocationLongitude.Trim();
         var failures = new Dictionary<string, string[]>();
@@ -924,6 +925,14 @@ public class TimesheetProjectService : ITimesheetProjectService
 
         AddFullNameFailure(failures, nameof(TimesheetUserUpdateRequest.FullName), fullName);
         AddEmailFailure(failures, nameof(TimesheetUserUpdateRequest.Email), email);
+
+        if (request.CountryId <= 0)
+        {
+            failures[nameof(TimesheetUserUpdateRequest.CountryId)] = new[]
+            {
+                "CountryId must be greater than 0 when sent."
+            };
+        }
 
         if (request.ProjectId <= 0)
         {
@@ -997,6 +1006,15 @@ public class TimesheetProjectService : ITimesheetProjectService
         }
 
         // Then what the payload names. No foreign key protects these columns.
+        if (request.CountryId is { } countryId
+            && !await _timesheetProjectRepository.CountryExistsAsync(countryId, cancellationToken))
+        {
+            failures[nameof(TimesheetUserUpdateRequest.CountryId)] = new[]
+            {
+                $"Country '{countryId}' does not exist."
+            };
+        }
+
         var project = await _timesheetProjectRepository.GetByIdAsync(request.ProjectId, cancellationToken);
 
         if (project is null || project.OrganizationId != request.OrganizationId)
@@ -1031,12 +1049,15 @@ public class TimesheetProjectService : ITimesheetProjectService
                 $"User '{setup.UserId}' is already on project '{request.ProjectId}' through another assignment.");
         }
 
-        // dbo.Signup is touched only when the name or email actually changes.
-        // The email is compared - and stored - as spc_Signup_timesheet_user
-        // does: upper case, without surrounding spaces.
+        // dbo.Signup is touched only when the name, email, country or address
+        // actually changes. The email is compared - and stored - as
+        // spc_Signup_timesheet_user does: upper case, without surrounding
+        // spaces.
         var normalizedEmail = email!.ToUpperInvariant();
         var emailChanged = !string.Equals(user.Email.Trim(), normalizedEmail, StringComparison.OrdinalIgnoreCase);
         var nameChanged = !string.Equals(user.Name, fullName, StringComparison.Ordinal);
+        var countryChanged = user.CountryId != request.CountryId;
+        var addressChanged = !string.Equals(user.Address, address, StringComparison.Ordinal);
 
         if (emailChanged)
         {
@@ -1057,7 +1078,19 @@ public class TimesheetProjectService : ITimesheetProjectService
             user.Name = fullName!;
         }
 
-        if (emailChanged || nameChanged)
+        // The country and the address are overwritten as sent, like the
+        // assignment's fields: one left out clears the stored value.
+        if (countryChanged)
+        {
+            user.CountryId = request.CountryId;
+        }
+
+        if (addressChanged)
+        {
+            user.Address = address;
+        }
+
+        if (emailChanged || nameChanged || countryChanged || addressChanged)
         {
             user.UpdatedDate = _dateTimeProvider.UtcNow;
             user.UpdateBy = request.UpdatedBy;
@@ -1081,7 +1114,7 @@ public class TimesheetProjectService : ITimesheetProjectService
             setup.TimesheetUserProjectSetupId,
             user.UserId,
             request.UpdatedBy,
-            emailChanged || nameChanged ? "updated" : "unchanged");
+            emailChanged || nameChanged || countryChanged || addressChanged ? "updated" : "unchanged");
 
         return new TimesheetUserResponse
         {
@@ -1099,6 +1132,8 @@ public class TimesheetProjectService : ITimesheetProjectService
             ProjectLocationLatitude = setup.ProjectLocationLatitude,
             ProjectLocationLongitude = setup.ProjectLocationLongitude,
             MaxLogHoursPerDay = setup.MaxLogHoursPerDay,
+            CountryId = user.CountryId,
+            Address = user.Address,
         };
     }
 

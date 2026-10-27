@@ -10,8 +10,10 @@
               the last column.
 
     A user's time on one project for one calendar day: the whole hours worked
-    and a description. The API keeps one live row per UserID + ProjectID +
-    LogDate - a later log of the same day adds its hours to that row.
+    and a description. Since 2026-10-27 a day may hold SEVERAL rows: the API
+    adds a row when add-edit-timesheet-project-time-log is sent
+    TimesheetProjectTimeLogID 0, and edits that row when it is sent an id.
+    No schema change was involved - the table always allowed it.
 
     Mapped by:
       src/ETimeSheet.Application/Models/Entities/TimesheetProjectTimeLog.cs
@@ -27,7 +29,8 @@
         dbo.TimesheetProject.ProjectID, and OrganizationID the project's
         organisation. No foreign key was supplied for any of them.
       - Nothing in the database enforces one row per user, project and day:
-        no unique constraint was supplied. The API enforces it.
+        no unique constraint was supplied, and since 2026-10-27 the API does
+        not either - several rows for one day are expected.
       - SheetSubmissionCode is the PSHT code of the submission period the
         day is in (from the project's StartDate and SubmissionFrequency),
         shared by every row of one UserID + ProjectID in that period, deleted
@@ -36,12 +39,15 @@
         dbo.TimesheetProjectSubmission row is created for it, and nothing in
         the database keeps two periods from being given the same code.
       - LogDate is a date, with no time part.
-      - HoursLogged is whole hours, the day's total; it is capped per day by
-        dbo.Timesheet_Users_Project_setup.Max_log_hour_day (24 when NULL).
+      - HoursLogged is whole hours, one row's own hours - the day's total is
+        the sum of its rows. It is NOT capped: since 2026-10-27 the API
+        enforces neither dbo.Timesheet_Users_Project_setup.Max_log_hour_day
+        nor a fixed daily maximum.
       - Description is nvarchar(max).
       - IsRemoteLog is an int, nullable, used as a flag: the API writes 1
         (remote) or 0, or leaves it NULL when the log does not say. One value
-        per day: a later log that sends it replaces it.
+        per row: an edit that sends it replaces that row's, and an edit that
+        leaves it out keeps it.
       - IsDelete is an int, NOT NULL - not a bit. 1 = deleted, 0 = live.
       - CreateDate, UpdateDate and DeletedDate are plain datetime.
 

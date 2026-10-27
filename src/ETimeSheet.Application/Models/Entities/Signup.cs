@@ -5,8 +5,9 @@ namespace ETimeSheet.Application.Models.Entities;
 /// maintained by another application. This API writes it in two places only:
 /// <c>spc_Signup_timesheet_user</c>, for
 /// <c>POST api/v1/TimesheetProject/create-timesheet-user</c>, and an EF Core
-/// update of <c>Name</c>, <c>Email</c>, <c>UpdatedDate</c> and <c>UpdateBy</c>,
-/// for <c>POST api/v1/TimesheetProject/edit-timesheet-user</c>.
+/// update of <c>Name</c>, <c>Email</c>, <c>CountryID</c>, <c>Address</c>,
+/// <c>UpdatedDate</c> and <c>UpdateBy</c>, for
+/// <c>POST api/v1/TimesheetProject/edit-timesheet-user</c>.
 /// <para>
 /// <b>The credential columns are deliberately not mapped</b> - <c>Pwd</c>,
 /// <c>ResetOTP</c> and <c>OtpExpireAt</c>. Nothing here needs them, and an
