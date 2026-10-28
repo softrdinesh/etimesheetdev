@@ -23,6 +23,10 @@
                ClientCurrencySymbol dropped - each project shows one currency,
                its own - and the join to dbo.CountryCurrency_Lookup for them with it.
     Revised:   2026-10-25 - reads dbo.CountryCurrency_Lookup (table renamed from dbo.CountryCurrency).
+    Revised:   2026-10-28 - DRAFT: ProjectLocationLatitude and
+               ProjectLocationLongitude added - the ASSIGNMENT's
+               ProjectlocLatitude and ProjectlocLongtitude, so each project
+               carries the location recorded for this user on it.
 
     Returns one timesheet user - their basic details, and every live project
     assignment with the project, its client and the hours logged on it - for
@@ -77,7 +81,15 @@
         ProjectStatus, ProjectStartDate, ProjectEndDate, SubmissionFrequency,
         ProjectCurrencyID, ProjectCurrencyName, ProjectCurrencySymbol,
         ProjectCountryID, ProjectCountryName, ProjectRoleID, ProjectRoleName,
-        JobType, CostRate, BillRate, MaxLogHoursPerDay.
+        JobType, CostRate, BillRate, MaxLogHoursPerDay,
+        ProjectLocationLatitude, ProjectLocationLongitude.
+
+        The two locations are the ASSIGNMENT's ProjectlocLatitude and
+        ProjectlocLongtitude ("Longtitude" - the database's spelling), nvarchar
+        text rather than numbers, as create-timesheet-user and
+        edit-timesheet-user store them. They are the location of this user on
+        this project, so two users on one project may differ; the project table
+        itself holds no coordinates. NULL when the assignment has none.
 
         The project's currency is dbo.TimesheetProject.CurrencyCode in
         dbo.CountryCurrency_Lookup, and its country that currency's CountryID in
@@ -184,6 +196,8 @@ BEGIN
         tups.Cost_rate_per_hour             AS CostRate,
         tups.Billable_rate_per_hour         AS BillRate,
         tups.Max_log_hour_day               AS MaxLogHoursPerDay,
+        tups.ProjectlocLatitude             AS ProjectLocationLatitude,
+        tups.ProjectlocLongtitude           AS ProjectLocationLongitude,
 
         -- The hours
         tp.Totalhours                       AS TotalExpectedHours,

@@ -1239,6 +1239,20 @@ public class TimesheetUserProjectResponse
     public string? ClientPhoneNumber { get; set; }
 
     public string? ClientBillingAddress { get; set; }
+
+    /// <summary>
+    /// The assignment's <c>ProjectlocLatitude</c> - where this user works on
+    /// this project, as text. Null when the assignment records none.
+    /// </summary>
+    /// <example>18.5204</example>
+    public string? ProjectLocationLatitude { get; set; }
+
+    /// <summary>
+    /// The assignment's <c>ProjectlocLongtitude</c> - the database's spelling.
+    /// Null when the assignment records none.
+    /// </summary>
+    /// <example>73.8567</example>
+    public string? ProjectLocationLongitude { get; set; }
 }
 
 /// <summary>
@@ -1311,6 +1325,10 @@ public class TimesheetUserDetailsDetail
     public decimal? BillRate { get; set; }
 
     public int? MaxLogHoursPerDay { get; set; }
+
+    public string? ProjectLocationLatitude { get; set; }
+
+    public string? ProjectLocationLongitude { get; set; }
 
     public decimal? TotalExpectedHours { get; set; }
 

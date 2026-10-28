@@ -963,8 +963,10 @@ public class TimesheetProjectController : ControllerBase
     /// list of every live project they are assigned to, through
     /// <c>dbo.spc_GetTimesheetUserDetailsByUserID</c>.
     /// <para>
-    /// Each project carries the assignment (role, job type, rates, daily cap),
-    /// the project's <c>client</c>, and its hours: <c>totalExpectedHours</c>
+    /// Each project carries the assignment (role, job type, rates, daily cap,
+    /// and the <c>projectLocationLatitude</c> / <c>projectLocationLongitude</c>
+    /// recorded for this user on it), the project's <c>client</c>, and its
+    /// hours: <c>totalExpectedHours</c>
     /// (the project's budgeted <c>Totalhours</c>), <c>totalLoggedHours</c>
     /// (the user's, all time) and <c>currentPeriodLoggedHours</c> - the
     /// user's hours in the project's current timesheet period, worked out on

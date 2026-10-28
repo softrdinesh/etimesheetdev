@@ -231,10 +231,10 @@ public interface ITimesheetProjectService
 
     /// <summary>
     /// Returns one timesheet user via <c>spc_GetTimesheetUserDetailsByUserID</c>:
-    /// their details, and every live project assignment with its project,
-    /// client, expected and logged hours, and the hours logged in the
-    /// project's current timesheet period - worked out on the user's own date,
-    /// in the time zone of their timesheet setup.
+    /// their details, and every live project assignment with its project, its
+    /// location for this user, client, expected and logged hours, and the
+    /// hours logged in the project's current timesheet period - worked out on
+    /// the user's own date, in the time zone of their timesheet setup.
     /// </summary>
     /// <exception cref="ETimeSheet.Shared.Exceptions.ValidationException">
     /// <paramref name="userId"/> is not a positive id.
