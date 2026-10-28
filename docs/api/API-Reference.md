@@ -6179,7 +6179,7 @@ Each item of `projects`:
 | `jobType` | int \| null | 1 work from office, 2 work from home |
 | `costRate` | decimal \| null | |
 | `billRate` | decimal \| null | |
-| `maxLogHoursPerDay` | int \| null | The day's cap; `null` = 24 |
+| `maxLogHoursPerDay` | int \| null | Stored only — no endpoint enforces it |
 | `totalExpectedHours` | decimal \| null | The project's budgeted `Totalhours` — the same for every user on it |
 | `totalLoggedHours` | int | The user's live hours on the project, all time |
 | `currentPeriodStartDate` | datetime \| null | First day of the current period. `null` when the project has no start date or frequency, has not started, or has ended |
@@ -6194,9 +6194,16 @@ Each item of `projects`:
 | `clientBillingEmail` | string \| null | |
 | `clientPhoneNumber` | string \| null | |
 | `clientBillingAddress` | string \| null | |
+| `projectLocationLatitude` | string \| null | **The assignment's** `ProjectlocLatitude` — where this user works on this project, as text, not a number. `null` when the assignment records none |
+| `projectLocationLongitude` | string \| null | The assignment's `ProjectlocLongtitude` (the database's spelling) |
 
 Each project shows **one** country and currency — its own (`projectCurrency…`,
 `projectCountry…`). The client's currency is not returned.
+
+The two coordinates belong to the **assignment**, not to the project:
+`dbo.TimesheetProject` holds none, so two users on one project can have
+different ones. They are set by
+[Create](#36-create-timesheet-user) / [Edit Timesheet User](#37-edit-timesheet-user).
 
 #### Example response
 
@@ -6253,7 +6260,9 @@ Each project shows **one** country and currency — its own (`projectCurrency…
         "clientName": "Vrushang Solanki",
         "clientBillingEmail": "BILLING@EXAMPLE.COM",
         "clientPhoneNumber": "9999999999",
-        "clientBillingAddress": null
+        "clientBillingAddress": null,
+        "projectLocationLatitude": "18.5204",
+        "projectLocationLongitude": "73.8567"
       }
     ]
   },
@@ -7084,7 +7093,7 @@ authentication is off.
 | 55 | Approver Setup List | GET | `/api/v1/TimesheetProject/get-timesheet-approver-setup?orgID=&projectID=` | Live approver setups of an organisation, a project or both | query params (at least one) | `TimesheetApproverSetupResponse[]` | 400, 500 |
 | 56 | Add / Edit Approver Setup | POST | `/api/v1/TimesheetProject/add-edit-timesheet-approver-setup` | Add a project's approver (`timesheetApproverSetupId` 0 / absent) or edit one; one timesheet approver per project, one leave approver per organisation | `TimesheetApproverSetupSaveRequest` | `TimesheetApproverSetupResponse` | 400, 404, 409, 500 |
 | 57 | Remove Approver Setup | POST | `/api/v1/TimesheetProject/remove-timesheet-approver-setup` | Soft-delete an approver setup by its id | `TimesheetApproverSetupDeleteRequest` | `null` | 400, 404, 500 |
-| 58 | Timesheet User Details | GET | `/api/v1/TimesheetProject/get-project-timesheet-user-details-by-userID/{userID}` | One user's details and their projects, each with its own currency and country, its client, expected hours, total and current-period logged hours | route param | `TimesheetUserDetailsResponse` | 400, 404, 500 |
+| 58 | Timesheet User Details | GET | `/api/v1/TimesheetProject/get-project-timesheet-user-details-by-userID/{userID}` | One user's details and their projects, each with its own currency, country and location, its client, expected hours, total and current-period logged hours | route param | `TimesheetUserDetailsResponse` | 400, 404, 500 |
 | 59 | Leave Setup List | GET | `/api/v1/TimesheetProject/get-timesheet-leave-setup?orgID=` | Live leave types of an organisation, by name | query param (required) | `TimesheetLeaveSetupResponse[]` | 400, 500 |
 | 60 | Add / Edit Leave Setup | POST | `/api/v1/TimesheetProject/add-edit-timesheet-leave-setup` | Add a leave type (`leaveTypeId` 0 / absent) or edit one | `TimesheetLeaveSetupSaveRequest` | `TimesheetLeaveSetupResponse` | 400, 404, 500 |
 | 61 | Remove Leave Setup | POST | `/api/v1/TimesheetProject/remove-timesheet-leave-setup` | Soft-delete a leave type of an organisation | `TimesheetLeaveSetupDeleteRequest` | `null` | 400, 404, 500 |

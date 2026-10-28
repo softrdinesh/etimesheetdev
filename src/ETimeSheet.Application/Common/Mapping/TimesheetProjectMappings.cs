@@ -203,6 +203,8 @@ internal static class TimesheetProjectMappings
         ClientBillingEmail = row.ClientBillingEmail,
         ClientPhoneNumber = row.ClientPhoneNumber,
         ClientBillingAddress = row.ClientBillingAddress,
+        ProjectLocationLatitude = row.ProjectLocationLatitude,
+        ProjectLocationLongitude = row.ProjectLocationLongitude,
     };
 
     /// <summary>Projects a holiday row from <c>spc_GetTimesheetHolidaySetup</c> to the holiday response.</summary>

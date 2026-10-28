@@ -952,6 +952,8 @@ public class Context : DbContext
             details.Property(row => row.CostRate).HasColumnName("CostRate").HasColumnType("decimal(18,2)");
             details.Property(row => row.BillRate).HasColumnName("BillRate").HasColumnType("decimal(18,2)");
             details.Property(row => row.MaxLogHoursPerDay).HasColumnName("MaxLogHoursPerDay");
+            details.Property(row => row.ProjectLocationLatitude).HasColumnName("ProjectLocationLatitude");
+            details.Property(row => row.ProjectLocationLongitude).HasColumnName("ProjectLocationLongitude");
             details.Property(row => row.TotalExpectedHours).HasColumnName("TotalExpectedHours").HasColumnType("decimal(18,2)");
             details.Property(row => row.TotalLoggedHours).HasColumnName("TotalLoggedHours");
             details.Property(row => row.CurrentPeriodStartDate).HasColumnName("CurrentPeriodStartDate").HasColumnType("date");
