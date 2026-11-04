@@ -27,8 +27,24 @@ public static class SchedulerJobs
     public const int TimesheetReminderEmailQueue = 3;
 
     /// <summary>
+    /// Queues a project timesheet submission reminder in <c>dbo.EmailQueue</c>
+    /// for every project user who is due one - see
+    /// <c>SchedulerService.RunProjectTimesheetReminderEmailQueueAsync</c>.
+    /// Unrelated to <see cref="TimesheetReminderEmailQueue"/>: project
+    /// timesheets are <c>dbo.TimesheetProjectSubmission</c>, not
+    /// <c>dbo.TimesheetSubmission</c>.
+    /// </summary>
+    public const int ProjectTimesheetReminderEmailQueue = 4;
+
+    /// <summary>
     /// The ids that have a job registered with Quartz - the only ones whose
     /// configuration is read and scheduled.
     /// </summary>
-    public static readonly IReadOnlyList<int> Registered = new[] { SendEmail, TimeLogReminderEmailQueue, TimesheetReminderEmailQueue };
+    public static readonly IReadOnlyList<int> Registered = new[]
+    {
+        SendEmail,
+        TimeLogReminderEmailQueue,
+        TimesheetReminderEmailQueue,
+        ProjectTimesheetReminderEmailQueue
+    };
 }

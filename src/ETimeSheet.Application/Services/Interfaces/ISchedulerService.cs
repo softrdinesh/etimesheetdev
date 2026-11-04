@@ -47,4 +47,17 @@ public interface ISchedulerService
     /// by a request.
     /// </summary>
     Task<int> RunSendEmailAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The <c>ProjectTimesheetReminderEmailQueue</c> job's work: queues one
+    /// project timesheet submission reminder in <c>dbo.EmailQueue</c> for every
+    /// project user due one right now - past
+    /// <c>ProjectTimesheetReminder:SendAt</c> on their own clock, with at least
+    /// one assigned project whose period ends
+    /// <c>ProjectTimesheetReminder:DaysBeforePeriodEnd</c> days from their
+    /// today and is not yet submitted or approved, and not already reminded
+    /// today - and returns how many were queued. One email lists every such
+    /// project. Run by the job, never by a request.
+    /// </summary>
+    Task<int> RunProjectTimesheetReminderEmailQueueAsync(CancellationToken cancellationToken = default);
 }

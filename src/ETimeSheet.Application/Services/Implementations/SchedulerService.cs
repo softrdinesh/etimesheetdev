@@ -36,6 +36,7 @@ public class SchedulerService : ISchedulerService
     private readonly IBackgroundJobService _backgroundJobService;
     private readonly IDateTimeProvider _dateTimeProvider;
     private readonly EmailServiceSettings _emailServiceSettings;
+    private readonly ProjectTimesheetReminderSettings _projectReminderSettings;
     private readonly ILogger<SchedulerService> _logger;
 
     public SchedulerService(
@@ -46,6 +47,7 @@ public class SchedulerService : ISchedulerService
         IBackgroundJobService backgroundJobService,
         IDateTimeProvider dateTimeProvider,
         IOptions<EmailServiceSettings> emailServiceSettings,
+        IOptions<ProjectTimesheetReminderSettings> projectReminderSettings,
         ILogger<SchedulerService> logger)
     {
         _schedulerRepository = schedulerRepository;
@@ -55,6 +57,7 @@ public class SchedulerService : ISchedulerService
         _backgroundJobService = backgroundJobService;
         _dateTimeProvider = dateTimeProvider;
         _emailServiceSettings = emailServiceSettings.Value;
+        _projectReminderSettings = projectReminderSettings.Value;
         _logger = logger;
     }
 
@@ -115,7 +118,8 @@ public class SchedulerService : ISchedulerService
     {
         var eligible = await GetEligibleTimeLogReminderUsersAsync(cancellationToken);
 
-        return await QueueAsync(eligible, Constants.EmailType.Id.TimeLogReminder, "Time log reminder", cancellationToken);
+        return await QueueAsync(
+            RecipientsOf(eligible), Constants.EmailType.Id.TimeLogReminder, "Time log reminder", cancellationToken);
     }
 
     public async Task<int> RunTimesheetReminderEmailQueueAsync(CancellationToken cancellationToken = default)
@@ -123,12 +127,18 @@ public class SchedulerService : ISchedulerService
         var eligible = await GetEligibleTimesheetReminderUsersAsync(cancellationToken);
 
         return await QueueAsync(
-            eligible, Constants.EmailType.Id.SheetSubmissionReminder, "Timesheet reminder", cancellationToken);
+            RecipientsOf(eligible), Constants.EmailType.Id.SheetSubmissionReminder, "Timesheet reminder", cancellationToken);
     }
+
+    /// <summary>Who one queued email goes to.</summary>
+    private sealed record QueueRecipient(int UserId, string Email, int? OrganizationId);
+
+    private static IReadOnlyList<QueueRecipient> RecipientsOf(IEnumerable<ReminderCandidate> users) =>
+        users.Select(user => new QueueRecipient(user.UserId, user.Email!, user.OrganizationId)).ToList();
 
     /// <summary>Queues one Pending email of <paramref name="emailTypeId"/> per user, in one save.</summary>
     private async Task<int> QueueAsync(
-        IReadOnlyList<ReminderCandidate> users,
+        IReadOnlyList<QueueRecipient> users,
         int emailTypeId,
         string reminderName,
         CancellationToken cancellationToken)
@@ -143,7 +153,7 @@ public class SchedulerService : ISchedulerService
             .Select(user => new EmailQueue
             {
                 UserId = user.UserId,
-                EmailAddress = user.Email!.Trim(),
+                EmailAddress = user.Email.Trim(),
                 OrgId = user.OrganizationId,
                 EmailTypeId = emailTypeId,
                 EmailStatusId = Constants.EmailQueue.Status.Pending,
@@ -435,7 +445,9 @@ public class SchedulerService : ISchedulerService
         new Dictionary<int, (string, string)>
         {
             [Constants.EmailType.Id.TimeLogReminder] = ("TimeLogTemplate.html", "Time Log Entry Reminder"),
-            [Constants.EmailType.Id.SheetSubmissionReminder] = ("SheetSubmissionTemplate.html", "Timesheet Submission Reminder")
+            [Constants.EmailType.Id.SheetSubmissionReminder] = ("SheetSubmissionTemplate.html", "Timesheet Submission Reminder"),
+            [Constants.EmailType.Id.ProjectSheetSubmissionReminder] =
+                ("ProjectTimesheetReminderTemplate.html", "Project Timesheet Submission Reminder")
         };
 
     /// <summary>
@@ -530,6 +542,7 @@ public class SchedulerService : ISchedulerService
     private sealed record ReminderEmailContext(
         IReadOnlyDictionary<int, ReminderEmailDetails> Details,
         ILookup<int, LoggedSpan> Logged,
+        ILookup<int, ProjectReminderAssignment> ProjectAssignments,
         TimeSpan ServerOffset);
 
     private async Task<ReminderEmailContext> ReminderEmailContextAsync(
@@ -537,7 +550,11 @@ public class SchedulerService : ISchedulerService
         TimeSpan serverOffset,
         CancellationToken cancellationToken)
     {
-        var userIds = UserIdsOf(emails, _ => true);
+        // The project timesheet reminder reads nothing from the timesheet
+        // setup but the zone, which comes with its assignments.
+        var userIds = UserIdsOf(
+            emails,
+            email => email.EmailTypeId != Constants.EmailType.Id.ProjectSheetSubmissionReminder);
 
         var details = userIds.Count == 0
             ? new Dictionary<int, ReminderEmailDetails>()
@@ -558,7 +575,16 @@ public class SchedulerService : ISchedulerService
                     cancellationToken))
                 .ToLookup(span => span.UserId);
 
-        return new ReminderEmailContext(details, logged, serverOffset);
+        var projectUserIds = UserIdsOf(
+            emails,
+            email => email.EmailTypeId == Constants.EmailType.Id.ProjectSheetSubmissionReminder);
+
+        var projectAssignments = projectUserIds.Count == 0
+            ? Array.Empty<ProjectReminderAssignment>().ToLookup(assignment => assignment.UserId)
+            : (await _schedulerRepository.GetProjectReminderAssignmentsAsync(projectUserIds, cancellationToken))
+                .ToLookup(assignment => assignment.UserId);
+
+        return new ReminderEmailContext(details, logged, projectAssignments, serverOffset);
     }
 
     private static List<int> UserIdsOf(IEnumerable<EmailQueue> emails, Func<EmailQueue, bool> predicate) =>
@@ -578,6 +604,11 @@ public class SchedulerService : ISchedulerService
         CancellationToken cancellationToken)
     {
         var (templateName, subject) = EmailTemplates[email.EmailTypeId];
+
+        if (email.EmailTypeId == Constants.EmailType.Id.ProjectSheetSubmissionReminder)
+        {
+            return await BuildProjectReminderMessageAsync(email, context, templateName, subject, cancellationToken);
+        }
 
         if (email.UserId is not { } userId || !context.Details.TryGetValue(userId, out var details))
         {
@@ -762,4 +793,244 @@ public class SchedulerService : ISchedulerService
             row.SchedulerConfigurationId, row.SchedulerName, reason);
         return null;
     }
+
+    // ---- project timesheet reminder ---------------------------------------
+    //
+    // Unrelated to the timesheet reminder above: project timesheets are
+    // dbo.TimesheetProjectSubmission, periods come from each project's
+    // StartDate + SubmissionFrequency, and when the reminder goes out comes
+    // from ProjectTimesheetReminderSettings, not from the user's
+    // dbo.TimesheetMasterSetup - which supplies only their time zone.
+
+    public async Task<int> RunProjectTimesheetReminderEmailQueueAsync(CancellationToken cancellationToken = default)
+    {
+        const string reminderName = "Project timesheet reminder";
+
+        var assignments = await _schedulerRepository.GetProjectReminderAssignmentsAsync(null, cancellationToken);
+        var utcNow = _dateTimeProvider.UtcNow;
+        var due = new List<DueProjectReminder>();
+
+        foreach (var userAssignments in assignments.GroupBy(assignment => assignment.UserId))
+        {
+            var user = userAssignments.First();
+            var email = user.Email?.Trim();
+
+            if (string.IsNullOrEmpty(email) || email.Length > EmailAddressMaximumLength)
+            {
+                _logger.LogWarning(
+                    "{Reminder}: user {UserId} has no usable email address; nothing is queued for them.",
+                    reminderName, user.UserId);
+                continue;
+            }
+
+            var zone = ProjectZoneFor(user);
+            var clock = EmployeeClock.At(utcNow, zone);
+
+            // Not before the send time, on the user's own clock.
+            if (clock.TimeOfDay < _projectReminderSettings.SendAt)
+            {
+                continue;
+            }
+
+            var periods = ProjectPeriodsEndingOn(
+                userAssignments,
+                clock.Today.AddDays(_projectReminderSettings.DaysBeforePeriodEnd));
+
+            if (periods.Count > 0)
+            {
+                due.Add(new DueProjectReminder(user, email, periods, StartOfDayUtc(clock.Today, zone)));
+            }
+        }
+
+        if (due.Count == 0)
+        {
+            _logger.LogDebug("{Reminder} email queue: nobody is due one.", reminderName);
+            return 0;
+        }
+
+        var userIds = due.Select(reminder => reminder.User.UserId).ToList();
+
+        // A period whose sheet is Submitted or Approved needs no reminder;
+        // Pending and Rejected still do.
+        var submitted = (await _schedulerRepository.GetSubmittedProjectPeriodsAsync(
+                userIds,
+                due.SelectMany(reminder => reminder.Periods).Min(period => period.Start),
+                due.SelectMany(reminder => reminder.Periods).Max(period => period.Start),
+                cancellationToken))
+            .Select(period => (period.UserId, period.ProjectId, period.PeriodStartDate.Date))
+            .ToHashSet();
+
+        due = due
+            .Select(reminder => reminder with
+            {
+                Periods = reminder.Periods
+                    .Where(period => !submitted.Contains(
+                        (reminder.User.UserId, period.Assignment.ProjectId, period.Start)))
+                    .ToList()
+            })
+            .Where(reminder => reminder.Periods.Count > 0)
+            .ToList();
+
+        if (due.Count == 0)
+        {
+            _logger.LogDebug("{Reminder} email queue: nobody is due one.", reminderName);
+            return 0;
+        }
+
+        // One email a day per user, listing every project due: a job running
+        // every minute queues it once.
+        var queued = (await _emailQueueRepository.GetQueuedSinceAsync(
+                Constants.EmailType.Id.ProjectSheetSubmissionReminder,
+                due.Select(reminder => reminder.User.UserId).ToList(),
+                due.Min(reminder => reminder.TodayStartsAtUtc),
+                cancellationToken))
+            .ToLookup(queuedEmail => queuedEmail.UserId);
+
+        var recipients = due
+            .Where(reminder => !queued[reminder.User.UserId]
+                .Any(queuedEmail => queuedEmail.CreatedAtUtc >= reminder.TodayStartsAtUtc))
+            .Select(reminder => new QueueRecipient(
+                reminder.User.UserId,
+                reminder.Email,
+                reminder.Periods[0].Assignment.OrganizationId))
+            .ToList();
+
+        return await QueueAsync(
+            recipients,
+            Constants.EmailType.Id.ProjectSheetSubmissionReminder,
+            reminderName,
+            cancellationToken);
+    }
+
+    /// <summary>A project user whose reminder time has come, with the periods it is about.</summary>
+    private sealed record DueProjectReminder(
+        ProjectReminderAssignment User,
+        string Email,
+        IReadOnlyList<DueProjectPeriod> Periods,
+        DateTime TodayStartsAtUtc);
+
+    /// <summary>One project's period that ends on the day a reminder is about.</summary>
+    private sealed record DueProjectPeriod(ProjectReminderAssignment Assignment, DateTime Start, DateTime End);
+
+    private TimeZoneInfo? ProjectZoneFor(ProjectReminderAssignment user)
+    {
+        var zone = EmployeeClock.FindZone(user.TimeZone);
+
+        if (zone is null && !string.IsNullOrWhiteSpace(user.TimeZone))
+        {
+            _logger.LogWarning(
+                "Timesheet setup of user {UserId} names time zone {TimeZone}, which this system does not " +
+                "recognise. Their project timesheet reminders are judged on UTC.",
+                user.UserId, user.TimeZone);
+        }
+
+        return zone;
+    }
+
+    /// <summary>
+    /// The periods of <paramref name="assignments"/> whose last day is
+    /// <paramref name="periodEnd"/> - by the same period rule the submit uses.
+    /// A period that starts after the project's end date is not one the submit
+    /// accepts, so is not reminded of.
+    /// </summary>
+    private static List<DueProjectPeriod> ProjectPeriodsEndingOn(
+        IEnumerable<ProjectReminderAssignment> assignments,
+        DateTime periodEnd)
+    {
+        var due = new List<DueProjectPeriod>();
+
+        foreach (var assignment in assignments)
+        {
+            var projectStart = assignment.ProjectStartDate.Date;
+
+            if (!ProjectSubmissionPeriod.Frequencies.Contains(assignment.SubmissionFrequency)
+                || periodEnd < projectStart)
+            {
+                continue;
+            }
+
+            var (start, end) = ProjectSubmissionPeriod.Of(periodEnd, projectStart, assignment.SubmissionFrequency);
+
+            if (end != periodEnd
+                || (assignment.ProjectEndDate is { } projectEnd && start > projectEnd.Date))
+            {
+                continue;
+            }
+
+            due.Add(new DueProjectPeriod(assignment, start, end));
+        }
+
+        return due
+            .OrderBy(period => period.Assignment.ProjectName ?? period.Assignment.ProjectCode, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(period => period.Assignment.ProjectId)
+            .ToList();
+    }
+
+    /// <summary>
+    /// Fills <c>ProjectTimesheetReminderTemplate.html</c>. The projects are
+    /// worked out again from the day the email was queued, on the user's
+    /// clock, so an assignment removed since is left out. Every value is
+    /// HTML-encoded; <c>[ProjectRows]</c> is markup built from encoded values.
+    /// </summary>
+    private async Task<(EmailMessage? Message, string? Error)> BuildProjectReminderMessageAsync(
+        EmailQueue email,
+        ReminderEmailContext context,
+        string templateName,
+        string subject,
+        CancellationToken cancellationToken)
+    {
+        if (email.UserId is not { } userId || !context.ProjectAssignments[userId].Any())
+        {
+            return (null, "The user has no live project assignment, or their user record is deleted.");
+        }
+
+        var assignments = context.ProjectAssignments[userId].ToList();
+        var user = assignments[0];
+
+        var zone = EmployeeClock.FindZone(user.TimeZone);
+        var queuedAtUtc = DateTime.SpecifyKind(email.CreatedDate - context.ServerOffset, DateTimeKind.Utc);
+        var queuedOn = EmployeeClock.At(queuedAtUtc, zone).Today;
+        var periodEnd = queuedOn.AddDays(_projectReminderSettings.DaysBeforePeriodEnd);
+
+        var periods = ProjectPeriodsEndingOn(assignments, periodEnd);
+
+        if (periods.Count == 0)
+        {
+            return (null, $"None of the user's project timesheet periods ends on {FormatDate(periodEnd)} any more.");
+        }
+
+        var values = new Dictionary<string, string>
+        {
+            ["UserName"] = user.Name.Trim(),
+            ["ProjectCount"] = periods.Count.ToString(CultureInfo.InvariantCulture),
+            ["TimesheetNoun"] = periods.Count == 1 ? "timesheet has" : "timesheets have",
+            ["PeriodEndDate"] = FormatDate(periodEnd),
+            ["CompanyName"] = periods[0].Assignment.OrganizationName?.Trim() ?? string.Empty
+        };
+
+        var body = await _emailTemplateStore.GetAsync(templateName, cancellationToken);
+
+        foreach (var (placeholder, value) in values)
+        {
+            body = body.Replace($"[{placeholder}]", WebUtility.HtmlEncode(value), StringComparison.Ordinal);
+        }
+
+        // Last, so a project name that happens to contain "[UserName]" is
+        // never substituted into.
+        body = body.Replace("[ProjectRows]", ProjectRowsHtml(periods), StringComparison.Ordinal);
+
+        return (new EmailMessage(email.EmailAddress.Trim(), subject, body), null);
+    }
+
+    private const string ProjectRowCellStyle =
+        "padding:10px 12px; border-bottom:1px solid #e9ecef; font-size:14px; color:#333333;";
+
+    /// <summary>One table row per project: name, code and period.</summary>
+    private static string ProjectRowsHtml(IEnumerable<DueProjectPeriod> periods) =>
+        string.Concat(periods.Select(period =>
+            "<tr>" +
+            $"<td style=\"{ProjectRowCellStyle}\">{WebUtility.HtmlEncode(period.Assignment.ProjectName?.Trim() ?? string.Empty)}</td>" +
+            $"<td style=\"{ProjectRowCellStyle}\">{WebUtility.HtmlEncode(period.Assignment.ProjectCode.Trim())}</td>" +
+            $"<td style=\"{ProjectRowCellStyle}\">{WebUtility.HtmlEncode($"{FormatDate(period.Start)} - {FormatDate(period.End)}")}</td>" +
+            "</tr>"));
 }

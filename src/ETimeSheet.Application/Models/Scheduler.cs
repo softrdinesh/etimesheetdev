@@ -113,6 +113,56 @@ public class ReminderEmailDetails
 /// </summary>
 public sealed record SubmittedEntry(int UserId, DateTime StartDate);
 
+/// <summary>
+/// One live assignment of a live user to a project that has a submission
+/// setup - a start date, a submission frequency and an organisation - with
+/// what the project timesheet reminder needs to know about both. Whether the
+/// user is due a reminder for it <i>now</i> is decided by
+/// <c>SchedulerService</c>.
+/// </summary>
+public class ProjectReminderAssignment
+{
+    public int UserId { get; set; }
+
+    /// <summary><c>dbo.Signup.Name</c>.</summary>
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary><c>dbo.Signup.Email</c>.</summary>
+    public string? Email { get; set; }
+
+    /// <summary>
+    /// The IANA zone of the user's live <c>dbo.TimesheetMasterSetup</c> (the
+    /// lowest <c>SetupID</c>) - the clock the submit is judged on too. Null
+    /// when they have no setup: their reminder is judged on UTC.
+    /// </summary>
+    public string? TimeZone { get; set; }
+
+    public int ProjectId { get; set; }
+
+    /// <summary><c>dbo.TimesheetProject.Code</c>.</summary>
+    public string ProjectCode { get; set; } = string.Empty;
+
+    public string? ProjectName { get; set; }
+
+    public DateTime ProjectStartDate { get; set; }
+
+    public DateTime? ProjectEndDate { get; set; }
+
+    /// <summary><c>dbo.TimesheetProject.SubmissionFrequency</c>: 1 weekly, 2 every 15 days, 3 monthly.</summary>
+    public int SubmissionFrequency { get; set; }
+
+    public int OrganizationId { get; set; }
+
+    /// <summary>The project's <c>dbo.Organization.OrganizationName</c>. Null when that organisation does not exist.</summary>
+    public string? OrganizationName { get; set; }
+}
+
+/// <summary>
+/// A project period of one user whose sheet is submitted or approved - how the
+/// project timesheet reminder tells a period that needs no reminder.
+/// </summary>
+public sealed record SubmittedProjectPeriod(int UserId, int ProjectId, DateTime PeriodStartDate);
+
 /// <summary>One email, ready to send - the email service's payload.</summary>
 /// <param name="EmailAddress">Where it goes.</param>
 /// <param name="Subject">Its subject line.</param>

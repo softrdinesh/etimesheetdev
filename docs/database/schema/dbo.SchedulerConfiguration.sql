@@ -6,6 +6,12 @@
               Owner's rows at that date: 1 = SendEmail, 2 =
               TimeLogReminderEmailQueue - both Repeated from
               2026-10-08 00:09:02, every 32 and 15 minutes respectively.
+    Revised:  2026-11-05 - row 4 'ProjectTimesheetSubmissionReminderEmailQueue'
+              added for the project timesheet reminder, Repeated every
+              1 minute, inserted by
+              ../data/dbo.ProjectTimesheetReminder_Insert.sql.
+              PENDING: to be run by hand on the live database - confirm here
+              once it has been applied.
 
     One row per named background job, describing when it runs: once, on a
     repeat interval, daily, weekly or monthly, and whether it is switched on.
@@ -23,7 +29,8 @@
       - A job is looked up by SchedulerConfigurationID, the id held for it in
         src/ETimeSheet.Shared/Constants/SchedulerJobs.cs:
           1 = SendEmail, 2 = TimeLogReminderEmailQueue,
-          3 = TimesheetReminderEmailQueue.
+          3 = TimesheetReminderEmailQueue,
+          4 = ProjectTimesheetReminderEmailQueue.
         SchedulerName is for people; the code does not read it to find a job.
       - A row with IsEnabled = 0 is not scheduled. Changes take effect on the
         next restart of the API.
@@ -98,10 +105,10 @@ CREATE TABLE dbo.SchedulerConfiguration
 );
 GO
 
--- The three schedulers. The ids are fixed - the code looks each job up by its
+-- The four schedulers. The ids are fixed - the code looks each job up by its
 -- SchedulerConfigurationID (src/ETimeSheet.Shared/Constants/SchedulerJobs.cs) -
 -- so they are inserted explicitly rather than left to the IDENTITY.
--- All three repeat every minute from 2026-10-08 00:09:02 UTC.
+-- All four repeat every minute from 2026-10-08 00:09:02 UTC.
 SET IDENTITY_INSERT dbo.SchedulerConfiguration ON;
 
 INSERT INTO dbo.SchedulerConfiguration
@@ -110,7 +117,8 @@ INSERT INTO dbo.SchedulerConfiguration
 VALUES
     (1, 'SendEmail',                             1, 2, '2026-10-08 00:09:02', 1, 1, 'M', '2026-10-08 00:09:02'),
     (2, 'TimeLogReminderEmailQueue',             1, 2, '2026-10-08 00:09:02', 1, 1, 'M', '2026-10-08 00:09:02'),
-    (3, 'TimeSheetSubmissionReminderEmailQueue', 1, 2, '2026-10-08 00:09:02', 1, 1, 'M', '2026-10-08 00:09:02');
+    (3, 'TimeSheetSubmissionReminderEmailQueue', 1, 2, '2026-10-08 00:09:02', 1, 1, 'M', '2026-10-08 00:09:02'),
+    (4, 'ProjectTimesheetSubmissionReminderEmailQueue', 1, 2, '2026-10-08 00:09:02', 1, 1, 'M', '2026-11-05 00:00:00');
 
 SET IDENTITY_INSERT dbo.SchedulerConfiguration OFF;
 GO

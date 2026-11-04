@@ -22,6 +22,14 @@
         Sheet Submission Reminder (EmailTypeID 2) per user due one - the last
         day of their week, week not yet submitted - at most one per user per
         day - decided in SchedulerService.RunTimesheetReminderEmailQueueAsync.
+      - insert, by the ProjectTimesheetReminderEmailQueue background job
+        (since 2026-11-05): one Pending Project Timesheet Submission
+        Reminder (EmailTypeID 3) per project user with an assigned project
+        whose period ends ProjectTimesheetReminder:DaysBeforePeriodEnd days
+        later, not yet submitted or approved, from
+        ProjectTimesheetReminder:SendAt on the user's clock - at most one
+        per user per day, listing every such project - decided in
+        SchedulerService.RunProjectTimesheetReminderEmailQueueAsync.
       - update, by POST /api/v1/Admin/delete-timesheet-setup: the user's
         Pending and Error rows become EmailStatusID 2 (Sent) with
         ErrorMessage 'Setup deleted' and SentDate left NULL, so the sender
@@ -29,7 +37,7 @@
         without sending".
       - update, by the SendEmail background job: every Pending row, and
         every Error row with AttemptCount below EmailService:MaxAttempts (3),
-        of a type the job can build (1 and 2), is sent oldest first, one by
+        of a type the job can build (1, 2 and 3), is sent oldest first, one by
         one. Each attempt adds 1 to AttemptCount and sets LastAttemptDate;
         a success sets EmailStatusID 2, SentDate and clears ErrorMessage; a
         failure sets EmailStatusID 3 and ErrorMessage. SentDate and
@@ -39,6 +47,7 @@
     Column meanings that are not obvious from the type:
       - EmailTypeID    the kind of email - dbo.EmailType.EmailTypeID
                        (1 = Time Log Reminder, 2 = Sheet Submission Reminder,
+                       3 = Project Timesheet Submission Reminder,
                        assuming the seed ids - see dbo.EmailType.sql).
       - EmailStatusID  1 = Pending, 2 = Sent, 3 = Error, 4 = Processing
                        (stated in the owner's DDL comments). No lookup table

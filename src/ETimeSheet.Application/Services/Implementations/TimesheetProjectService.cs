@@ -79,12 +79,7 @@ public class TimesheetProjectService : ITimesheetProjectService
     private const int MaxLogHoursPerDayMaximum = 24;
 
     /// <summary>The values <c>dbo.TimesheetProject.SubmissionFrequency</c> accepts.</summary>
-    private static readonly IReadOnlySet<int> SubmissionFrequencies = new HashSet<int>
-    {
-        Constants.TimesheetProject.SubmissionFrequency.Weekly,
-        Constants.TimesheetProject.SubmissionFrequency.FifteenDays,
-        Constants.TimesheetProject.SubmissionFrequency.Monthly,
-    };
+    private static readonly IReadOnlySet<int> SubmissionFrequencies = ProjectSubmissionPeriod.Frequencies;
 
     /// <summary>The welcome email for a new account, in <c>Infrastructure/Assets/EmailTemplates/</c>.</summary>
     private const string WelcomeEmailTemplateName = "WelcomeUserTemplate.html";
@@ -2579,38 +2574,15 @@ public class TimesheetProjectService : ITimesheetProjectService
     }
 
     /// <summary>
-    /// The submission period containing <paramref name="logDate"/>, counted
-    /// from the project's start date: blocks of 7 days for weekly, 15 days for
-    /// every 15 days, and calendar months from the start day for monthly - a
-    /// project starting on the 10th has periods from the 10th to the 9th.
-    /// Both dates are inclusive. <paramref name="logDate"/> is never before
-    /// <paramref name="projectStartDate"/>.
+    /// The submission period containing <paramref name="logDate"/> - see
+    /// <see cref="ProjectSubmissionPeriod.Of"/>, shared with the project
+    /// timesheet reminder.
     /// </summary>
     private static (DateTime Start, DateTime End) SubmissionPeriodOf(
         DateTime logDate,
         DateTime projectStartDate,
-        int submissionFrequency)
-    {
-        if (submissionFrequency == Constants.TimesheetProject.SubmissionFrequency.Monthly)
-        {
-            // Every period is counted from the start date itself, never from
-            // the previous period, so a start on the 31st does not drift to
-            // the 28th after February.
-            var months = (logDate.Year - projectStartDate.Year) * 12 + logDate.Month - projectStartDate.Month;
-
-            if (projectStartDate.AddMonths(months) > logDate)
-            {
-                months--;
-            }
-
-            return (projectStartDate.AddMonths(months), projectStartDate.AddMonths(months + 1).AddDays(-1));
-        }
-
-        var days = submissionFrequency == Constants.TimesheetProject.SubmissionFrequency.Weekly ? 7 : 15;
-        var periodStart = projectStartDate.AddDays((logDate - projectStartDate).Days / days * days);
-
-        return (periodStart, periodStart.AddDays(days - 1));
-    }
+        int submissionFrequency) =>
+        ProjectSubmissionPeriod.Of(logDate, projectStartDate, submissionFrequency);
 
     /// <summary>
     /// The code after <paramref name="latest"/>: <c>PSHT0001</c> when there is

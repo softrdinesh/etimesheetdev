@@ -278,6 +278,13 @@ public static class Constants
 
             /// <summary><c>'Sheet Submission Reminder'</c>. Stored as <c>2</c>.</summary>
             public const int SheetSubmissionReminder = 2;
+
+            /// <summary>
+            /// <c>'Project Timesheet Submission Reminder'</c>. Stored as <c>3</c> -
+            /// inserted with an explicit id by
+            /// <c>docs/database/data/dbo.ProjectTimesheetReminder_Insert.sql</c>.
+            /// </summary>
+            public const int ProjectSheetSubmissionReminder = 3;
         }
     }
 

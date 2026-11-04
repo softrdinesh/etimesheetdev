@@ -62,4 +62,28 @@ public interface ISchedulerRepository
         DateTime fromDate,
         DateTime toDate,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns every live <c>dbo.Timesheet_Users_Project_setup</c> assignment
+    /// of a live user to a project with a start date, a submission frequency
+    /// and an organisation - one per user and project, with the user's time
+    /// zone. <paramref name="userIds"/> limits it to those users; null reads
+    /// everyone. Untracked.
+    /// </summary>
+    Task<IReadOnlyList<ProjectReminderAssignment>> GetProjectReminderAssignmentsAsync(
+        IReadOnlyCollection<int>? userIds,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns the live <c>dbo.TimesheetProjectSubmission</c> rows of
+    /// <paramref name="userIds"/> that are Submitted or Approved and whose
+    /// period starts from <paramref name="fromDate"/> to
+    /// <paramref name="toDate"/> inclusive. Pending and Rejected sheets are not
+    /// submitted, so are not returned. Untracked.
+    /// </summary>
+    Task<IReadOnlyList<SubmittedProjectPeriod>> GetSubmittedProjectPeriodsAsync(
+        IReadOnlyCollection<int> userIds,
+        DateTime fromDate,
+        DateTime toDate,
+        CancellationToken cancellationToken = default);
 }

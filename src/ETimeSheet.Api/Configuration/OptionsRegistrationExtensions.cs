@@ -26,6 +26,9 @@ public static class OptionsRegistrationExtensions
 
         services.AddValidatedOptions<EmailServiceSettings>(configuration, EmailServiceSettings.SectionName);
         services.AddValidatedOptions<WelcomeEmailSettings>(configuration, WelcomeEmailSettings.SectionName);
+        services.AddValidatedOptions<ProjectTimesheetReminderSettings>(
+            configuration,
+            ProjectTimesheetReminderSettings.SectionName);
 
         return services;
     }

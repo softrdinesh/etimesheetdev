@@ -2,6 +2,11 @@
     Table: dbo.EmailType
     Recorded: 2026-10-08 (DDL and seed rows supplied by the database owner, who
               created and populated the table by hand)
+    Revised:  2026-11-05 - row 3 'Project Timesheet Submission Reminder' added
+              for the ProjectTimesheetReminderEmailQueue job, inserted with
+              an explicit id by ../data/dbo.ProjectTimesheetReminder_Insert.sql.
+              PENDING: to be run by hand on the live database - confirm here
+              once it has been applied.
 
     Lookup table for the kinds of email the application sends. Reference data:
     the rows below are the whole table and are inserted with the schema.
@@ -16,10 +21,11 @@
     Column quirks worth knowing:
       - EmailTypeID is tinyint IDENTITY(1,1): maps to byte in C#, and at most
         255 types.
-      - The seed INSERT supplies no ids, so they come from the IDENTITY in
-        insertion order: on a fresh table, 1 = 'Time Log Reminder',
+      - The first seed INSERT supplies no ids, so they come from the IDENTITY
+        in insertion order: on a fresh table, 1 = 'Time Log Reminder',
         2 = 'Sheet Submission Reminder'. Code that refers to a type by id
-        relies on that order.
+        relies on that order. 3 = 'Project Timesheet Submission Reminder'
+        is inserted with its id given explicitly.
       - EmailTypeName is varchar(100) and UNIQUE, so it is safe to look a row
         up by name.
 
@@ -49,4 +55,14 @@ INSERT INTO dbo.EmailType (EmailTypeName)
 VALUES
     ('Time Log Reminder'),
     ('Sheet Submission Reminder');
+GO
+
+-- Added 2026-11-05 with an explicit id: Constants.EmailType.Id.ProjectSheetSubmissionReminder.
+SET IDENTITY_INSERT dbo.EmailType ON;
+
+INSERT INTO dbo.EmailType (EmailTypeID, EmailTypeName)
+VALUES
+    (3, 'Project Timesheet Submission Reminder');
+
+SET IDENTITY_INSERT dbo.EmailType OFF;
 GO

@@ -2,6 +2,7 @@ using ETimeSheet.Application.Interfaces.Repositories;
 using ETimeSheet.Application.Models;
 using ETimeSheet.Application.Models.Entities;
 using ETimeSheet.Infrastructure.Data;
+using ETimeSheet.Shared.Utilities;
 using Microsoft.EntityFrameworkCore;
 
 namespace ETimeSheet.Infrastructure.Repositories;
@@ -157,6 +158,108 @@ public class SchedulerRepository : ISchedulerRepository
 
         return entries
             .Select(entry => new SubmittedEntry(entry.UserId!.Value, entry.StartDate!.Value))
+            .ToList();
+    }
+
+    public async Task<IReadOnlyList<ProjectReminderAssignment>> GetProjectReminderAssignmentsAsync(
+        IReadOnlyCollection<int>? userIds,
+        CancellationToken cancellationToken = default)
+    {
+        // The assignment's query filter drops deleted assignments. The company
+        // is the project's organisation; a LEFT join, so a project naming an
+        // organisation that does not exist still gets its reminder.
+        var query =
+            from assignment in _db.Timesheet_Users_Project_setup.AsNoTracking()
+            join project in _db.TimesheetProject.AsNoTracking()
+                on assignment.ProjectId equals (int?)project.ProjectId
+            join user in _db.Signup.AsNoTracking() on assignment.UserId equals user.UserId
+            join organization in _db.Organization.AsNoTracking()
+                on project.OrganizationId equals (int?)organization.OrganizationId into organizations
+            from organization in organizations.DefaultIfEmpty()
+            where user.IsDelete == 0
+                  && project.StartDate != null
+                  && project.SubmissionFrequency != null
+                  && project.OrganizationId != null
+            select new { assignment, project, user, organization };
+
+        if (userIds is not null)
+        {
+            query = query.Where(row => userIds.Contains(row.assignment.UserId));
+        }
+
+        var rows = await query
+            .Select(row => new ProjectReminderAssignment
+            {
+                UserId = row.user.UserId,
+                Name = row.user.Name,
+                Email = row.user.Email,
+                ProjectId = row.project.ProjectId,
+                ProjectCode = row.project.Code,
+                ProjectName = row.project.ProjectName,
+                ProjectStartDate = row.project.StartDate!.Value,
+                ProjectEndDate = row.project.EndDate,
+                SubmissionFrequency = row.project.SubmissionFrequency!.Value,
+                OrganizationId = row.project.OrganizationId!.Value,
+                OrganizationName = row.organization.OrganizationName
+            })
+            .ToListAsync(cancellationToken);
+
+        if (rows.Count == 0)
+        {
+            return rows;
+        }
+
+        // The zone of each user's live setup - the lowest SetupID, as
+        // TimesheetProjectRepository.GetUserTimeZoneAsync picks for the submit.
+        var users = rows.Select(row => row.UserId).Distinct().ToList();
+
+        var zones = (await _db.TimesheetMasterSetup
+                .AsNoTracking()
+                .Where(setup => setup.UserId != null && users.Contains(setup.UserId.Value))
+                .Select(setup => new { setup.SetupId, UserId = setup.UserId!.Value, setup.TimeZone })
+                .ToListAsync(cancellationToken))
+            .GroupBy(setup => setup.UserId)
+            .ToDictionary(
+                setups => setups.Key,
+                setups => setups.OrderBy(setup => setup.SetupId).First().TimeZone);
+
+        // Nothing stops a user being assigned to one project twice: one row
+        // per user and project.
+        return rows
+            .GroupBy(row => (row.UserId, row.ProjectId))
+            .Select(duplicates => duplicates.First())
+            .Select(row =>
+            {
+                row.TimeZone = zones.GetValueOrDefault(row.UserId);
+                return row;
+            })
+            .ToList();
+    }
+
+    public async Task<IReadOnlyList<SubmittedProjectPeriod>> GetSubmittedProjectPeriodsAsync(
+        IReadOnlyCollection<int> userIds,
+        DateTime fromDate,
+        DateTime toDate,
+        CancellationToken cancellationToken = default)
+    {
+        var statuses = new[]
+        {
+            Constants.TimesheetProjectSubmission.Status.Submitted,
+            Constants.TimesheetProjectSubmission.Status.Approved
+        };
+
+        // The query filter drops deleted submissions.
+        var periods = await _db.TimesheetProjectSubmission
+            .AsNoTracking()
+            .Where(submission => userIds.Contains(submission.UserId)
+                && statuses.Contains(submission.StatusId)
+                && submission.PeriodStartDate >= fromDate.Date
+                && submission.PeriodStartDate <= toDate.Date)
+            .Select(submission => new { submission.UserId, submission.ProjectId, submission.PeriodStartDate })
+            .ToListAsync(cancellationToken);
+
+        return periods
+            .Select(period => new SubmittedProjectPeriod(period.UserId, period.ProjectId, period.PeriodStartDate))
             .ToList();
     }
 }
