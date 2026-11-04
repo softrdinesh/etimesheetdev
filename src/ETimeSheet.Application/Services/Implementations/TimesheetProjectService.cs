@@ -2115,6 +2115,13 @@ public class TimesheetProjectService : ITimesheetProjectService
                 cancellationToken))
             .ToDictionary(project => project.ProjectId);
 
+        // One read for every status on the page, not one per entry. The
+        // lookup is empty until the statuses are agreed, so today this is an
+        // empty dictionary and every statusName comes back null.
+        var statusNames = await ProjectTimeLogStatusNamesAsync(
+            timeLogs.Select(timeLog => timeLog.StatusId),
+            cancellationToken);
+
         return timeLogs
             .Select(timeLog =>
             {
@@ -2129,13 +2136,51 @@ public class TimesheetProjectService : ITimesheetProjectService
                         projectStartDate.Date,
                         submissionFrequency);
 
-                    return timeLog.ToResponse(periodStartDate, periodEndDate);
+                    return timeLog.ToResponse(
+                        periodStartDate,
+                        periodEndDate,
+                        ProjectTimeLogStatusName(timeLog.StatusId, statusNames));
                 }
 
-                return timeLog.ToResponse(null, null);
+                return timeLog.ToResponse(
+                    null,
+                    null,
+                    ProjectTimeLogStatusName(timeLog.StatusId, statusNames));
             })
             .ToList();
     }
+
+    /// <summary>
+    /// The names of these <c>dbo.TimesheetProjectTimeLog.StatusID</c>s, read
+    /// from <c>dbo.TimesheetProjectTimeLogStatus_Lookup</c> in one go. Nulls
+    /// and duplicates are dropped; an id the lookup has no row for is left
+    /// out, so it is simply unnamed rather than an error.
+    /// </summary>
+    private async Task<IReadOnlyDictionary<int, string>> ProjectTimeLogStatusNamesAsync(
+        IEnumerable<int?> statusIds,
+        CancellationToken cancellationToken)
+    {
+        var ids = statusIds
+            .Where(statusId => statusId is not null)
+            .Select(statusId => statusId!.Value)
+            .Distinct()
+            .ToList();
+
+        var statuses = await _timesheetProjectRepository.GetProjectTimeLogStatusListAsync(
+            ids,
+            cancellationToken);
+
+        return statuses.ToDictionary(status => status.StatusId, status => status.StatusName);
+    }
+
+    /// <summary>
+    /// The name of one status id, or <see langword="null"/> when the entry has
+    /// no status or the lookup does not know the one it has.
+    /// </summary>
+    private static string? ProjectTimeLogStatusName(
+        int? statusId,
+        IReadOnlyDictionary<int, string> statusNames) =>
+        statusId is { } id && statusNames.TryGetValue(id, out var statusName) ? statusName : null;
 
     public async Task<TimesheetProjectTimeLogResponse> SaveProjectTimeLogAsync(
         TimesheetProjectTimeLogSaveRequest request,
@@ -2184,6 +2229,17 @@ public class TimesheetProjectService : ITimesheetProjectService
                 "HoursLogged is required and must be greater than 0."
             };
         }
+        // Only its shape is checked. The id is NOT looked up: the lookup is
+        // empty until the statuses are agreed, and checking against it would
+        // refuse every status until then.
+        if (request.StatusId is <= 0)
+        {
+            failures[nameof(TimesheetProjectTimeLogSaveRequest.StatusId)] = new[]
+            {
+                "StatusId must be greater than 0, or left out."
+            };
+        }
+
         if (request.AddedBy <= 0)
         {
             failures[nameof(TimesheetProjectTimeLogSaveRequest.AddedBy)] = new[]
@@ -2276,6 +2332,7 @@ public class TimesheetProjectService : ITimesheetProjectService
                 LogDate = logDate,
                 HoursLogged = request.HoursLogged,
                 IsRemoteLog = request.IsRemoteLog,
+                StatusId = request.StatusId,
                 Description = description,
                 IsDelete = 0,
                 CreateDate = now,
@@ -2334,6 +2391,11 @@ public class TimesheetProjectService : ITimesheetProjectService
                 timeLog.IsRemoteLog = request.IsRemoteLog;
             }
 
+            if (request.StatusId is not null)
+            {
+                timeLog.StatusId = request.StatusId;
+            }
+
             if (description is not null)
             {
                 timeLog.Description = description;
@@ -2357,7 +2419,14 @@ public class TimesheetProjectService : ITimesheetProjectService
             saved.SheetSubmissionCode,
             request.AddedBy);
 
-        return saved.ToResponse(periodStartDate, periodEndDate);
+        var statusNames = await ProjectTimeLogStatusNamesAsync(
+            new[] { saved.StatusId },
+            cancellationToken);
+
+        return saved.ToResponse(
+            periodStartDate,
+            periodEndDate,
+            ProjectTimeLogStatusName(saved.StatusId, statusNames));
     }
 
     public async Task DeleteProjectTimeLogAsync(

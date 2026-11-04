@@ -347,12 +347,16 @@ internal static class TimesheetProjectMappings
 
     /// <summary>
     /// Projects a user's day on a project, and the submission period it is in,
-    /// to the time log response.
+    /// to the time log response. <paramref name="statusName"/> is the name the
+    /// lookup gives <c>timeLog.StatusId</c>, or null when it has no status or
+    /// the lookup does not know the one it has - the service looks it up, not
+    /// this mapper.
     /// </summary>
     internal static TimesheetProjectTimeLogResponse ToResponse(
         this TimesheetProjectTimeLog timeLog,
         DateTime? periodStartDate,
-        DateTime? periodEndDate) => new()
+        DateTime? periodEndDate,
+        string? statusName) => new()
     {
         TimesheetProjectTimeLogId = timeLog.TimesheetProjectTimeLogId,
         UserId = timeLog.UserId,
@@ -369,6 +373,8 @@ internal static class TimesheetProjectMappings
         CreatedBy = timeLog.CreatedBy,
         UpdateDate = timeLog.UpdateDate,
         UpdatedBy = timeLog.UpdatedBy,
+        StatusId = timeLog.StatusId,
+        StatusName = statusName,
     };
 
     /// <summary>

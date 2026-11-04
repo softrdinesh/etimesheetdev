@@ -204,6 +204,13 @@ public class Context : DbContext
     public DbSet<TimesheetProjectTimeLog> TimesheetProjectTimeLog { get; set; } = null!;
 
     /// <summary>
+    /// The <c>dbo.TimesheetProjectTimeLogStatus_Lookup</c> lookup table - the
+    /// statuses of <c>dbo.TimesheetProjectTimeLog.StatusID</c>. Empty until
+    /// the owner inserts them. Read-only to the API.
+    /// </summary>
+    public DbSet<TimesheetProjectTimeLogStatusLookup> TimesheetProjectTimeLogStatus_Lookup { get; set; } = null!;
+
+    /// <summary>
     /// The <c>dbo.TimesheetProjectSubmissionAuditLog</c> table - one row per
     /// submit, approve and reject of a project sheet. Append-only.
     /// </summary>

@@ -8,6 +8,15 @@
               longer belongs to a submission.
     Revised:  2026-10-23 - APPLIED by the owner: IsRemoteLog int NULL added as
               the last column.
+    Revised:  2026-11-04 - StatusID int NULL added as the last column, with
+              dbo.TimesheetProjectTimeLogStatus_Lookup to name it.
+              !! NOT YET APPLIED !!  The owner has not run the ALTER against
+              PPMUAT yet:
+                  ALTER TABLE dbo.TimesheetProjectTimeLog ADD StatusID int NULL;
+              The entity maps the column already, so until the ALTER has been
+              run by hand every read of this table fails with
+              "Invalid column name 'StatusID'". Change this to an APPLIED line
+              once it is done.
 
     A user's time on one project for one calendar day: the whole hours worked
     and a description. Since 2026-10-27 a day may hold SEVERAL rows: the API
@@ -48,6 +57,15 @@
         (remote) or 0, or leaves it NULL when the log does not say. One value
         per row: an edit that sends it replaces that row's, and an edit that
         leaves it out keeps it.
+      - StatusID is the entry's own status, a dbo.
+        TimesheetProjectTimeLogStatus_Lookup.StatusID. NULL - and NULL is what
+        every row holds today, because that lookup is deliberately empty.
+        No foreign key, and nothing checks the value: the API stores any
+        positive id add-edit-timesheet-project-time-log sends, and returns a
+        null statusName for one the lookup does not know. It is the entry's
+        status, NOT the period's - that one lives on
+        dbo.TimesheetProjectSubmission.StatusID and is reached by
+        SheetSubmissionCode.
       - IsDelete is an int, NOT NULL - not a bit. 1 = deleted, 0 = live.
       - CreateDate, UpdateDate and DeletedDate are plain datetime.
 
@@ -77,6 +95,7 @@ CREATE TABLE dbo.TimesheetProjectTimeLog
     DeletedDate                  datetime        NULL,
     DeletedBy                    int             NULL,
     IsRemoteLog                  int             NULL,
+    StatusID                     int             NULL,   -- dbo.TimesheetProjectTimeLogStatus_Lookup.StatusID
     CONSTRAINT PK_TimesheetProjectTimeLog
         PRIMARY KEY CLUSTERED (TimesheetProjectTimeLogID)
 );

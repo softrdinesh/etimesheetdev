@@ -646,6 +646,17 @@ public interface ITimesheetProjectRepository
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// The <c>dbo.TimesheetProjectTimeLogStatus_Lookup</c> rows with these
+    /// <c>StatusID</c>s - the names of the statuses a set of time log entries
+    /// carries. An id the lookup has no row for is simply absent, and so is
+    /// every id while the lookup is empty. No ids means no query and an empty
+    /// list.
+    /// </summary>
+    Task<IReadOnlyList<TimesheetProjectTimeLogStatusLookup>> GetProjectTimeLogStatusListAsync(
+        IReadOnlyCollection<int> statusIds,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Returns the live sheet with this code, <b>tracked</b>;
     /// <see langword="null"/> when there is none.
     /// </summary>

@@ -66,6 +66,11 @@ public class TimesheetProjectTimeLogConfiguration : IEntityTypeConfiguration<Tim
             .HasColumnName("IsRemoteLog")
             .HasConversion<int?>();
 
+        // A dbo.TimesheetProjectTimeLogStatus_Lookup.StatusID. No navigation
+        // property: the lookup is joined by the repository when a name is
+        // wanted, and the table declares no foreign key.
+        builder.Property(timeLog => timeLog.StatusId).HasColumnName("StatusID");
+
         builder.HasQueryFilter(timeLog => timeLog.IsDelete != 1);
     }
 }

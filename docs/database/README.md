@@ -64,6 +64,7 @@ docs/database/
 │   ├── dbo.TimesheetProjectCategory.sql
 │   ├── dbo.TimesheetProjectStatus.sql
 │   ├── dbo.TimesheetProjectSubmissionStatus.sql
+│   ├── dbo.TimesheetProjectTimeLogStatus_Lookup.sql
 │   ├── dbo.TimesheetSubmission.sql
 │   ├── dbo.TimeSheetSubmissionAuditLog.sql
 │   ├── dbo.TimesheetUserRole.sql

@@ -642,6 +642,23 @@ public class TimesheetProjectRepository : ITimesheetProjectRepository
             .ThenBy(timeLog => timeLog.TimesheetProjectTimeLogId)
             .ToListAsync(cancellationToken);
 
+    public async Task<IReadOnlyList<TimesheetProjectTimeLogStatusLookup>> GetProjectTimeLogStatusListAsync(
+        IReadOnlyCollection<int> statusIds,
+        CancellationToken cancellationToken = default)
+    {
+        // Nothing to name - and an empty Contains would ask the database for
+        // a row set it already knows is empty.
+        if (statusIds.Count == 0)
+        {
+            return Array.Empty<TimesheetProjectTimeLogStatusLookup>();
+        }
+
+        return await _db.TimesheetProjectTimeLogStatus_Lookup
+            .AsNoTracking()
+            .Where(status => statusIds.Contains(status.StatusId))
+            .ToListAsync(cancellationToken);
+    }
+
     public async Task<TimesheetProjectTimeLog?> GetProjectTimeLogForUpdateAsync(
         int timesheetProjectTimeLogId,
         CancellationToken cancellationToken = default) =>

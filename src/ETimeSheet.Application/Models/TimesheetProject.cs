@@ -2103,6 +2103,23 @@ public class TimesheetProjectTimeLogResponse
     public DateTime? UpdateDate { get; set; }
 
     public int? UpdatedBy { get; set; }
+
+    /// <summary>
+    /// The entry's status, a
+    /// <c>dbo.TimesheetProjectTimeLogStatus_Lookup.StatusID</c>. Null when the
+    /// entry has none - which is every entry until the lookup is filled in.
+    /// </summary>
+    /// <example>2</example>
+    public int? StatusId { get; set; }
+
+    /// <summary>
+    /// The name of <see cref="StatusId"/>, from
+    /// <c>dbo.TimesheetProjectTimeLogStatus_Lookup</c>. Null when the entry has
+    /// no status, and <b>also</b> null when it has one the lookup does not
+    /// know - nothing checks a status id on the way in.
+    /// </summary>
+    /// <example>Approved</example>
+    public string? StatusName { get; set; }
 }
 
 /// <summary>
@@ -2167,6 +2184,20 @@ public class TimesheetProjectTimeLogSaveRequest
     /// </summary>
     /// <example>Sprint planning</example>
     public string? Description { get; set; }
+
+    /// <summary>
+    /// The entry's status, a
+    /// <c>dbo.TimesheetProjectTimeLogStatus_Lookup.StatusID</c>. Optional,
+    /// greater than 0 when sent. On an edit, a value sent replaces the
+    /// entry's; left out, the entry keeps the one it has.
+    /// <para>
+    /// It is <b>not</b> checked against the lookup - any positive id is
+    /// stored, and an id the lookup does not know reads back with a null
+    /// <c>statusName</c>. That lookup is empty until the statuses are agreed.
+    /// </para>
+    /// </summary>
+    /// <example>2</example>
+    public int? StatusId { get; set; }
 
     /// <summary>
     /// The user performing the save, written to <c>CreatedBy</c> on add and

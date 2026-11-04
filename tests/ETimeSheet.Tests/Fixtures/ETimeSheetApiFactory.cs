@@ -565,7 +565,15 @@ public class ETimeSheetApiFactory : WebApplicationFactory<Program>
     /// </para>
     /// </summary>
     private static readonly IReadOnlySet<string> LookupTables =
-        new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "DayMaster_Lookup", "CountryCurrency_Lookup", "TimesheetLeaveStatus_Lookup" };
+        new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "DayMaster_Lookup",
+            "CountryCurrency_Lookup",
+            "TimesheetLeaveStatus_Lookup",
+            // Empty today - its statuses have not been agreed - but it is seed
+            // data all the same, so it is excluded like the rest.
+            "TimesheetProjectTimeLogStatus_Lookup",
+        };
 
     /// <summary>
     /// Tables a test can seed that are <b>not</b> in the EF model, and so cannot

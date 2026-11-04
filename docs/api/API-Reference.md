@@ -5423,6 +5423,17 @@ GET /api/v1/TimesheetProject/get-timesheet-project-time-log?userID=7&projectID=1
 | `createdBy` | int | |
 | `updateDate` | datetime \| null | UTC — the latest log that added hours; `null` after only one |
 | `updatedBy` | int \| null | |
+| `statusId` | int \| null | The entry's own status, a `dbo.TimesheetProjectTimeLogStatus_Lookup.StatusID`. `null` when it has none — which is every entry until that lookup is filled in |
+| `statusName` | string \| null | The name of `statusId` from that lookup. `null` when the entry has no status, **and also** when it has one the lookup does not know — a status id is not checked on the way in |
+
+**The entry's status is not its period's.** `statusId` belongs to the single
+entry and is whatever was last saved on it. The Submitted / Approved /
+Rejected state of the whole period lives on `dbo.TimesheetProjectSubmission`
+and is read through [Project Timesheet List](#52-project-timesheet-list).
+
+> `dbo.TimesheetProjectTimeLogStatus_Lookup` is **deliberately empty** until
+> its statuses are agreed, so `statusName` is `null` on every row today, even
+> for an entry saved with a `statusId`.
 
 #### Example response
 
@@ -5446,7 +5457,9 @@ GET /api/v1/TimesheetProject/get-timesheet-project-time-log?userID=7&projectID=1
       "createDate": "2026-10-22T04:12:40.117",
       "createdBy": 7,
       "updateDate": "2026-10-22T11:30:02.540",
-      "updatedBy": 7
+      "updatedBy": 7,
+      "statusId": 2,
+      "statusName": null
     }
   ],
   "errors": []
@@ -5480,7 +5493,7 @@ EF Core; no stored procedure.
   **two** entries, not one of 7.
 - **Greater than 0 — edit.** That entry is updated. It must exist, not be
   deleted, and belong to `userId` on `projectId`. `hoursLogged` **replaces**
-  the entry's hours rather than adding to them; `isRemoteLog` and
+  the entry's hours rather than adding to them; `isRemoteLog`, `statusId` and
   `description` replace the entry's when sent, and leave them as they are when
   left out. Changing `logDate` moves the entry to that day — the period it
   leaves must be open too, and it takes the new period's sheet code.
@@ -5497,6 +5510,12 @@ EF Core; no stored procedure.
   blank and then rejected passes on its sheet's code.
 - A period that is **Submitted** or **Approved** cannot be logged on; once
   **Rejected** it can, and the sheet is left as it is until resubmitted.
+- `statusId` is the **entry's own** status and is stored exactly as sent. It
+  is not the period's Submitted / Approved / Rejected state, it is not checked
+  against `dbo.TimesheetProjectTimeLogStatus_Lookup`, and it changes no rule
+  here: an entry carrying one is validated, logged and removed like any other.
+  Until that lookup has rows, the saved entry reads back with
+  `"statusName": null`.
 - **No timesheet submission is created.**
 
 #### Request body — `TimesheetProjectTimeLogSaveRequest` (JSON)
@@ -5509,6 +5528,7 @@ EF Core; no stored procedure.
 | `logDate` | date | yes | Only the date part is used. Not before the project's `StartDate`, not after its `EndDate` (when set) |
 | `hoursLogged` | int | yes | `> 0`, whole hours, no upper limit. The new entry's hours on an add; the entry's hours on an edit — it replaces, it does not add |
 | `isRemoteLog` | bool \| null | no | Whether the work was remote. On a day already logged, a value sent replaces the day's; left out, the day keeps its value |
+| `statusId` | int \| null | no | The entry's status, a `dbo.TimesheetProjectTimeLogStatus_Lookup.StatusID`. `> 0` when sent. On an edit a value sent replaces the entry's; left out, the entry keeps the one it has. **Not** checked against the lookup |
 | `description` | string \| null | no | Free text, no length limit |
 | `addedBy` | int | yes | `> 0`. Written to `CreatedBy` on the first log of the day, `UpdatedBy` on later ones. Temporary — from the token once authentication is on |
 
@@ -5522,6 +5542,7 @@ EF Core; no stored procedure.
   "logDate": "2026-10-22",
   "hoursLogged": 3,
   "isRemoteLog": true,
+  "statusId": 2,
   "description": "Sprint planning",
   "addedBy": 7
 }
@@ -5542,7 +5563,8 @@ response are unchanged.
 
 **400** — validation; every failing payload field is listed together, e.g.
 `HoursLogged: HoursLogged is required and must be greater than 0.`,
-`AddedBy: AddedBy is required: the entry records who created or last updated it.`
+`AddedBy: AddedBy is required: the entry records who created or last updated it.`,
+`StatusId: StatusId must be greater than 0, or left out.`
 
 Also a 400, one at a time, after the payload passes:
 

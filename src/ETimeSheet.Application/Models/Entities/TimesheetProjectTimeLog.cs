@@ -62,4 +62,14 @@ public class TimesheetProjectTimeLog
     /// log never said.
     /// </summary>
     public bool? IsRemoteLog { get; set; }
+
+    /// <summary>
+    /// The <c>StatusID</c> column - a
+    /// <c>dbo.TimesheetProjectTimeLogStatus_Lookup.StatusID</c>, NULL allowed.
+    /// <see langword="null"/> when the entry has no status, which is every
+    /// entry while that lookup is empty. Nothing checks the value against the
+    /// lookup. This is the entry's own status, not its period's - that one is
+    /// on <c>dbo.TimesheetProjectSubmission</c>.
+    /// </summary>
+    public int? StatusId { get; set; }
 }
