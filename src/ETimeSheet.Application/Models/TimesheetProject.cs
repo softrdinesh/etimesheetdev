@@ -2083,6 +2083,17 @@ public class TimesheetProjectTimeLogResponse
     /// <summary>The last day of the submission period, inclusive. Null as <see cref="PeriodStartDate"/>.</summary>
     public DateTime? PeriodEndDate { get; set; }
 
+    /// <summary>
+    /// The status of the day's sheet, from <c>dbo.TimesheetProjectSubmission</c>:
+    /// 1 Submitted, 2 Approved, 3 Rejected. 0 Pending when the period has not
+    /// been submitted yet.
+    /// </summary>
+    /// <example>1</example>
+    public int StatusId { get; set; }
+
+    /// <example>Submitted</example>
+    public string StatusName { get; set; } = string.Empty;
+
     /// <summary>The day worked.</summary>
     public DateTime LogDate { get; set; }
 

@@ -352,7 +352,9 @@ internal static class TimesheetProjectMappings
     internal static TimesheetProjectTimeLogResponse ToResponse(
         this TimesheetProjectTimeLog timeLog,
         DateTime? periodStartDate,
-        DateTime? periodEndDate) => new()
+        DateTime? periodEndDate,
+        int statusId,
+        string statusName) => new()
     {
         TimesheetProjectTimeLogId = timeLog.TimesheetProjectTimeLogId,
         UserId = timeLog.UserId,
@@ -361,6 +363,8 @@ internal static class TimesheetProjectMappings
         SheetSubmissionCode = timeLog.SheetSubmissionCode,
         PeriodStartDate = periodStartDate,
         PeriodEndDate = periodEndDate,
+        StatusId = statusId,
+        StatusName = statusName,
         LogDate = timeLog.LogDate,
         HoursLogged = timeLog.HoursLogged,
         IsRemoteLog = timeLog.IsRemoteLog,

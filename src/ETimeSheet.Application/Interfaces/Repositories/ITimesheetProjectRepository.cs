@@ -646,6 +646,16 @@ public interface ITimesheetProjectRepository
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// The live sheets of a user carrying any of
+    /// <paramref name="sheetSubmissionCodes"/>, <b>untracked</b>. A code with
+    /// no sheet - a period not yet submitted - is left out.
+    /// </summary>
+    Task<IReadOnlyList<TimesheetProjectSubmission>> GetProjectSubmissionListByCodesAsync(
+        int userId,
+        IReadOnlyCollection<string> sheetSubmissionCodes,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Returns the live sheet with this code, <b>tracked</b>;
     /// <see langword="null"/> when there is none.
     /// </summary>

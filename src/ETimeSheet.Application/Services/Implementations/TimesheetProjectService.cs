@@ -2115,9 +2115,35 @@ public class TimesheetProjectService : ITimesheetProjectService
                 cancellationToken))
             .ToDictionary(project => project.ProjectId);
 
+        // Each day's sheet status. A period with no sheet has not been
+        // submitted, so it is Pending.
+        var sheetCodes = timeLogs
+            .Select(timeLog => timeLog.SheetSubmissionCode)
+            .Where(code => !string.IsNullOrEmpty(code))
+            .Distinct()
+            .ToList();
+
+        var sheetStatuses = sheetCodes.Count == 0
+            ? new Dictionary<(int ProjectId, string Code), int>()
+            : (await _timesheetProjectRepository.GetProjectSubmissionListByCodesAsync(
+                    userId,
+                    sheetCodes,
+                    cancellationToken))
+                // Oldest first, should duplicates ever exist, as the submit reads them.
+                .OrderBy(submission => submission.TimesheetProjectSubmissionId)
+                .GroupBy(submission => (submission.ProjectId, Code: submission.SheetSubmissionCode))
+                .ToDictionary(group => group.Key, group => group.First().StatusId);
+
         return timeLogs
             .Select(timeLog =>
             {
+                var statusId = sheetStatuses.TryGetValue(
+                    (timeLog.ProjectId, timeLog.SheetSubmissionCode),
+                    out var sheetStatusId)
+                    ? sheetStatusId
+                    : Constants.TimesheetProjectSubmission.Status.Pending;
+                var statusName = ProjectSheetStatusName(statusId);
+
                 if (projects.TryGetValue(timeLog.ProjectId, out var project)
                     && project.StartDate is { } projectStartDate
                     && project.SubmissionFrequency is { } submissionFrequency
@@ -2129,10 +2155,10 @@ public class TimesheetProjectService : ITimesheetProjectService
                         projectStartDate.Date,
                         submissionFrequency);
 
-                    return timeLog.ToResponse(periodStartDate, periodEndDate);
+                    return timeLog.ToResponse(periodStartDate, periodEndDate, statusId, statusName);
                 }
 
-                return timeLog.ToResponse(null, null);
+                return timeLog.ToResponse(null, null, statusId, statusName);
             })
             .ToList();
     }
@@ -2357,7 +2383,14 @@ public class TimesheetProjectService : ITimesheetProjectService
             saved.SheetSubmissionCode,
             request.AddedBy);
 
-        return saved.ToResponse(periodStartDate, periodEndDate);
+        // The period was checked open above: no sheet yet (Pending) or Rejected.
+        var savedStatusId = submission?.StatusId ?? Constants.TimesheetProjectSubmission.Status.Pending;
+
+        return saved.ToResponse(
+            periodStartDate,
+            periodEndDate,
+            savedStatusId,
+            ProjectSheetStatusName(savedStatusId));
     }
 
     public async Task DeleteProjectTimeLogAsync(
