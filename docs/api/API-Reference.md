@@ -5415,6 +5415,8 @@ GET /api/v1/TimesheetProject/get-timesheet-project-time-log?userID=7&projectID=1
 | `sheetSubmissionCode` | string | The code of the day's submission period, shared by every day of this user and project in it |
 | `periodStartDate` | datetime \| null | First day of that period, from the project's start date and frequency. `null` only if the project has since lost either |
 | `periodEndDate` | datetime \| null | Last day of that period, inclusive |
+| `statusId` | int | Status of the day's sheet: `0` Pending (period not submitted yet), `1` Submitted, `2` Approved, `3` Rejected |
+| `statusName` | string | `Pending`, `Submitted`, `Approved` or `Rejected` |
 | `logDate` | datetime | The day worked; time part always `00:00:00` |
 | `hoursLogged` | int | The day's total on the project, in whole hours |
 | `isRemoteLog` | bool \| null | Whether the day was worked remotely; `null` when no log said |
@@ -5439,6 +5441,8 @@ GET /api/v1/TimesheetProject/get-timesheet-project-time-log?userID=7&projectID=1
       "sheetSubmissionCode": "PSHT0004",
       "periodStartDate": "2026-10-19T00:00:00",
       "periodEndDate": "2026-10-25T00:00:00",
+      "statusId": 1,
+      "statusName": "Submitted",
       "logDate": "2026-10-22T00:00:00",
       "hoursLogged": 7,
       "isRemoteLog": true,

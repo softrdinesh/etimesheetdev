@@ -874,6 +874,17 @@ public class TimesheetProjectRepository : ITimesheetProjectRepository
             })
             .ToListAsync(cancellationToken);
 
+    public async Task<IReadOnlyList<TimesheetProjectSubmission>> GetProjectSubmissionListByCodesAsync(
+        int userId,
+        IReadOnlyCollection<string> sheetSubmissionCodes,
+        CancellationToken cancellationToken = default) =>
+        // The query filter leaves deleted sheets out.
+        await _db.TimesheetProjectSubmission
+            .AsNoTracking()
+            .Where(submission => submission.UserId == userId
+                                 && sheetSubmissionCodes.Contains(submission.SheetSubmissionCode))
+            .ToListAsync(cancellationToken);
+
     public async Task<TimesheetProjectSubmission?> GetProjectSubmissionByCodeForUpdateAsync(
         string sheetSubmissionCode,
         CancellationToken cancellationToken = default) =>
