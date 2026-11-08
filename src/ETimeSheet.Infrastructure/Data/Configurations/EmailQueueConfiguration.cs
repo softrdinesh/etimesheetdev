@@ -64,5 +64,7 @@ public class EmailQueueConfiguration : IEntityTypeConfiguration<EmailQueue>
             .HasColumnName("ErrorMessage")
             .HasMaxLength(2000)
             .IsUnicode(false);
+
+        builder.Property(email => email.ProjectId).HasColumnName("ProjectID");
     }
 }

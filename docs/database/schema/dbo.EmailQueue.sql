@@ -3,6 +3,9 @@
     Recorded: 2026-10-08 (DDL supplied by the database owner, who created the
               table by hand)
     Revised:  2026-10-08 - ProjectID removed by the database owner.
+    Revised:  2026-11-08 - APPLIED by the owner: ProjectID int NULL added back
+              as the last column, so an approver reminder - one per approver
+              and project - names the project it is about.
 
     One row per email to be sent: who it goes to, what kind it is, and how far
     sending it has got - pending, in progress, sent, or failed - with the
@@ -22,6 +25,12 @@
         Sheet Submission Reminder (EmailTypeID 2) per user due one - the last
         day of their week, week not yet submitted - at most one per user per
         day - decided in SchedulerService.RunTimesheetReminderEmailQueueAsync.
+      - insert, by the ApproverReminderEmailQueue background job (daily,
+        7 AM): one Pending Approver Submission Reminder (EmailTypeID 3) per
+        project whose submission period ended the day before and still has
+        sheets in Submitted status, to the project's timesheet approver, with
+        ProjectID set - at most one per approver and project per day -
+        decided in SchedulerService.RunApproverReminderEmailQueueAsync.
       - update, by POST /api/v1/Admin/delete-timesheet-setup: the user's
         Pending and Error rows become EmailStatusID 2 (Sent) with
         ErrorMessage 'Setup deleted' and SentDate left NULL, so the sender
@@ -34,12 +43,19 @@
         a success sets EmailStatusID 2, SentDate and clears ErrorMessage; a
         failure sets EmailStatusID 3 and ErrorMessage. SentDate and
         LastAttemptDate are written on the database server's local clock,
-        like CreatedDate.
+        like CreatedDate. Types 1, 2 and 3 are built; an approver reminder
+        (3) is rebuilt from live data at send time, and when none of its
+        project's sheets for the period is still Submitted it is closed
+        unsent instead: EmailStatusID 2 with SentDate NULL, ErrorMessage
+        'No submitted timesheets left for the period', AttemptCount
+        unchanged.
 
     Column meanings that are not obvious from the type:
       - EmailTypeID    the kind of email - dbo.EmailType.EmailTypeID
                        (1 = Time Log Reminder, 2 = Sheet Submission Reminder,
-                       assuming the seed ids - see dbo.EmailType.sql).
+                       assuming the seed ids - see dbo.EmailType.sql; 3 =
+                       Approver Submission Reminder, used by the code but not
+                       yet recorded in dbo.EmailType.sql).
       - EmailStatusID  1 = Pending, 2 = Sent, 3 = Error, 4 = Processing
                        (stated in the owner's DDL comments). No lookup table
                        backs these values; Constants.EmailQueue.Status mirrors
@@ -56,6 +72,9 @@
       - EmailAddress is the only recipient column that is NOT NULL; UserID and
         OrgID are nullable, so an email can go to an address that belongs to
         no user.
+      - ProjectID is presumably dbo.TimesheetProject.ProjectID; no foreign key
+        was reported. Nullable: only approver reminders set it. Recorded as
+        the last column, where ALTER TABLE ... ADD puts it.
       - EmailStatusID defaults to 1 (Pending), AttemptCount to 0.
       - CreatedDate defaults to GETDATE(), which is the SQL Server's LOCAL time,
         not UTC. Every date column is datetime2(0) - whole seconds.
@@ -88,6 +107,7 @@ CREATE TABLE dbo.EmailQueue
     SentDate         datetime2(0)    NULL,
     LastAttemptDate  datetime2(0)    NULL,
     AttemptCount     int             NOT NULL DEFAULT 0,
-    ErrorMessage     varchar(2000)   NULL
+    ErrorMessage     varchar(2000)   NULL,
+    ProjectID        int             NULL
 );
 GO

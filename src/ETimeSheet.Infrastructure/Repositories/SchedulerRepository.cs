@@ -2,6 +2,7 @@ using ETimeSheet.Application.Interfaces.Repositories;
 using ETimeSheet.Application.Models;
 using ETimeSheet.Application.Models.Entities;
 using ETimeSheet.Infrastructure.Data;
+using ETimeSheet.Shared.Utilities;
 using Microsoft.EntityFrameworkCore;
 
 namespace ETimeSheet.Infrastructure.Repositories;
@@ -157,6 +158,141 @@ public class SchedulerRepository : ISchedulerRepository
 
         return entries
             .Select(entry => new SubmittedEntry(entry.UserId!.Value, entry.StartDate!.Value))
+            .ToList();
+    }
+
+    public async Task<IReadOnlyList<ApproverReminderProject>> GetApproverReminderProjectsAsync(
+        CancellationToken cancellationToken = default)
+    {
+        // The approver setup's query filter drops deleted setups. The company
+        // is a LEFT join, so a missing organisation only costs the sign-off.
+        var frequencies = new[]
+        {
+            Constants.TimesheetProject.SubmissionFrequency.Weekly,
+            Constants.TimesheetProject.SubmissionFrequency.FifteenDays,
+            Constants.TimesheetProject.SubmissionFrequency.Monthly
+        };
+
+        var rows = await (
+                from setup in _db.Timesheet_Approver_setup.AsNoTracking()
+                join project in _db.TimesheetProject.AsNoTracking() on setup.ProjectId equals (int?)project.ProjectId
+                join user in _db.Signup.AsNoTracking() on setup.ApproverId equals (int?)user.UserId
+                join organization in _db.Organization.AsNoTracking()
+                    on (project.OrganizationId ?? setup.OrganizationId) equals (int?)organization.OrganizationId
+                    into organizations
+                from organization in organizations.DefaultIfEmpty()
+                where setup.IsTimesheetApprover == true
+                      && user.IsDelete == 0
+                      && project.StartDate != null
+                      && project.SubmissionFrequency != null
+                      && frequencies.Contains(project.SubmissionFrequency!.Value)
+                select new ApproverReminderProject
+                {
+                    ApproverId = user.UserId,
+                    ApproverName = user.Name,
+                    ApproverEmail = user.Email,
+                    ProjectId = project.ProjectId,
+                    ProjectCode = project.Code,
+                    ProjectName = project.ProjectName,
+                    OrganizationId = project.OrganizationId ?? setup.OrganizationId,
+                    OrganizationName = organization.OrganizationName,
+                    StartDate = project.StartDate!.Value,
+                    EndDate = project.EndDate,
+                    SubmissionFrequency = project.SubmissionFrequency!.Value
+                })
+            .ToListAsync(cancellationToken);
+
+        // Nothing in the table stops the same approver being set up twice on
+        // one project; they get the project once.
+        return rows
+            .GroupBy(row => (row.ApproverId, row.ProjectId))
+            .Select(group => group.First())
+            .ToList();
+    }
+
+    public async Task<IReadOnlyList<ProjectLoggedDay>> GetProjectLoggedDaysAsync(
+        IReadOnlyCollection<int> projectIds,
+        DateTime fromDate,
+        DateTime toDate,
+        CancellationToken cancellationToken = default)
+    {
+        // The query filter drops deleted rows. Summed in the database: a day
+        // may hold several rows.
+        var days = await _db.TimesheetProjectTimeLog
+            .AsNoTracking()
+            .Where(timeLog => projectIds.Contains(timeLog.ProjectId)
+                && timeLog.LogDate >= fromDate.Date
+                && timeLog.LogDate <= toDate.Date)
+            .GroupBy(timeLog => new { timeLog.ProjectId, timeLog.UserId, timeLog.LogDate, timeLog.SheetSubmissionCode })
+            .Select(group => new
+            {
+                group.Key.ProjectId,
+                group.Key.UserId,
+                group.Key.LogDate,
+                group.Key.SheetSubmissionCode,
+                HoursLogged = group.Sum(timeLog => timeLog.HoursLogged)
+            })
+            .ToListAsync(cancellationToken);
+
+        return days
+            .Select(day => new ProjectLoggedDay(day.ProjectId, day.UserId, day.LogDate, day.SheetSubmissionCode, day.HoursLogged))
+            .ToList();
+    }
+
+    public async Task<IReadOnlyList<ProjectSheetSubmissionRow>> GetProjectSubmissionsAsync(
+        IReadOnlyCollection<int> projectIds,
+        int statusId,
+        DateTime fromDate,
+        DateTime toDate,
+        CancellationToken cancellationToken = default) =>
+        // The query filter drops deleted submissions.
+        await _db.TimesheetProjectSubmission
+            .AsNoTracking()
+            .Where(submission => projectIds.Contains(submission.ProjectId)
+                && submission.StatusId == statusId
+                && submission.PeriodStartDate >= fromDate.Date
+                && submission.PeriodStartDate <= toDate.Date)
+            .Select(submission => new ProjectSheetSubmissionRow(
+                submission.ProjectId,
+                submission.UserId,
+                submission.PeriodStartDate,
+                submission.SheetSubmissionCode))
+            .ToListAsync(cancellationToken);
+
+    public async Task<IReadOnlyList<UserName>> GetUserNamesAsync(
+        IReadOnlyCollection<int> userIds,
+        CancellationToken cancellationToken = default) =>
+        await _db.Signup
+            .AsNoTracking()
+            .Where(user => userIds.Contains(user.UserId))
+            .Select(user => new UserName(user.UserId, user.Name))
+            .ToListAsync(cancellationToken);
+
+    public async Task<IReadOnlyList<WorkingWeekSetup>> GetWorkingWeekSetupsAsync(
+        IReadOnlyCollection<int> userIds,
+        CancellationToken cancellationToken = default)
+    {
+        // The setup's query filter drops deleted setups. Projected, so only
+        // the columns the expected hours need are read.
+        var setups = await _db.TimesheetMasterSetup
+            .AsNoTracking()
+            .Where(setup => setup.UserId != null && userIds.Contains(setup.UserId.Value))
+            .Select(setup => new WorkingWeekSetup
+            {
+                SetupId = setup.SetupId,
+                UserId = setup.UserId!.Value,
+                StartDay = setup.StartDay,
+                EndDay = setup.EndDay,
+                ExceptionDay = setup.ExceptionDay,
+                MaxTimeInHrs = setup.MaxTimeInHrs,
+                MaxTimInMins = setup.MaxTimInMins
+            })
+            .ToListAsync(cancellationToken);
+
+        // One setup per user - the lowest SetupID, as the procedures pick.
+        return setups
+            .GroupBy(setup => setup.UserId)
+            .Select(group => group.OrderBy(setup => setup.SetupId).First())
             .ToList();
     }
 }

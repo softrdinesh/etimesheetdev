@@ -278,6 +278,13 @@ public static class Constants
 
             /// <summary><c>'Sheet Submission Reminder'</c>. Stored as <c>2</c>.</summary>
             public const int SheetSubmissionReminder = 2;
+
+            /// <summary>
+            /// <c>'Approver Submission Reminder'</c>. Stored as <c>3</c> - the
+            /// third seed row, added by the database owner for the approver
+            /// reminder sent the morning after a project's submission period ends.
+            /// </summary>
+            public const int ApproverSubmissionReminder = 3;
         }
     }
 

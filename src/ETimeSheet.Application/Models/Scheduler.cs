@@ -70,9 +70,9 @@ public sealed record LoggedSpan(int UserId, DateTime StartsAt, DateTime EndsAt);
 /// <summary>
 /// When an email of some type was queued for a user, as a UTC instant -
 /// <c>dbo.EmailQueue.CreatedDate</c> is the database server's local time, and
-/// the repository converts it.
+/// the repository converts it - and the project it concerns, when it names one.
 /// </summary>
-public sealed record QueuedEmail(int UserId, DateTime CreatedAtUtc);
+public sealed record QueuedEmail(int UserId, DateTime CreatedAtUtc, int? ProjectId);
 
 /// <summary>
 /// What a reminder email says about its user: their name, company, and the
@@ -125,4 +125,89 @@ public sealed record EmailSendResult(bool Succeeded, string? Error)
     public static EmailSendResult Success { get; } = new(true, null);
 
     public static EmailSendResult Failed(string error) => new(false, error);
+}
+
+/// <summary>
+/// A project and its timesheet approver - one per project: the live
+/// <c>dbo.Timesheet_Approver_setup</c> row with <c>IsTimesheetApprover = 1</c>,
+/// joined to its project and to the approver's live <c>dbo.Signup</c> row.
+/// Only projects with a start date and a known submission frequency are read
+/// - without them there is no period to remind about. Whether a period of it
+/// has just ended is decided by <c>SchedulerService</c>.
+/// </summary>
+public class ApproverReminderProject
+{
+    public int ApproverId { get; set; }
+
+    /// <summary>The approver's <c>dbo.Signup.Name</c>.</summary>
+    public string ApproverName { get; set; } = string.Empty;
+
+    /// <summary>The approver's <c>dbo.Signup.Email</c>.</summary>
+    public string? ApproverEmail { get; set; }
+
+    public int ProjectId { get; set; }
+
+    /// <summary><c>dbo.TimesheetProject.Code</c> - <c>PR0001</c>.</summary>
+    public string ProjectCode { get; set; } = string.Empty;
+
+    public string? ProjectName { get; set; }
+
+    /// <summary>The project's organisation, or the approver setup's when the project has none.</summary>
+    public int? OrganizationId { get; set; }
+
+    /// <summary>That organisation's name - the email's sign-off. Null when it does not exist.</summary>
+    public string? OrganizationName { get; set; }
+
+    public DateTime StartDate { get; set; }
+
+    public DateTime? EndDate { get; set; }
+
+    /// <summary>A <c>Constants.TimesheetProject.SubmissionFrequency</c> value.</summary>
+    public int SubmissionFrequency { get; set; }
+}
+
+/// <summary>
+/// One user's hours on one project for one day, under one sheet code - the
+/// live <c>dbo.TimesheetProjectTimeLog</c> rows summed in the database.
+/// </summary>
+public sealed record ProjectLoggedDay(
+    int ProjectId,
+    int UserId,
+    DateTime LogDate,
+    string SheetSubmissionCode,
+    int HoursLogged);
+
+/// <summary>A live <c>dbo.TimesheetProjectSubmission</c> row, as the approver reminder reads it.</summary>
+public sealed record ProjectSheetSubmissionRow(
+    int ProjectId,
+    int UserId,
+    DateTime PeriodStartDate,
+    string SheetSubmissionCode);
+
+/// <summary>A user's id and <c>dbo.Signup.Name</c>.</summary>
+public sealed record UserName(int UserId, string Name);
+
+/// <summary>
+/// A user's working week and daily time, from their live
+/// <c>dbo.TimesheetMasterSetup</c> (the lowest <c>SetupID</c>) - what the
+/// approver reminder's expected hours are worked out from.
+/// </summary>
+public class WorkingWeekSetup
+{
+    public int SetupId { get; set; }
+
+    public int UserId { get; set; }
+
+    /// <summary>First working day, a <c>dbo.DayMaster_Lookup.DayID</c>.</summary>
+    public int? StartDay { get; set; }
+
+    /// <summary>Last working day, a <c>dbo.DayMaster_Lookup.DayID</c>.</summary>
+    public int? EndDay { get; set; }
+
+    /// <summary>An extra working day outside <see cref="StartDay"/>..<see cref="EndDay"/>.</summary>
+    public int? ExceptionDay { get; set; }
+
+    public TimeSpan? MaxTimeInHrs { get; set; }
+
+    public TimeSpan? MaxTimInMins { get; set; }
 }

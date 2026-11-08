@@ -41,7 +41,21 @@ public interface ISchedulerService
     Task<int> RunTimesheetReminderEmailQueueAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// The <c>ApproverReminderEmailQueue</c> job's work, run once a day at
+    /// 7 AM: queues one approval reminder in <c>dbo.EmailQueue</c> per project
+    /// whose submission period ended yesterday - weekly, every 15 days or
+    /// monthly, counted from the project's start date - and that has at least
+    /// one sheet for that period still Submitted, addressed to the project's
+    /// timesheet approver and naming the project, unless one was already
+    /// queued for that approver and project today. An approver of three such
+    /// projects gets three. Returns how many were queued. Run by the job,
+    /// never by a request.
+    /// </summary>
+    Task<int> RunApproverReminderEmailQueueAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// The <c>SendEmail</c> job's work: sends, one by one, every queued email
+    /// - time log, timesheet and approver reminders alike -
     /// that is <c>Pending</c> - or failed with attempts left - and records each
     /// outcome on its row. Returns how many were sent. Run by the job, never
     /// by a request.
