@@ -5676,6 +5676,7 @@ GET /api/v1/TimesheetProject/get-timesheet-project-sheet?userID=7&projectID=12
 | `rejectedBy` | int \| null | |
 | `rejectedDate` | datetime \| null | UTC |
 | `rejectionReason` | string \| null | |
+| `isAutoApprove` | int | `1` only when the `AutoApproveProjectSheet` scheduler approved the sheet, otherwise `0`. Never `null` — the column is nullable, and a null (a sheet older than the column) is read as `0`. It says **who** approved, not **whether**: a sheet still Submitted or Rejected is `0` too, so read it with `statusId` |
 
 Every field is always present.
 
@@ -5706,7 +5707,8 @@ Every field is always present.
       "approvedDate": null,
       "rejectedBy": null,
       "rejectedDate": null,
-      "rejectionReason": null
+      "rejectionReason": null,
+      "isAutoApprove": 0
     }
   ],
   "errors": []

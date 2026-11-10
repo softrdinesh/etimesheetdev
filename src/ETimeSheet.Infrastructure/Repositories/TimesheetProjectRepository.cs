@@ -873,6 +873,7 @@ public class TimesheetProjectRepository : ITimesheetProjectRepository
                 RejectedBy = submission.RejectedBy,
                 RejectedDate = submission.RejectedDate,
                 RejectionReason = submission.RejectionReason,
+                IsAutoApprove = submission.IsAutoApprove,
             })
             .ToListAsync(cancellationToken);
 

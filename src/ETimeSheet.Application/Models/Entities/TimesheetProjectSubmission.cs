@@ -57,4 +57,20 @@ public class TimesheetProjectSubmission
 
     /// <summary>The <c>dateadded</c> column.</summary>
     public DateTime? DateAdded { get; set; }
+
+    /// <summary>
+    /// The <c>IsAutoApprove</c> column - <c>1</c> only when the
+    /// <c>AutoApproveProjectSheet</c> job approved this sheet, <c>0</c> when
+    /// the API wrote it, <c>null</c> on a row that predates the column.
+    /// Nullable <c>int</c> on the table, with no default.
+    /// <para>
+    /// It says <b>who</b> approved, not <b>whether</b>: a sheet still
+    /// Submitted, Pending or Rejected is <c>0</c> because nothing
+    /// auto-approved it, not because a person approved it, and <c>null</c>
+    /// means nothing ever wrote the column. Read it with
+    /// <see cref="StatusId"/>. The null stops at the mapping, which reads it
+    /// as <c>0</c>, so no response ever carries it.
+    /// </para>
+    /// </summary>
+    public int? IsAutoApprove { get; set; }
 }

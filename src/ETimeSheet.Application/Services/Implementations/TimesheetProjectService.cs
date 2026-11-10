@@ -2908,6 +2908,10 @@ public class TimesheetProjectService : ITimesheetProjectService
                     SubmittedDate = now,
                     IsDelete = 0,
                     DateAdded = now,
+
+                    // Nothing has approved it yet; only the auto-approve job
+                    // ever makes this true.
+                    IsAutoApprove = Constants.TimesheetProjectSubmission.AutoApprove.No,
                 },
                 new TimesheetProjectSubmissionAuditLog
                 {
@@ -2924,6 +2928,9 @@ public class TimesheetProjectService : ITimesheetProjectService
             submission.StatusId = Constants.TimesheetProjectSubmission.Status.Submitted;
             submission.SubmittedBy = request.AddedBy;
             submission.SubmittedDate = now;
+
+            // Back to awaiting a decision, so no approval of any kind stands.
+            submission.IsAutoApprove = Constants.TimesheetProjectSubmission.AutoApprove.No;
 
             await SaveProjectSheetStatusAsync(submission, request.AddedBy, now, cancellationToken);
         }
@@ -3038,6 +3045,11 @@ public class TimesheetProjectService : ITimesheetProjectService
         {
             submission.ApprovedBy = request.AddedBy;
             submission.ApprovedDate = now;
+
+            // A person is approving it, so it is not an automatic approval -
+            // written rather than assumed, because a resubmitted sheet carries
+            // whatever its last decision left behind.
+            submission.IsAutoApprove = Constants.TimesheetProjectSubmission.AutoApprove.No;
         }
 
         await SaveProjectSheetStatusAsync(submission, request.AddedBy, now, cancellationToken);

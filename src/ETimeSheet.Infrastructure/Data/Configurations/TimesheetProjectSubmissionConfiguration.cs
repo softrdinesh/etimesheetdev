@@ -80,6 +80,8 @@ public class TimesheetProjectSubmissionConfiguration : IEntityTypeConfiguration<
             .HasColumnName("dateadded")
             .HasColumnType("datetime");
 
+        builder.Property(submission => submission.IsAutoApprove).HasColumnName("IsAutoApprove");
+
         builder.HasQueryFilter(submission => submission.IsDelete != 1);
     }
 }

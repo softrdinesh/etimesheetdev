@@ -837,6 +837,10 @@ public class SchedulerService : ISchedulerService
             submission.ApprovedBy = approvedBy;
             submission.ApprovedDate = now;
 
+            // The one place this is ever set: nothing but this job approves a
+            // sheet without a person behind it.
+            submission.IsAutoApprove = Constants.TimesheetProjectSubmission.AutoApprove.Yes;
+
             auditLogs.Add(new TimesheetProjectSubmissionAuditLog
             {
                 TimesheetProjectSubmissionId = submission.TimesheetProjectSubmissionId,

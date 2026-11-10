@@ -2308,6 +2308,20 @@ public class TimesheetProjectSheetResponse
     public DateTime? RejectedDate { get; set; }
 
     public string? RejectionReason { get; set; }
+
+    /// <summary>
+    /// <c>1</c> only when the <c>AutoApproveProjectSheet</c> scheduler
+    /// approved this sheet, otherwise <c>0</c>. <b>Never null</b>: the column
+    /// is nullable on the table, and a null - a row that predates it - is
+    /// read as <c>0</c>, so a client never has to handle a third value.
+    /// <para>
+    /// It says <b>who</b> approved, not <b>whether</b>: a sheet that is still
+    /// Submitted or Rejected is <c>0</c> too. Read it with
+    /// <see cref="StatusId"/>.
+    /// </para>
+    /// </summary>
+    /// <example>0</example>
+    public int IsAutoApprove { get; set; }
 }
 
 /// <summary>
@@ -2348,6 +2362,9 @@ public class TimesheetProjectSheetDetail
     public DateTime? RejectedDate { get; set; }
 
     public string? RejectionReason { get; set; }
+
+    /// <summary>Nullable, as the column is - the mapping reads a null as <c>0</c>.</summary>
+    public int? IsAutoApprove { get; set; }
 }
 
 /// <summary>
