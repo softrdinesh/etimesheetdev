@@ -108,6 +108,34 @@ public interface ISchedulerRepository
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Returns every live <c>dbo.TimesheetProjectSubmission</c> still
+    /// <c>Submitted</c> whose project has an <c>AutoApproveInDays</c> greater
+    /// than 0 - the sheets the auto-approve job may be due to approve.
+    /// Untracked: whether one is actually due is decided by
+    /// <c>SchedulerService</c>, and the rows it decides on are re-read tracked.
+    /// </summary>
+    Task<IReadOnlyList<AutoApproveCandidate>> GetAutoApproveCandidatesAsync(
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns the <c>dbo.TimesheetProjectSubmission</c> rows named by
+    /// <paramref name="submissionIds"/>, <b>tracked</b> for update. A deleted
+    /// row, or an id that names none, is simply absent.
+    /// </summary>
+    Task<IReadOnlyList<TimesheetProjectSubmission>> GetProjectSubmissionsForUpdateAsync(
+        IReadOnlyCollection<int> submissionIds,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Saves the status changes already made to tracked sheets, together with
+    /// <paramref name="auditLogs"/>, in <b>one</b> transaction - every sheet
+    /// and its audit row commit together or not at all.
+    /// </summary>
+    Task SaveProjectSubmissionStatusesAsync(
+        IReadOnlyCollection<TimesheetProjectSubmissionAuditLog> auditLogs,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Returns the working week and daily time of each of
     /// <paramref name="userIds"/>: their live <c>dbo.TimesheetMasterSetup</c>,
     /// the lowest <c>SetupID</c> when there are several. A user with no live

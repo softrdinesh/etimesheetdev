@@ -6,6 +6,18 @@
               Owner's rows at that date: 1 = SendEmail, 2 =
               TimeLogReminderEmailQueue - both Repeated from
               2026-10-08 00:09:02, every 32 and 15 minutes respectively.
+    Revised:  2026-11-10 - DRAFT, NOT YET APPLIED: row 5,
+              'AutoApproveProjectSheet', added below - a Daily job that
+              approves project sheets left Submitted past their project's
+              AutoApproveInDays. Change to applied once the owner has
+              inserted it.
+
+    NOT RECORDED, and a question for the owner: row 4,
+    'ApproverReminderEmailQueue', which the code has read since 2026-11-08
+    (SchedulerJobs.ApproverReminderEmailQueue). Its live values were never
+    supplied, so it is absent from the seed below and the ids jump from 3 to
+    5. Without that row the approver reminder is logged as unscheduled at
+    startup and does not run.
 
     One row per named background job, describing when it runs: once, on a
     repeat interval, daily, weekly or monthly, and whether it is switched on.
@@ -23,7 +35,8 @@
       - A job is looked up by SchedulerConfigurationID, the id held for it in
         src/ETimeSheet.Shared/Constants/SchedulerJobs.cs:
           1 = SendEmail, 2 = TimeLogReminderEmailQueue,
-          3 = TimesheetReminderEmailQueue.
+          3 = TimesheetReminderEmailQueue, 4 = ApproverReminderEmailQueue,
+          5 = AutoApproveProjectSheet.
         SchedulerName is for people; the code does not read it to find a job.
       - A row with IsEnabled = 0 is not scheduled. Changes take effect on the
         next restart of the API.
@@ -98,10 +111,18 @@ CREATE TABLE dbo.SchedulerConfiguration
 );
 GO
 
--- The three schedulers. The ids are fixed - the code looks each job up by its
+-- The schedulers. The ids are fixed - the code looks each job up by its
 -- SchedulerConfigurationID (src/ETimeSheet.Shared/Constants/SchedulerJobs.cs) -
 -- so they are inserted explicitly rather than left to the IDENTITY.
--- All three repeat every minute from 2026-10-08 00:09:02 UTC.
+-- Rows 1-3 repeat every minute from 2026-10-08 00:09:02 UTC.
+--
+-- Row 5 is Daily (ScheduleTypeID 3), so only ScheduleDateTime matters and the
+-- repeat columns are ignored: it runs at 01:00 UTC every day. ScheduleDateTime
+-- is UTC, so set it to the UTC equivalent of the local hour wanted - 01:00 UTC
+-- is 06:30 IST. The threshold it applies is counted in whole days, so running
+-- it more than once a day finds nothing new.
+--
+-- Row 4 ('ApproverReminderEmailQueue') is deliberately absent - see the header.
 SET IDENTITY_INSERT dbo.SchedulerConfiguration ON;
 
 INSERT INTO dbo.SchedulerConfiguration
@@ -110,7 +131,8 @@ INSERT INTO dbo.SchedulerConfiguration
 VALUES
     (1, 'SendEmail',                             1, 2, '2026-10-08 00:09:02', 1, 1, 'M', '2026-10-08 00:09:02'),
     (2, 'TimeLogReminderEmailQueue',             1, 2, '2026-10-08 00:09:02', 1, 1, 'M', '2026-10-08 00:09:02'),
-    (3, 'TimeSheetSubmissionReminderEmailQueue', 1, 2, '2026-10-08 00:09:02', 1, 1, 'M', '2026-10-08 00:09:02');
+    (3, 'TimeSheetSubmissionReminderEmailQueue', 1, 2, '2026-10-08 00:09:02', 1, 1, 'M', '2026-10-08 00:09:02'),
+    (5, 'AutoApproveProjectSheet',               1, 3, '2026-11-10 01:00:00', 0, NULL, NULL, '2026-11-10 01:00:00');
 
 SET IDENTITY_INSERT dbo.SchedulerConfiguration OFF;
 GO

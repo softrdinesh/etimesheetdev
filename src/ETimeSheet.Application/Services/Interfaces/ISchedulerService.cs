@@ -54,6 +54,21 @@ public interface ISchedulerService
     Task<int> RunApproverReminderEmailQueueAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// The <c>AutoApproveProjectSheet</c> job's work, run once a day:
+    /// approves every live project sheet that is still <c>Submitted</c> and
+    /// whose project has an <c>AutoApproveInDays</c>, counting from the
+    /// sheet's <c>SubmittedDate</c> - a project set to 3 days approves a sheet
+    /// three days after it was submitted, whether or not its approver ever
+    /// looked at it. Each sheet is moved to <c>Approved</c> with
+    /// <c>ApprovedBy</c> set to the configured
+    /// <c>AutoApprove:ApprovedByUserId</c> and an audit row recording the
+    /// change, all in one transaction. A sheet with no <c>SubmittedDate</c> is
+    /// left alone - there is no day to count from. Returns how many were
+    /// approved. Run by the job, never by a request.
+    /// </summary>
+    Task<int> RunAutoApproveProjectSheetAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// The <c>SendEmail</c> job's work: sends, one by one, every queued email
     /// - time log, timesheet and approver reminders alike -
     /// that is <c>Pending</c> - or failed with attempts left - and records each

@@ -50,4 +50,12 @@ public class TimesheetProject
     /// <c>Constants.TimesheetProject.SubmissionFrequency</c>. Nullable.
     /// </summary>
     public int? SubmissionFrequency { get; set; }
+
+    /// <summary>
+    /// The <c>AutoApproveInDays</c> column - after how many days a submitted
+    /// sheet is approved automatically when no approver has acted. Null means
+    /// the project does not auto-approve. The column's CHECK constraint allows
+    /// only a positive number.
+    /// </summary>
+    public int? AutoApproveInDays { get; set; }
 }

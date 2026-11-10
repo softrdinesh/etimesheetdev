@@ -84,6 +84,13 @@ public class TimesheetProjectResponse
     /// Null when it is not set.
     /// </summary>
     public string? SubmissionFrequencyName { get; set; }
+
+    /// <summary>
+    /// After how many days a submitted sheet of this project is approved
+    /// automatically when no approver has acted - <c>3</c> means three days
+    /// after it was submitted. Null when the project does not auto-approve.
+    /// </summary>
+    public int? AutoApproveInDays { get; set; }
 }
 
 /// <summary>
@@ -122,6 +129,8 @@ public class TimesheetProjectDetail
     public int? SubmissionFrequency { get; set; }
 
     public string? SubmissionFrequencyName { get; set; }
+
+    public int? AutoApproveInDays { get; set; }
 }
 
 /// <summary>
@@ -204,6 +213,16 @@ public class TimesheetProjectSaveRequest
     /// </summary>
     /// <example>1</example>
     public int? SubmissionFrequency { get; set; }
+
+    /// <summary>
+    /// Optional. After how many days a submitted sheet of this project is
+    /// approved automatically when no approver has acted - <c>3</c> means
+    /// three days after it was submitted. Greater than 0 when sent. Left out,
+    /// it is saved as null - on an update too - and the project does not
+    /// auto-approve.
+    /// </summary>
+    /// <example>3</example>
+    public int? AutoApproveInDays { get; set; }
 }
 
 /// <summary>
@@ -242,6 +261,8 @@ public class TimesheetProjectSaveDetail
     public int? SubmissionFrequency { get; set; }
 
     public string? SubmissionFrequencyName { get; set; }
+
+    public int? AutoApproveInDays { get; set; }
 }
 
 /// <summary>

@@ -42,6 +42,7 @@ public class TimesheetProjectRepository : ITimesheetProjectRepository
         int? status,
         int clientId,
         int? submissionFrequency,
+        int? autoApproveInDays,
         CancellationToken cancellationToken = default)
     {
         // Materialised as a list, then the first row taken in memory:
@@ -59,7 +60,8 @@ public class TimesheetProjectRepository : ITimesheetProjectRepository
                 @PCurrencyCode = {currencyCode},
                 @PStatus = {status},
                 @PClientID = {clientId},
-                @PSubmissionFrequency = {submissionFrequency}")
+                @PSubmissionFrequency = {submissionFrequency},
+                @PAutoApproveInDays = {autoApproveInDays}")
             .ToListAsync(cancellationToken);
 
         return rows.FirstOrDefault();

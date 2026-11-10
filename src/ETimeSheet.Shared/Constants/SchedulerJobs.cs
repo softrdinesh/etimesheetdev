@@ -36,11 +36,24 @@ public static class SchedulerJobs
     public const int ApproverReminderEmailQueue = 4;
 
     /// <summary>
+    /// Approves every project sheet that has sat <c>Submitted</c> longer than
+    /// its project's <c>AutoApproveInDays</c> - see
+    /// <c>SchedulerService.RunAutoApproveProjectSheetAsync</c>. Meant to run
+    /// once a day (a Daily row); the threshold is counted in whole days, so
+    /// running it more often finds nothing new.
+    /// </summary>
+    public const int AutoApproveProjectSheet = 5;
+
+    /// <summary>
     /// The ids that have a job registered with Quartz - the only ones whose
     /// configuration is read and scheduled.
     /// </summary>
     public static readonly IReadOnlyList<int> Registered = new[]
     {
-        SendEmail, TimeLogReminderEmailQueue, TimesheetReminderEmailQueue, ApproverReminderEmailQueue
+        SendEmail,
+        TimeLogReminderEmailQueue,
+        TimesheetReminderEmailQueue,
+        ApproverReminderEmailQueue,
+        AutoApproveProjectSheet
     };
 }

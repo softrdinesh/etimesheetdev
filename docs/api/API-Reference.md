@@ -3536,6 +3536,7 @@ then `projectId`:
 | `clientName` | string \| null | The client's name — shown even if the client has since been removed; `null` only when the id names no client |
 | `submissionFrequency` | int \| null | How often timesheets are submitted: `1` weekly, `2` every 15 days, `3` monthly; `null` when not set |
 | `submissionFrequencyName` | string \| null | `submissionFrequency` as text: `Weekly`, `Every 15 Days` or `Monthly`; `null` when not set. Worked out by the procedure, not stored |
+| `autoApproveInDays` | int \| null | After how many days a submitted sheet approves itself when no approver has acted — `3` means three days after it was submitted; `null` when the project does not auto-approve |
 
 `organizationId` is **not** returned — the caller already sent it in the URL.
 
@@ -3561,7 +3562,8 @@ then `projectId`:
       "clientId": 5,
       "clientName": "Acme Ltd",
       "submissionFrequency": 1,
-      "submissionFrequencyName": "Weekly"
+      "submissionFrequencyName": "Weekly",
+      "autoApproveInDays": 3
     }
   ],
   "errors": []
@@ -3622,6 +3624,7 @@ left as it was — send the whole project.
 | `status` | int \| null | no | `> 0` when sent | A `statusId` from [Project Status List](#27-project-status-list). **Not** checked against the organisation's statuses |
 | `clientId` | int | **yes** | `> 0`; a **live** (not deleted) client | The client the project is for, and the source of its currency. An update can change it |
 | `submissionFrequency` | int \| null | no | `1`, `2` or `3` when sent | How often timesheets are submitted: `1` weekly, `2` every 15 days, `3` monthly. Left out, it is saved as `null` — on an update too |
+| `autoApproveInDays` | int \| null | no | `> 0` when sent | After how many days a submitted sheet approves itself when no approver has acted. Left out, it is saved as `null` — on an update too — and the project does not auto-approve |
 
 #### Example request — add
 
@@ -3636,7 +3639,8 @@ left as it was — send the whole project.
   "endDate": "2026-12-31T00:00:00",
   "status": 1,
   "clientId": 5,
-  "submissionFrequency": 1
+  "submissionFrequency": 1,
+  "autoApproveInDays": 3
 }
 ```
 
@@ -3653,7 +3657,8 @@ left as it was — send the whole project.
   "endDate": "2027-01-31T00:00:00",
   "status": 3,
   "clientId": 5,
-  "submissionFrequency": 2
+  "submissionFrequency": 2,
+  "autoApproveInDays": 5
 }
 ```
 
@@ -3682,7 +3687,8 @@ left as it was — send the whole project.
     "clientId": 5,
     "clientName": "Acme Ltd",
     "submissionFrequency": 1,
-    "submissionFrequencyName": "Weekly"
+    "submissionFrequencyName": "Weekly",
+    "autoApproveInDays": 3
   },
   "errors": []
 }
@@ -3703,6 +3709,7 @@ left as it was — send the whole project.
 | `status <= 0` | `Status must be greater than 0 when sent.` |
 | `clientId <= 0` (or left out) | `ClientId is required and must be greater than 0.` |
 | `submissionFrequency` not 1, 2 or 3 | `SubmissionFrequency must be 1 (weekly), 2 (every 15 days) or 3 (monthly) when sent.` |
+| `autoApproveInDays <= 0` | `AutoApproveInDays must be greater than 0 when sent.` |
 
 **400** — `clientId` names no client, or a removed one (checked after the shape
 checks; a single entry):

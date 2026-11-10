@@ -259,6 +259,48 @@ public class SchedulerRepository : ISchedulerRepository
                 submission.SheetSubmissionCode))
             .ToListAsync(cancellationToken);
 
+    public async Task<IReadOnlyList<AutoApproveCandidate>> GetAutoApproveCandidatesAsync(
+        CancellationToken cancellationToken = default) =>
+        // Both query filters apply: deleted submissions are dropped, and the
+        // join to the project drops a sheet whose project is gone. Only
+        // Submitted sheets of projects that auto-approve are read, which is
+        // already the small set - the day threshold is the service's to apply.
+        await (
+                from submission in _db.TimesheetProjectSubmission.AsNoTracking()
+                join project in _db.TimesheetProject.AsNoTracking()
+                    on submission.ProjectId equals project.ProjectId
+                where submission.StatusId == Constants.TimesheetProjectSubmission.Status.Submitted
+                      && project.AutoApproveInDays != null
+                      && project.AutoApproveInDays > 0
+                select new AutoApproveCandidate(
+                    submission.TimesheetProjectSubmissionId,
+                    submission.ProjectId,
+                    submission.UserId,
+                    submission.SheetSubmissionCode,
+                    submission.SubmittedDate,
+                    project.AutoApproveInDays!.Value))
+            .ToListAsync(cancellationToken);
+
+    public async Task<IReadOnlyList<TimesheetProjectSubmission>> GetProjectSubmissionsForUpdateAsync(
+        IReadOnlyCollection<int> submissionIds,
+        CancellationToken cancellationToken = default) =>
+        // Tracked on purpose - this is the write path. The query filter drops
+        // deleted rows.
+        await _db.TimesheetProjectSubmission
+            .Where(submission => submissionIds.Contains(submission.TimesheetProjectSubmissionId))
+            .ToListAsync(cancellationToken);
+
+    public async Task SaveProjectSubmissionStatusesAsync(
+        IReadOnlyCollection<TimesheetProjectSubmissionAuditLog> auditLogs,
+        CancellationToken cancellationToken = default)
+    {
+        await _db.TimesheetProjectSubmissionAuditLog.AddRangeAsync(auditLogs, cancellationToken);
+
+        // One SaveChanges: every sheet's new status and every audit row go in
+        // one transaction.
+        await _db.SaveChangesAsync(cancellationToken);
+    }
+
     public async Task<IReadOnlyList<UserName>> GetUserNamesAsync(
         IReadOnlyCollection<int> userIds,
         CancellationToken cancellationToken = default) =>

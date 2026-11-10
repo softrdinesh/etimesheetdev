@@ -15,6 +15,14 @@
       POST api/v1/TimesheetProject/submit-timesheet-project-sheet and
       POST api/v1/TimesheetProject/update-timesheet-project-sheet-status)
 
+    Also written by:
+      src/ETimeSheet.Infrastructure/Repositories/SchedulerRepository.cs
+      (the AutoApproveProjectSheet job: a sheet left StatusID 1 longer than
+      its project's dbo.TimesheetProject.AutoApproveInDays is moved to
+      StatusID 2, with ApprovedBy set to the configured
+      AutoApprove:ApprovedByUserId and ApprovedDate to the run's UTC time.
+      No request is involved, and no approver pressed anything.)
+
     Column quirks worth knowing:
       - One row per UserID + ProjectID + period, created by the period's first
         submit with StatusID 1 - no row exists before. A resubmit after a
@@ -24,6 +32,12 @@
         in the sequence shared with that table for a blank sheet.
       - StatusID: 0 Pending, 1 Submitted, 2 Approved, 3 Rejected. Since
         2026-10-23 the API no longer writes 0.
+      - ApprovedBy is not always the project's approver: the
+        AutoApproveProjectSheet job writes the configured
+        AutoApprove:ApprovedByUserId there. The audit row in
+        dbo.TimesheetProjectSubmissionAuditLog carries the same id, so an
+        automatic approval is told apart from a manual one by that id, not by
+        a column of its own.
       - UserID, ProjectID and OrganizationID are presumably dbo.Signup.UserID,
         dbo.TimesheetProject.ProjectID and the organization id. No foreign key
         was supplied for any of them.

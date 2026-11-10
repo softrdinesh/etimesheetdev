@@ -28,6 +28,7 @@ internal static class TimesheetProjectMappings
         ClientName = project.ClientName,
         SubmissionFrequency = project.SubmissionFrequency,
         SubmissionFrequencyName = project.SubmissionFrequencyName,
+        AutoApproveInDays = project.AutoApproveInDays,
     };
 
     /// <summary>Projects the project <c>spc_AddEditTimesheetProject</c> saved to the project response.</summary>
@@ -48,6 +49,7 @@ internal static class TimesheetProjectMappings
         ClientName = project.ClientName,
         SubmissionFrequency = project.SubmissionFrequency,
         SubmissionFrequencyName = project.SubmissionFrequencyName,
+        AutoApproveInDays = project.AutoApproveInDays,
     };
 
     /// <summary>Projects a status row from <c>spc_GetTimesheetProjectStatus</c> to the status response.</summary>

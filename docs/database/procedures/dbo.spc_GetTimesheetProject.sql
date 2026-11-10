@@ -9,6 +9,7 @@
                added to the result, after CurrencyCode.
     Revised:   2026-10-25 - reads dbo.CountryCurrency_Lookup (table renamed from
                dbo.CountryCurrency).
+    Revised:   2026-11-09 - DRAFT: AutoApproveInDays added to the result.
 
     Returns the projects of one organisation from dbo.TimesheetProject, for
     GET api/v1/TimesheetProject/get-timesheet-project-by-orgID/{orgID}.
@@ -27,7 +28,9 @@
       ClientName from dbo.TimesheetClientSetup, SubmissionFrequency
       (1 weekly, 2 every 15 days, 3 monthly; NULL when not set), and
       SubmissionFrequencyName - its text, 'Weekly', 'Every 15 Days' or
-      'Monthly', from a CASE; NULL when SubmissionFrequency is NULL. The
+      'Monthly', from a CASE; NULL when SubmissionFrequency is NULL, and
+      AutoApproveInDays - after how many days a submitted sheet approves
+      itself; NULL when the project does not auto-approve. The
       aliases are
       what an EF Core result mapping binds to. OrganizationID is not returned -
       the caller already knows it.
@@ -84,7 +87,8 @@ BEGIN
             WHEN 1 THEN 'Weekly'
             WHEN 2 THEN 'Every 15 Days'
             WHEN 3 THEN 'Monthly'
-        END                 AS SubmissionFrequencyName
+        END                 AS SubmissionFrequencyName,
+        tp.AutoApproveInDays AS AutoApproveInDays
     FROM dbo.TimesheetProject tp
     LEFT JOIN dbo.TimesheetProjectStatus tps
         ON tps.StatusID = tp.Status

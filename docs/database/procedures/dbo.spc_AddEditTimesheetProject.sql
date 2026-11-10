@@ -14,6 +14,8 @@
                returned after CurrencyCode, as spc_GetTimesheetProject does.
     Revised:   2026-10-25 - reads dbo.CountryCurrency_Lookup (table renamed from
                dbo.CountryCurrency).
+    Revised:   2026-11-09 - DRAFT: @PAutoApproveInDays added, written on add
+               and edit; AutoApproveInDays returned.
 
     Adds a project to an organisation in dbo.TimesheetProject, or updates one,
     and returns the saved row.
@@ -41,6 +43,13 @@
                       submitted: 1 weekly, 2 every 15 days, 3 monthly, or
                       NULL. The table's CHECK constraint rejects anything
                       else.
+      @PAutoApproveInDays  after how many days a submitted sheet is
+                      approved automatically when no approver has acted - 3
+                      means three days after it was submitted. NULL turns
+                      auto-approval off for the project. The table's CHECK
+                      constraint rejects anything but a positive number.
+                      Nothing acts on it yet; the job that does the
+                      approving is phase 2.
 
     Add (@PProjectID NULL or 0):
       The project gets the next code in the sequence PR0001, PR0002 ...
@@ -73,7 +82,8 @@
     a @PProjectName of at most 100 characters, a non-negative @PTotalBudget and
     @PTotalHours, @PEndDate not before
     @PStartDate, a positive @PStatus when sent, a @PSubmissionFrequency of
-    1, 2 or 3 when sent, and a @PClientID that names a live (not deleted)
+    1, 2 or 3 when sent, an @PAutoApproveInDays greater than 0 when sent,
+    and a @PClientID that names a live (not deleted)
     client. The
     procedure does not repeat it. Neither checks that @PStatus names a
     dbo.TimesheetProjectStatus row - no foreign key was reported.
@@ -96,7 +106,8 @@ CREATE OR ALTER PROCEDURE [dbo].[spc_AddEditTimesheetProject]
     @PCurrencyCode  INT             = NULL,
     @PStatus        INT             = NULL,
     @PClientID      INT,
-    @PSubmissionFrequency INT       = NULL
+    @PSubmissionFrequency INT       = NULL,
+    @PAutoApproveInDays INT         = NULL
 AS
 BEGIN
     SET NOCOUNT ON;
@@ -138,9 +149,9 @@ BEGIN
             THROW 50001, 'The project code sequence has run out of room: Code holds at most 20 characters.', 1;
 
         INSERT INTO dbo.TimesheetProject
-            (Code, Projectname, TotalBudget, Totalhours, StartDate, EndDate, CurrencyCode, OrganizationID, Status, ClientID, SubmissionFrequency)
+            (Code, Projectname, TotalBudget, Totalhours, StartDate, EndDate, CurrencyCode, OrganizationID, Status, ClientID, SubmissionFrequency, AutoApproveInDays)
         VALUES
-            (@NextCode, @PProjectName, @PTotalBudget, @PTotalHours, @PStartDate, @PEndDate, @PCurrencyCode, @POrgID, @PStatus, @PClientID, @PSubmissionFrequency);
+            (@NextCode, @PProjectName, @PTotalBudget, @PTotalHours, @PStartDate, @PEndDate, @PCurrencyCode, @POrgID, @PStatus, @PClientID, @PSubmissionFrequency, @PAutoApproveInDays);
 
         SET @ProjectID = CAST(SCOPE_IDENTITY() AS INT);
 
@@ -157,7 +168,8 @@ BEGIN
             CurrencyCode = @PCurrencyCode,
             Status       = @PStatus,
             ClientID     = @PClientID,
-            SubmissionFrequency = @PSubmissionFrequency
+            SubmissionFrequency = @PSubmissionFrequency,
+            AutoApproveInDays = @PAutoApproveInDays
         WHERE ProjectID = @PProjectID
           AND OrganizationID = @POrgID;
 
@@ -186,7 +198,8 @@ BEGIN
             WHEN 1 THEN 'Weekly'
             WHEN 2 THEN 'Every 15 Days'
             WHEN 3 THEN 'Monthly'
-        END                 AS SubmissionFrequencyName
+        END                 AS SubmissionFrequencyName,
+        tp.AutoApproveInDays AS AutoApproveInDays
     FROM dbo.TimesheetProject tp
     LEFT JOIN dbo.TimesheetProjectStatus tps
         ON tps.StatusID = tp.Status

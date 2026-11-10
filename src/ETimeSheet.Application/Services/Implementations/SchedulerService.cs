@@ -37,6 +37,7 @@ public class SchedulerService : ISchedulerService
     private readonly IBackgroundJobService _backgroundJobService;
     private readonly IDateTimeProvider _dateTimeProvider;
     private readonly EmailServiceSettings _emailServiceSettings;
+    private readonly AutoApproveSettings _autoApproveSettings;
     private readonly ILogger<SchedulerService> _logger;
 
     public SchedulerService(
@@ -47,6 +48,7 @@ public class SchedulerService : ISchedulerService
         IBackgroundJobService backgroundJobService,
         IDateTimeProvider dateTimeProvider,
         IOptions<EmailServiceSettings> emailServiceSettings,
+        IOptions<AutoApproveSettings> autoApproveSettings,
         ILogger<SchedulerService> logger)
     {
         _schedulerRepository = schedulerRepository;
@@ -56,6 +58,7 @@ public class SchedulerService : ISchedulerService
         _backgroundJobService = backgroundJobService;
         _dateTimeProvider = dateTimeProvider;
         _emailServiceSettings = emailServiceSettings.Value;
+        _autoApproveSettings = autoApproveSettings.Value;
         _logger = logger;
     }
 
@@ -752,6 +755,111 @@ public class SchedulerService : ISchedulerService
         }
 
         return TimeZoneInfo.ConvertTimeToUtc(midnight, zone);
+    }
+
+    // ---- auto-approving sheets ---------------------------------------------
+
+    public async Task<int> RunAutoApproveProjectSheetAsync(CancellationToken cancellationToken = default)
+    {
+        var approvedBy = _autoApproveSettings.ApprovedByUserId;
+
+        // Guarded although the options validator already refuses it at
+        // startup: writing 0 as an approver would be silent, permanent and
+        // indistinguishable from a real user.
+        if (approvedBy <= 0)
+        {
+            _logger.LogError(
+                "Auto-approve: AutoApprove:ApprovedByUserId is {ApprovedByUserId}, which is not a user id; " +
+                "nothing was approved.",
+                approvedBy);
+            return 0;
+        }
+
+        var candidates = await _schedulerRepository.GetAutoApproveCandidatesAsync(cancellationToken);
+
+        if (candidates.Count == 0)
+        {
+            _logger.LogDebug("Auto-approve: no submitted sheet belongs to a project that auto-approves.");
+            return 0;
+        }
+
+        var now = _dateTimeProvider.UtcNow;
+
+        // Due when the whole AutoApproveInDays has passed since the sheet was
+        // submitted. SubmittedDate is written from the same UTC clock, so the
+        // two are comparable.
+        var due = new List<AutoApproveCandidate>();
+
+        foreach (var candidate in candidates)
+        {
+            if (candidate.SubmittedDate is not { } submittedDate)
+            {
+                // Nothing to count from. It stays Submitted until an approver
+                // acts, which is safer than approving on a date we invented.
+                _logger.LogWarning(
+                    "Auto-approve: sheet {SheetSubmissionCode} ({SubmissionId}) of project {ProjectId} is Submitted " +
+                    "with no SubmittedDate, so there is no day to count from; it was left alone.",
+                    candidate.SheetSubmissionCode,
+                    candidate.TimesheetProjectSubmissionId,
+                    candidate.ProjectId);
+                continue;
+            }
+
+            if (submittedDate.AddDays(candidate.AutoApproveInDays) <= now)
+            {
+                due.Add(candidate);
+            }
+        }
+
+        if (due.Count == 0)
+        {
+            _logger.LogDebug("Auto-approve: no submitted sheet has waited out its project's AutoApproveInDays yet.");
+            return 0;
+        }
+
+        var submissions = await _schedulerRepository.GetProjectSubmissionsForUpdateAsync(
+            due.Select(candidate => candidate.TimesheetProjectSubmissionId).ToList(),
+            cancellationToken);
+
+        var auditLogs = new List<TimesheetProjectSubmissionAuditLog>();
+
+        foreach (var submission in submissions)
+        {
+            // Re-checked on the tracked row: an approver may have approved or
+            // rejected it between the two reads, and a decision a person made
+            // is never overwritten.
+            if (submission.StatusId != Constants.TimesheetProjectSubmission.Status.Submitted)
+            {
+                continue;
+            }
+
+            submission.StatusId = Constants.TimesheetProjectSubmission.Status.Approved;
+            submission.ApprovedBy = approvedBy;
+            submission.ApprovedDate = now;
+
+            auditLogs.Add(new TimesheetProjectSubmissionAuditLog
+            {
+                TimesheetProjectSubmissionId = submission.TimesheetProjectSubmissionId,
+                StatusId = Constants.TimesheetProjectSubmission.Status.Approved,
+                CreatedBy = approvedBy,
+                CreateDate = now,
+            });
+        }
+
+        if (auditLogs.Count == 0)
+        {
+            _logger.LogDebug("Auto-approve: every sheet that was due had already been decided.");
+            return 0;
+        }
+
+        await _schedulerRepository.SaveProjectSubmissionStatusesAsync(auditLogs, cancellationToken);
+
+        _logger.LogInformation(
+            "Auto-approve: {Count} project timesheet(s) approved as user {ApprovedByUserId}.",
+            auditLogs.Count,
+            approvedBy);
+
+        return auditLogs.Count;
     }
 
     // ---- sending ----------------------------------------------------------

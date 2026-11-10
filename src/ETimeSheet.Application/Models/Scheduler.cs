@@ -184,6 +184,24 @@ public sealed record ProjectSheetSubmissionRow(
     DateTime PeriodStartDate,
     string SheetSubmissionCode);
 
+/// <summary>
+/// A sheet the <c>AutoApproveProjectSheet</c> job may be due to approve: a
+/// live <c>dbo.TimesheetProjectSubmission</c> still <c>Submitted</c>, on a
+/// project that has an <c>AutoApproveInDays</c>.
+/// <para>
+/// Whether it is actually due - whether <see cref="SubmittedDate"/> plus
+/// <see cref="AutoApproveInDays"/> has passed - is decided by
+/// <c>SchedulerService</c>, not by the query.
+/// </para>
+/// </summary>
+public sealed record AutoApproveCandidate(
+    int TimesheetProjectSubmissionId,
+    int ProjectId,
+    int UserId,
+    string SheetSubmissionCode,
+    DateTime? SubmittedDate,
+    int AutoApproveInDays);
+
 /// <summary>A user's id and <c>dbo.Signup.Name</c>.</summary>
 public sealed record UserName(int UserId, string Name);
 

@@ -211,6 +211,17 @@ public class TimesheetProjectService : ITimesheetProjectService
             };
         }
 
+        // Checked here rather than left to the column's CHECK constraint, which
+        // would surface as a 500 instead of a 400 naming the field. Null is
+        // how a project says it does not auto-approve; 0 and below say nothing.
+        if (request.AutoApproveInDays <= 0)
+        {
+            failures[nameof(TimesheetProjectSaveRequest.AutoApproveInDays)] = new[]
+            {
+                "AutoApproveInDays must be greater than 0 when sent."
+            };
+        }
+
         if (request.ClientId <= 0)
         {
             failures[nameof(TimesheetProjectSaveRequest.ClientId)] = new[]
@@ -249,6 +260,7 @@ public class TimesheetProjectService : ITimesheetProjectService
                 request.Status,
                 request.ClientId,
                 request.SubmissionFrequency,
+                request.AutoApproveInDays,
                 cancellationToken)
             ?? throw NotFoundException.For("Project", projectId ?? 0);
 

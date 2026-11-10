@@ -764,6 +764,7 @@ public class Context : DbContext
             project.Property(row => row.ClientName).HasColumnName("ClientName");
             project.Property(row => row.SubmissionFrequency).HasColumnName("SubmissionFrequency");
             project.Property(row => row.SubmissionFrequencyName).HasColumnName("SubmissionFrequencyName");
+            project.Property(row => row.AutoApproveInDays).HasColumnName("AutoApproveInDays");
         });
 
         modelBuilder.Entity<TimesheetProjectSaveDetail>(project =>
@@ -787,6 +788,7 @@ public class Context : DbContext
             project.Property(row => row.ClientName).HasColumnName("ClientName");
             project.Property(row => row.SubmissionFrequency).HasColumnName("SubmissionFrequency");
             project.Property(row => row.SubmissionFrequencyName).HasColumnName("SubmissionFrequencyName");
+            project.Property(row => row.AutoApproveInDays).HasColumnName("AutoApproveInDays");
         });
 
         modelBuilder.Entity<TimesheetProjectStatusDetail>(status =>

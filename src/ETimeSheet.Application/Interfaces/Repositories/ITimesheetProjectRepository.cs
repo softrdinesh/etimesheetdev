@@ -39,6 +39,7 @@ public interface ITimesheetProjectRepository
         int? status,
         int clientId,
         int? submissionFrequency,
+        int? autoApproveInDays,
         CancellationToken cancellationToken = default);
 
     /// <summary>
