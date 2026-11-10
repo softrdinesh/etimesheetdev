@@ -46,4 +46,11 @@ public class EmailQueue
 
     /// <summary>Why the last attempt failed. <c>varchar(2000)</c>.</summary>
     public string? ErrorMessage { get; set; }
+
+    /// <summary>
+    /// The project it concerns, when it concerns one - <c>int</c>, NULL. Set on
+    /// approver reminders, which are one per approver and project; NULL on
+    /// every other kind.
+    /// </summary>
+    public int? ProjectId { get; set; }
 }

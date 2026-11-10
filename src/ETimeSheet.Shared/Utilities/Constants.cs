@@ -255,6 +255,26 @@ public static class Constants
             /// <summary>A rejected sheet, open again for changes. Stored as <c>3</c>.</summary>
             public const int Rejected = 3;
         }
+
+        /// <summary>
+        /// Values of the <c>dbo.TimesheetProjectSubmission.IsAutoApprove</c>
+        /// column - <b>who</b> approved a sheet, not <b>whether</b> it is
+        /// approved.
+        /// <para>
+        /// The column is a nullable <c>int</c> with no default, so a third
+        /// state exists that is neither of these: <c>null</c>, on a row that
+        /// predates the column and that nothing has written since. Null is
+        /// unknown, not <see cref="No"/>.
+        /// </para>
+        /// </summary>
+        public static class AutoApprove
+        {
+            /// <summary>The API wrote it: a person approved the sheet, or it is awaiting a decision. Stored as <c>0</c>.</summary>
+            public const int No = 0;
+
+            /// <summary>The <c>AutoApproveProjectSheet</c> job approved it. Stored as <c>1</c>.</summary>
+            public const int Yes = 1;
+        }
     }
 
     /// <summary>
@@ -278,6 +298,13 @@ public static class Constants
 
             /// <summary><c>'Sheet Submission Reminder'</c>. Stored as <c>2</c>.</summary>
             public const int SheetSubmissionReminder = 2;
+
+            /// <summary>
+            /// <c>'Approver Submission Reminder'</c>. Stored as <c>3</c> - the
+            /// third seed row, added by the database owner for the approver
+            /// reminder sent the morning after a project's submission period ends.
+            /// </summary>
+            public const int ApproverSubmissionReminder = 3;
         }
     }
 

@@ -78,14 +78,6 @@ public class TimesheetProjectService : ITimesheetProjectService
     /// </summary>
     private const int MaxLogHoursPerDayMaximum = 24;
 
-    /// <summary>The values <c>dbo.TimesheetProject.SubmissionFrequency</c> accepts.</summary>
-    private static readonly IReadOnlySet<int> SubmissionFrequencies = new HashSet<int>
-    {
-        Constants.TimesheetProject.SubmissionFrequency.Weekly,
-        Constants.TimesheetProject.SubmissionFrequency.FifteenDays,
-        Constants.TimesheetProject.SubmissionFrequency.Monthly,
-    };
-
     /// <summary>The welcome email for a new account, in <c>Infrastructure/Assets/EmailTemplates/</c>.</summary>
     private const string WelcomeEmailTemplateName = "WelcomeUserTemplate.html";
 
@@ -211,11 +203,22 @@ public class TimesheetProjectService : ITimesheetProjectService
         // Checked here rather than left to the column's CHECK constraint, which
         // would surface as a 500 instead of a 400 naming the field.
         if (request.SubmissionFrequency is { } submissionFrequency
-            && !SubmissionFrequencies.Contains(submissionFrequency))
+            && !ProjectSubmissionPeriod.Frequencies.Contains(submissionFrequency))
         {
             failures[nameof(TimesheetProjectSaveRequest.SubmissionFrequency)] = new[]
             {
                 "SubmissionFrequency must be 1 (weekly), 2 (every 15 days) or 3 (monthly) when sent."
+            };
+        }
+
+        // Checked here rather than left to the column's CHECK constraint, which
+        // would surface as a 500 instead of a 400 naming the field. Null is
+        // how a project says it does not auto-approve; 0 and below say nothing.
+        if (request.AutoApproveInDays <= 0)
+        {
+            failures[nameof(TimesheetProjectSaveRequest.AutoApproveInDays)] = new[]
+            {
+                "AutoApproveInDays must be greater than 0 when sent."
             };
         }
 
@@ -257,6 +260,7 @@ public class TimesheetProjectService : ITimesheetProjectService
                 request.Status,
                 request.ClientId,
                 request.SubmissionFrequency,
+                request.AutoApproveInDays,
                 cancellationToken)
             ?? throw NotFoundException.For("Project", projectId ?? 0);
 
@@ -1438,7 +1442,7 @@ public class TimesheetProjectService : ITimesheetProjectService
 
         var projects = rows
             .Select(row => row.ToUserProjectResponse(
-                row.CurrentSheetStatusId is { } statusId ? ProjectSheetStatusName(statusId) : null))
+                row.CurrentSheetStatusId is { } statusId ? ProjectSheetStatus.NameOf(statusId) : null))
             .ToList();
 
         var details = rows[0].ToUserDetailsResponse(projects);
@@ -2142,15 +2146,15 @@ public class TimesheetProjectService : ITimesheetProjectService
                     out var sheetStatusId)
                     ? sheetStatusId
                     : Constants.TimesheetProjectSubmission.Status.Pending;
-                var statusName = ProjectSheetStatusName(statusId);
+                var statusName = ProjectSheetStatus.NameOf(statusId);
 
                 if (projects.TryGetValue(timeLog.ProjectId, out var project)
                     && project.StartDate is { } projectStartDate
                     && project.SubmissionFrequency is { } submissionFrequency
-                    && SubmissionFrequencies.Contains(submissionFrequency)
+                    && ProjectSubmissionPeriod.Frequencies.Contains(submissionFrequency)
                     && timeLog.LogDate.Date >= projectStartDate.Date)
                 {
-                    var (periodStartDate, periodEndDate) = SubmissionPeriodOf(
+                    var (periodStartDate, periodEndDate) = ProjectSubmissionPeriod.Of(
                         timeLog.LogDate.Date,
                         projectStartDate.Date,
                         submissionFrequency);
@@ -2280,7 +2284,7 @@ public class TimesheetProjectService : ITimesheetProjectService
 
         var now = _dateTimeProvider.UtcNow;
         var isNewEntry = request.TimesheetProjectTimeLogId == 0;
-        var (periodStartDate, periodEndDate) = SubmissionPeriodOf(logDate, projectStartDate, submissionFrequency);
+        var (periodStartDate, periodEndDate) = ProjectSubmissionPeriod.Of(logDate, projectStartDate, submissionFrequency);
 
         TimesheetProjectTimeLog timeLog;
 
@@ -2390,7 +2394,7 @@ public class TimesheetProjectService : ITimesheetProjectService
             periodStartDate,
             periodEndDate,
             savedStatusId,
-            ProjectSheetStatusName(savedStatusId));
+            ProjectSheetStatus.NameOf(savedStatusId));
     }
 
     public async Task DeleteProjectTimeLogAsync(
@@ -2562,7 +2566,7 @@ public class TimesheetProjectService : ITimesheetProjectService
         {
             throw new BusinessException(
                 $"Timesheet '{submission.SheetSubmissionCode}' for {submission.PeriodStartDate:yyyy-MM-dd} to " +
-                $"{submission.PeriodEndDate:yyyy-MM-dd} is {ProjectSheetStatusName(submission.StatusId).ToLowerInvariant()}, " +
+                $"{submission.PeriodEndDate:yyyy-MM-dd} is {ProjectSheetStatus.NameOf(submission.StatusId).ToLowerInvariant()}, " +
                 "so its time can no longer be added to, changed or removed.");
         }
     }
@@ -2600,7 +2604,7 @@ public class TimesheetProjectService : ITimesheetProjectService
     {
         if (project.StartDate is not { } startDate
             || project.SubmissionFrequency is not { } submissionFrequency
-            || !SubmissionFrequencies.Contains(submissionFrequency)
+            || !ProjectSubmissionPeriod.Frequencies.Contains(submissionFrequency)
             || project.OrganizationId is not { } organizationId)
         {
             throw new BusinessException(
@@ -2609,40 +2613,6 @@ public class TimesheetProjectService : ITimesheetProjectService
         }
 
         return (startDate.Date, submissionFrequency, organizationId);
-    }
-
-    /// <summary>
-    /// The submission period containing <paramref name="logDate"/>, counted
-    /// from the project's start date: blocks of 7 days for weekly, 15 days for
-    /// every 15 days, and calendar months from the start day for monthly - a
-    /// project starting on the 10th has periods from the 10th to the 9th.
-    /// Both dates are inclusive. <paramref name="logDate"/> is never before
-    /// <paramref name="projectStartDate"/>.
-    /// </summary>
-    private static (DateTime Start, DateTime End) SubmissionPeriodOf(
-        DateTime logDate,
-        DateTime projectStartDate,
-        int submissionFrequency)
-    {
-        if (submissionFrequency == Constants.TimesheetProject.SubmissionFrequency.Monthly)
-        {
-            // Every period is counted from the start date itself, never from
-            // the previous period, so a start on the 31st does not drift to
-            // the 28th after February.
-            var months = (logDate.Year - projectStartDate.Year) * 12 + logDate.Month - projectStartDate.Month;
-
-            if (projectStartDate.AddMonths(months) > logDate)
-            {
-                months--;
-            }
-
-            return (projectStartDate.AddMonths(months), projectStartDate.AddMonths(months + 1).AddDays(-1));
-        }
-
-        var days = submissionFrequency == Constants.TimesheetProject.SubmissionFrequency.Weekly ? 7 : 15;
-        var periodStart = projectStartDate.AddDays((logDate - projectStartDate).Days / days * days);
-
-        return (periodStart, periodStart.AddDays(days - 1));
     }
 
     /// <summary>
@@ -2737,7 +2707,7 @@ public class TimesheetProjectService : ITimesheetProjectService
         return stored
             .Select(sheet => sheet.ToResponse(
                 projects.GetValueOrDefault(sheet.ProjectId),
-                ProjectSheetStatusName(sheet.StatusId)))
+                ProjectSheetStatus.NameOf(sheet.StatusId)))
             .OrderBy(sheet => sheet.PeriodStartDate)
             .ThenBy(sheet => sheet.ProjectName)
             .ThenBy(sheet => sheet.ProjectId)
@@ -2831,8 +2801,8 @@ public class TimesheetProjectService : ITimesheetProjectService
 
             if (request.PeriodDate is { } periodDate
                 && (periodDate.Date < projectStartDate
-                    || SubmissionPeriodOf(periodDate.Date, projectStartDate, submissionFrequency).Start
-                    != SubmissionPeriodOf(dayInPeriod, projectStartDate, submissionFrequency).Start))
+                    || ProjectSubmissionPeriod.Of(periodDate.Date, projectStartDate, submissionFrequency).Start
+                    != ProjectSubmissionPeriod.Of(dayInPeriod, projectStartDate, submissionFrequency).Start))
             {
                 throw new ValidationException(
                     nameof(TimesheetProjectSheetSubmitRequest.PeriodDate),
@@ -2851,7 +2821,7 @@ public class TimesheetProjectService : ITimesheetProjectService
                 $"PeriodDate must not be before the project's start date, {projectStartDate:yyyy-MM-dd}.");
         }
 
-        var (periodStartDate, periodEndDate) = SubmissionPeriodOf(dayInPeriod, projectStartDate, submissionFrequency);
+        var (periodStartDate, periodEndDate) = ProjectSubmissionPeriod.Of(dayInPeriod, projectStartDate, submissionFrequency);
 
         if (project.EndDate is { } projectEndDate && periodStartDate > projectEndDate.Date)
         {
@@ -2886,7 +2856,7 @@ public class TimesheetProjectService : ITimesheetProjectService
                 or Constants.TimesheetProjectSubmission.Status.Rejected))
         {
             throw new ConflictException(
-                $"Timesheet '{submission.SheetSubmissionCode}' is already {ProjectSheetStatusName(submission.StatusId)}.");
+                $"Timesheet '{submission.SheetSubmissionCode}' is already {ProjectSheetStatus.NameOf(submission.StatusId)}.");
         }
 
         var now = _dateTimeProvider.UtcNow;
@@ -2938,6 +2908,10 @@ public class TimesheetProjectService : ITimesheetProjectService
                     SubmittedDate = now,
                     IsDelete = 0,
                     DateAdded = now,
+
+                    // Nothing has approved it yet; only the auto-approve job
+                    // ever makes this true.
+                    IsAutoApprove = Constants.TimesheetProjectSubmission.AutoApprove.No,
                 },
                 new TimesheetProjectSubmissionAuditLog
                 {
@@ -2954,6 +2928,9 @@ public class TimesheetProjectService : ITimesheetProjectService
             submission.StatusId = Constants.TimesheetProjectSubmission.Status.Submitted;
             submission.SubmittedBy = request.AddedBy;
             submission.SubmittedDate = now;
+
+            // Back to awaiting a decision, so no approval of any kind stands.
+            submission.IsAutoApprove = Constants.TimesheetProjectSubmission.AutoApprove.No;
 
             await SaveProjectSheetStatusAsync(submission, request.AddedBy, now, cancellationToken);
         }
@@ -3050,7 +3027,7 @@ public class TimesheetProjectService : ITimesheetProjectService
         if (submission.StatusId != Constants.TimesheetProjectSubmission.Status.Submitted)
         {
             throw new ConflictException(
-                $"Timesheet '{submission.SheetSubmissionCode}' is {ProjectSheetStatusName(submission.StatusId)}, so it " +
+                $"Timesheet '{submission.SheetSubmissionCode}' is {ProjectSheetStatus.NameOf(submission.StatusId)}, so it " +
                 "cannot be approved or rejected; only a submitted timesheet can.");
         }
 
@@ -3068,6 +3045,11 @@ public class TimesheetProjectService : ITimesheetProjectService
         {
             submission.ApprovedBy = request.AddedBy;
             submission.ApprovedDate = now;
+
+            // A person is approving it, so it is not an automatic approval -
+            // written rather than assumed, because a resubmitted sheet carries
+            // whatever its last decision left behind.
+            submission.IsAutoApprove = Constants.TimesheetProjectSubmission.AutoApprove.No;
         }
 
         await SaveProjectSheetStatusAsync(submission, request.AddedBy, now, cancellationToken);
@@ -3192,18 +3174,8 @@ public class TimesheetProjectService : ITimesheetProjectService
 
         var project = await _timesheetProjectRepository.GetByIdAsync(submission.ProjectId, cancellationToken);
 
-        return sheet.ToResponse(project, ProjectSheetStatusName(sheet.StatusId));
+        return sheet.ToResponse(project, ProjectSheetStatus.NameOf(sheet.StatusId));
     }
-
-    /// <summary>The name of a <c>dbo.TimesheetProjectSubmission.StatusID</c>.</summary>
-    private static string ProjectSheetStatusName(int statusId) => statusId switch
-    {
-        Constants.TimesheetProjectSubmission.Status.Pending => "Pending",
-        Constants.TimesheetProjectSubmission.Status.Submitted => "Submitted",
-        Constants.TimesheetProjectSubmission.Status.Approved => "Approved",
-        Constants.TimesheetProjectSubmission.Status.Rejected => "Rejected",
-        _ => "Unknown",
-    };
 
     #endregion
 

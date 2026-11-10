@@ -38,7 +38,7 @@ public interface IEmailQueueRepository
     /// <summary>
     /// Returns when each email of <paramref name="emailTypeId"/> was queued for
     /// <paramref name="userIds"/> at or after <paramref name="sinceUtc"/>,
-    /// whatever its status, as UTC instants.
+    /// whatever its status, as UTC instants, each with the project it names.
     /// <para>
     /// <c>CreatedDate</c> is the database server's local time (its
     /// <c>GETDATE()</c> default); the implementation reads the server's offset

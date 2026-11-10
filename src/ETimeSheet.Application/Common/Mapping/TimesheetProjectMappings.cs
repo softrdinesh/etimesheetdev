@@ -1,5 +1,6 @@
 using ETimeSheet.Application.Models;
 using ETimeSheet.Application.Models.Entities;
+using ETimeSheet.Shared.Utilities;
 
 namespace ETimeSheet.Application.Common.Mapping;
 
@@ -28,6 +29,7 @@ internal static class TimesheetProjectMappings
         ClientName = project.ClientName,
         SubmissionFrequency = project.SubmissionFrequency,
         SubmissionFrequencyName = project.SubmissionFrequencyName,
+        AutoApproveInDays = project.AutoApproveInDays,
     };
 
     /// <summary>Projects the project <c>spc_AddEditTimesheetProject</c> saved to the project response.</summary>
@@ -48,6 +50,7 @@ internal static class TimesheetProjectMappings
         ClientName = project.ClientName,
         SubmissionFrequency = project.SubmissionFrequency,
         SubmissionFrequencyName = project.SubmissionFrequencyName,
+        AutoApproveInDays = project.AutoApproveInDays,
     };
 
     /// <summary>Projects a status row from <c>spc_GetTimesheetProjectStatus</c> to the status response.</summary>
@@ -404,6 +407,9 @@ internal static class TimesheetProjectMappings
         RejectedBy = sheet.RejectedBy,
         RejectedDate = sheet.RejectedDate,
         RejectionReason = sheet.RejectionReason,
+        // A null column - a sheet that predates it - is read as 0: the
+        // response promises 0 or 1, so the third state stops at this line.
+        IsAutoApprove = sheet.IsAutoApprove ?? Constants.TimesheetProjectSubmission.AutoApprove.No,
     };
 
     /// <summary>Minutes as hours, rounded to 2 places: 90 is 1.5.</summary>

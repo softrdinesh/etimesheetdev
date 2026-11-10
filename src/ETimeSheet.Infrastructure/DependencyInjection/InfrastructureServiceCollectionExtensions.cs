@@ -88,6 +88,14 @@ public static class InfrastructureServiceCollectionExtensions
             quartz.AddJob<TimesheetReminderEmailQueueJob>(job => job
                 .WithIdentity(QuartzBackgroundJobService.JobKeyFor(SchedulerJobs.TimesheetReminderEmailQueue))
                 .StoreDurably());
+
+            quartz.AddJob<ApproverReminderEmailQueueJob>(job => job
+                .WithIdentity(QuartzBackgroundJobService.JobKeyFor(SchedulerJobs.ApproverReminderEmailQueue))
+                .StoreDurably());
+
+            quartz.AddJob<AutoApproveProjectSheetJob>(job => job
+                .WithIdentity(QuartzBackgroundJobService.JobKeyFor(SchedulerJobs.AutoApproveProjectSheet))
+                .StoreDurably());
         });
 
         // On shutdown, let a running job finish rather than cut it off halfway.

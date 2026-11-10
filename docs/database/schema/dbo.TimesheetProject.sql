@@ -14,10 +14,18 @@
               SubmissionFrequency int NULL added, with
               CK_TimesheetProject_SubmissionFrequency limiting it to 1, 2 or 3.
               Change to applied once the owner has run it.
+    Revised:  2026-11-09 - DRAFT, requested by the owner, NOT YET APPLIED:
+              AutoApproveInDays int NULL added, with
+              CK_TimesheetProject_AutoApproveInDays limiting it to a positive
+              number of days. Phase 1 of AutoApprove sheet: the setting is
+              stored and returned. Phase 2 (2026-11-10) acts on it, in the
+              AutoApproveProjectSheet scheduler job.
+              Change to applied once the owner has run it.
 
     One row per project: its code and name, budget in money and in hours,
-    start and end dates, currency, organization, status, client and how often
-    its timesheets are submitted.
+    start and end dates, currency, organization, status, client, how often
+    its timesheets are submitted, and after how many days an unapproved sheet
+    approves itself.
 
     Mapped by:
       src/ETimeSheet.Application/Models/Entities/TimesheetProject.cs
@@ -65,6 +73,18 @@
         that existed before the column was added keep NULL until they are
         given one. No default. Read by spc_GetTimesheetProject and written
         by spc_AddEditTimesheetProject.
+      - AutoApproveInDays is how many days a submitted sheet may sit
+        unapproved before it is approved automatically - 3 means "approve it
+        three days after it was submitted if no approver has acted". A CHECK
+        constraint allows only a positive number; NULL means the project does
+        not auto-approve at all, which is what every project that existed
+        before the column was added keeps until it is given a value. No
+        default. Read by spc_GetTimesheetProject and written by
+        spc_AddEditTimesheetProject, and acted on by the
+        AutoApproveProjectSheet scheduler job (SchedulerService.
+        RunAutoApproveProjectSheetAsync), which approves a sheet this many
+        days after it was submitted.
+        Recorded as the last column, where ALTER TABLE ... ADD puts it.
 
     STILL UNCONFIRMED:
       - Whether ProjectID is the primary key. It is IDENTITY(1,1), but no key
@@ -94,7 +114,10 @@ CREATE TABLE dbo.TimesheetProject
     Status          int             NULL,
     ClientID        int             NOT NULL,
     SubmissionFrequency int         NULL,
+    AutoApproveInDays   int         NULL,
     CONSTRAINT CK_TimesheetProject_SubmissionFrequency
-        CHECK (SubmissionFrequency IN (1, 2, 3))
+        CHECK (SubmissionFrequency IN (1, 2, 3)),
+    CONSTRAINT CK_TimesheetProject_AutoApproveInDays
+        CHECK (AutoApproveInDays > 0)
 );
 GO

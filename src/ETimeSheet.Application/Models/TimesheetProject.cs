@@ -84,6 +84,13 @@ public class TimesheetProjectResponse
     /// Null when it is not set.
     /// </summary>
     public string? SubmissionFrequencyName { get; set; }
+
+    /// <summary>
+    /// After how many days a submitted sheet of this project is approved
+    /// automatically when no approver has acted - <c>3</c> means three days
+    /// after it was submitted. Null when the project does not auto-approve.
+    /// </summary>
+    public int? AutoApproveInDays { get; set; }
 }
 
 /// <summary>
@@ -122,6 +129,8 @@ public class TimesheetProjectDetail
     public int? SubmissionFrequency { get; set; }
 
     public string? SubmissionFrequencyName { get; set; }
+
+    public int? AutoApproveInDays { get; set; }
 }
 
 /// <summary>
@@ -204,6 +213,16 @@ public class TimesheetProjectSaveRequest
     /// </summary>
     /// <example>1</example>
     public int? SubmissionFrequency { get; set; }
+
+    /// <summary>
+    /// Optional. After how many days a submitted sheet of this project is
+    /// approved automatically when no approver has acted - <c>3</c> means
+    /// three days after it was submitted. Greater than 0 when sent. Left out,
+    /// it is saved as null - on an update too - and the project does not
+    /// auto-approve.
+    /// </summary>
+    /// <example>3</example>
+    public int? AutoApproveInDays { get; set; }
 }
 
 /// <summary>
@@ -242,6 +261,8 @@ public class TimesheetProjectSaveDetail
     public int? SubmissionFrequency { get; set; }
 
     public string? SubmissionFrequencyName { get; set; }
+
+    public int? AutoApproveInDays { get; set; }
 }
 
 /// <summary>
@@ -2287,6 +2308,20 @@ public class TimesheetProjectSheetResponse
     public DateTime? RejectedDate { get; set; }
 
     public string? RejectionReason { get; set; }
+
+    /// <summary>
+    /// <c>1</c> only when the <c>AutoApproveProjectSheet</c> scheduler
+    /// approved this sheet, otherwise <c>0</c>. <b>Never null</b>: the column
+    /// is nullable on the table, and a null - a row that predates it - is
+    /// read as <c>0</c>, so a client never has to handle a third value.
+    /// <para>
+    /// It says <b>who</b> approved, not <b>whether</b>: a sheet that is still
+    /// Submitted or Rejected is <c>0</c> too. Read it with
+    /// <see cref="StatusId"/>.
+    /// </para>
+    /// </summary>
+    /// <example>0</example>
+    public int IsAutoApprove { get; set; }
 }
 
 /// <summary>
@@ -2327,6 +2362,9 @@ public class TimesheetProjectSheetDetail
     public DateTime? RejectedDate { get; set; }
 
     public string? RejectionReason { get; set; }
+
+    /// <summary>Nullable, as the column is - the mapping reads a null as <c>0</c>.</summary>
+    public int? IsAutoApprove { get; set; }
 }
 
 /// <summary>

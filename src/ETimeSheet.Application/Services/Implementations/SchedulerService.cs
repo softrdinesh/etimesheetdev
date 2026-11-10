@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Net;
+using System.Text;
 using ETimeSheet.Application.Common;
 using ETimeSheet.Application.Interfaces.Repositories;
 using ETimeSheet.Application.Interfaces.Services;
@@ -36,6 +37,7 @@ public class SchedulerService : ISchedulerService
     private readonly IBackgroundJobService _backgroundJobService;
     private readonly IDateTimeProvider _dateTimeProvider;
     private readonly EmailServiceSettings _emailServiceSettings;
+    private readonly AutoApproveSettings _autoApproveSettings;
     private readonly ILogger<SchedulerService> _logger;
 
     public SchedulerService(
@@ -46,6 +48,7 @@ public class SchedulerService : ISchedulerService
         IBackgroundJobService backgroundJobService,
         IDateTimeProvider dateTimeProvider,
         IOptions<EmailServiceSettings> emailServiceSettings,
+        IOptions<AutoApproveSettings> autoApproveSettings,
         ILogger<SchedulerService> logger)
     {
         _schedulerRepository = schedulerRepository;
@@ -55,6 +58,7 @@ public class SchedulerService : ISchedulerService
         _backgroundJobService = backgroundJobService;
         _dateTimeProvider = dateTimeProvider;
         _emailServiceSettings = emailServiceSettings.Value;
+        _autoApproveSettings = autoApproveSettings.Value;
         _logger = logger;
     }
 
@@ -124,6 +128,335 @@ public class SchedulerService : ISchedulerService
 
         return await QueueAsync(
             eligible, Constants.EmailType.Id.SheetSubmissionReminder, "Timesheet reminder", cancellationToken);
+    }
+
+    public async Task<int> RunApproverReminderEmailQueueAsync(CancellationToken cancellationToken = default)
+    {
+        // The job runs once a day; the day is its UTC date. ScheduleDateTime
+        // is UTC too, so the row's time is set to the UTC equivalent of 7 AM
+        // where the approvers are - 01:30 for 07:00 IST.
+        var runDate = _dateTimeProvider.UtcToday.Date;
+
+        var digests = await ApproverReminderDigestsAsync(new[] { runDate }, null, cancellationToken);
+
+        if (digests.Count == 0)
+        {
+            _logger.LogDebug(
+                "Approver reminder email queue: no project has submitted timesheets in a period that ended yesterday.");
+            return 0;
+        }
+
+        var due = new List<ApproverReminderDigest>();
+
+        foreach (var digest in digests.Values)
+        {
+            var email = digest.ApproverEmail?.Trim();
+
+            if (string.IsNullOrEmpty(email) || email.Length > EmailAddressMaximumLength)
+            {
+                _logger.LogWarning(
+                    "Approver reminders: approver {ApproverId} of project {ProjectId} has no usable email address; " +
+                    "nothing is queued for them.",
+                    digest.ApproverId, digest.Project.ProjectId);
+                continue;
+            }
+
+            due.Add(digest);
+        }
+
+        if (due.Count == 0)
+        {
+            return 0;
+        }
+
+        // One reminder per approver, project and day: a second run on the same
+        // day - a manual trigger, a changed row - queues nothing twice.
+        var todayStartsAtUtc = DateTime.SpecifyKind(runDate, DateTimeKind.Utc);
+
+        var alreadyQueued = (await _emailQueueRepository.GetQueuedSinceAsync(
+                Constants.EmailType.Id.ApproverSubmissionReminder,
+                due.Select(digest => digest.ApproverId).Distinct().ToList(),
+                todayStartsAtUtc,
+                cancellationToken))
+            .Where(queued => queued.ProjectId is not null)
+            .Select(queued => (queued.UserId, queued.ProjectId!.Value))
+            .ToHashSet();
+
+        var emails = due
+            .Where(digest => !alreadyQueued.Contains((digest.ApproverId, digest.Project.ProjectId)))
+            .Select(digest => new EmailQueue
+            {
+                UserId = digest.ApproverId,
+                EmailAddress = digest.ApproverEmail!.Trim(),
+                OrgId = digest.Project.OrganizationId,
+                ProjectId = digest.Project.ProjectId,
+                EmailTypeId = Constants.EmailType.Id.ApproverSubmissionReminder,
+                EmailStatusId = Constants.EmailQueue.Status.Pending,
+                AttemptCount = 0
+
+                // CreatedDate is left to the column's GETDATE() default. The
+                // SendEmail job reads the day back from it, and rebuilds the
+                // project's grid from live data for the period that ended the
+                // day before.
+            })
+            .ToList();
+
+        if (emails.Count == 0)
+        {
+            _logger.LogDebug("Approver reminder email queue: every reminder due today was already queued.");
+            return 0;
+        }
+
+        await _emailQueueRepository.AddRangeAsync(emails, cancellationToken);
+
+        _logger.LogInformation("Approver reminder email queue: {Count} email(s) queued.", emails.Count);
+
+        return emails.Count;
+    }
+
+    /// <summary>
+    /// The <c>ErrorMessage</c> of an approver reminder closed without sending:
+    /// by the time it was sent, none of its project's sheets for the period
+    /// was still Submitted.
+    /// </summary>
+    private const string NoSubmittedSheetsLeftMessage = "No submitted timesheets left for the period";
+
+    /// <summary>
+    /// One submitted sheet in an approver reminder grid.
+    /// <see cref="ExpectedMinutes"/> is null when the user has no setup to
+    /// work it out from.
+    /// </summary>
+    private sealed record ApproverReminderRow(
+        int UserId,
+        string UserName,
+        string SheetSubmissionCode,
+        int? ExpectedMinutes,
+        int HoursLogged);
+
+    /// <summary>
+    /// Everything one approver reminder says: one project, the period of it
+    /// that ended the day before <see cref="RunDate"/>, and the sheets of that
+    /// period still awaiting approval.
+    /// </summary>
+    private sealed record ApproverReminderDigest(
+        int ApproverId,
+        string ApproverName,
+        string? ApproverEmail,
+        ApproverReminderProject Project,
+        DateTime RunDate,
+        DateTime PeriodStart,
+        DateTime PeriodEnd,
+        IReadOnlyList<ApproverReminderRow> Rows);
+
+    /// <summary>
+    /// The approver reminders due on each of <paramref name="runDates"/>, one
+    /// per approver and project, keyed by approver, project and day - used both
+    /// to decide what is queued and, later, to build what each email says, so
+    /// the email always shows live data.
+    /// <para>
+    /// A project is reminded on a day when the day before it is the <b>last
+    /// day</b> of one of its submission periods
+    /// (<see cref="ProjectSubmissionPeriod"/>): weekly periods ending on day 7
+    /// are reminded on day 8, a monthly period from the 1st is reminded on the
+    /// 1st of the next month. A period starting after the project's end date
+    /// is not reminded.
+    /// </para>
+    /// <para>
+    /// Only sheets of that period whose status is <b>Submitted</b> are listed -
+    /// not approved, rejected, pending or never-submitted ones. A project with
+    /// none is left out entirely.
+    /// </para>
+    /// </summary>
+    /// <param name="runDates">The days the reminders are for.</param>
+    /// <param name="projectIds">Only these projects; null for all of them.</param>
+    private async Task<IReadOnlyDictionary<(int ApproverId, int ProjectId, DateTime RunDate), ApproverReminderDigest>>
+        ApproverReminderDigestsAsync(
+            IReadOnlyCollection<DateTime> runDates,
+            IReadOnlyCollection<int>? projectIds,
+            CancellationToken cancellationToken)
+    {
+        var projects = (await _schedulerRepository.GetApproverReminderProjectsAsync(cancellationToken))
+            .Where(project => projectIds is null || projectIds.Contains(project.ProjectId))
+            .ToList();
+
+        // Every (approver, project, day) whose period ended the day before.
+        var ended = new List<(ApproverReminderProject Project, DateTime RunDate, DateTime Start, DateTime End)>();
+
+        foreach (var runDate in runDates.Select(date => date.Date).Distinct())
+        {
+            var periodEnd = runDate.AddDays(-1);
+
+            foreach (var project in projects)
+            {
+                var projectStartDate = project.StartDate.Date;
+
+                if (periodEnd < projectStartDate)
+                {
+                    continue;
+                }
+
+                var (start, end) = ProjectSubmissionPeriod.Of(periodEnd, projectStartDate, project.SubmissionFrequency);
+
+                if (end != periodEnd || (project.EndDate is { } projectEndDate && start > projectEndDate.Date))
+                {
+                    continue;
+                }
+
+                ended.Add((project, runDate, start, end));
+            }
+        }
+
+        if (ended.Count == 0)
+        {
+            return new Dictionary<(int, int, DateTime), ApproverReminderDigest>();
+        }
+
+        // One read of each kind for every project and period together.
+        var endedProjectIds = ended.Select(item => item.Project.ProjectId).Distinct().ToList();
+        var fromDate = ended.Min(item => item.Start);
+        var toDate = ended.Max(item => item.End);
+
+        var submissions = (await _schedulerRepository.GetProjectSubmissionsAsync(
+                endedProjectIds,
+                Constants.TimesheetProjectSubmission.Status.Submitted,
+                fromDate,
+                toDate,
+                cancellationToken))
+            .ToLookup(submission => submission.ProjectId);
+
+        if (submissions.Count == 0)
+        {
+            return new Dictionary<(int, int, DateTime), ApproverReminderDigest>();
+        }
+
+        var loggedDays = (await _schedulerRepository.GetProjectLoggedDaysAsync(
+                endedProjectIds, fromDate, toDate, cancellationToken))
+            .ToLookup(day => day.ProjectId);
+
+        // Per project and period: each submitted sheet, with the hours its
+        // user logged on the project in the period.
+        var periodSheets = new Dictionary<(int ProjectId, DateTime Start), List<(int UserId, string Code, int Hours)>>();
+
+        foreach (var (project, _, start, end) in ended)
+        {
+            var key = (project.ProjectId, start);
+
+            if (periodSheets.ContainsKey(key))
+            {
+                continue;
+            }
+
+            var hours = loggedDays[project.ProjectId]
+                .Where(day => day.LogDate.Date >= start && day.LogDate.Date <= end)
+                .GroupBy(day => day.UserId)
+                .ToDictionary(days => days.Key, days => days.Sum(day => day.HoursLogged));
+
+            periodSheets[key] = submissions[project.ProjectId]
+                .Where(submission => submission.PeriodStartDate.Date == start)
+                .GroupBy(submission => submission.UserId)
+                .Select(sheets => sheets.OrderBy(sheet => sheet.SheetSubmissionCode, StringComparer.Ordinal).First())
+                .Select(sheet => (
+                    sheet.UserId,
+                    sheet.SheetSubmissionCode.Trim(),
+                    hours.TryGetValue(sheet.UserId, out var logged) ? logged : 0))
+                .ToList();
+        }
+
+        var userIds = periodSheets.Values.SelectMany(sheets => sheets.Select(sheet => sheet.UserId)).Distinct().ToList();
+
+        var names = userIds.Count == 0
+            ? new Dictionary<int, string>()
+            : (await _schedulerRepository.GetUserNamesAsync(userIds, cancellationToken))
+                .ToDictionary(user => user.UserId, user => user.Name.Trim());
+
+        var workingWeeks = userIds.Count == 0
+            ? new Dictionary<int, WorkingWeekSetup>()
+            : (await _schedulerRepository.GetWorkingWeekSetupsAsync(userIds, cancellationToken))
+                .ToDictionary(setup => setup.UserId);
+
+        var digests = new Dictionary<(int, int, DateTime), ApproverReminderDigest>();
+
+        foreach (var (project, runDate, start, end) in ended)
+        {
+            var rows = periodSheets[(project.ProjectId, start)]
+                .Select(sheet => new ApproverReminderRow(
+                    sheet.UserId,
+                    names.TryGetValue(sheet.UserId, out var name) ? name : string.Empty,
+                    sheet.Code,
+                    workingWeeks.TryGetValue(sheet.UserId, out var workingWeek)
+                        ? ExpectedMinutesInPeriod(workingWeek, start, end)
+                        : null,
+                    sheet.Hours))
+                .OrderBy(row => row.UserName, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(row => row.UserId)
+                .ToList();
+
+            if (rows.Count == 0)
+            {
+                continue;
+            }
+
+            digests[(project.ApproverId, project.ProjectId, runDate)] = new ApproverReminderDigest(
+                project.ApproverId,
+                project.ApproverName.Trim(),
+                project.ApproverEmail,
+                project,
+                runDate,
+                start,
+                end,
+                rows);
+        }
+
+        return digests;
+    }
+
+    /// <summary>
+    /// The minutes <paramref name="setup"/> expects from
+    /// <paramref name="periodStart"/> to <paramref name="periodEnd"/>
+    /// inclusive: its daily time - <c>MaxTimeinhrs</c> plus the minutes of
+    /// <c>MaxTiminmins</c>, as the time log reminder reads it - times its
+    /// working days in the period, which are <c>StartDay</c>..<c>EndDay</c>
+    /// and its exception day, as the time log save counts them.
+    /// <para>
+    /// Null when the setup has no daily time or no usable working week: an
+    /// expectation it cannot state is shown as unknown, not as zero.
+    /// Holidays are not taken off.
+    /// </para>
+    /// </summary>
+    private static int? ExpectedMinutesInPeriod(WorkingWeekSetup setup, DateTime periodStart, DateTime periodEnd)
+    {
+        if (setup.MaxTimeInHrs is not { } maxTimeInHrs
+            || TimesheetWeek.Parse(setup.StartDay) is not { } weekStarts
+            || TimesheetWeek.Parse(setup.EndDay) is not { } weekEnds)
+        {
+            return null;
+        }
+
+        var dailyMinutes = ExpectedMinutesOf(maxTimeInHrs, setup.MaxTimInMins);
+
+        if (dailyMinutes <= 0)
+        {
+            return null;
+        }
+
+        var workingDays = TimesheetWeek.Span(weekStarts, weekEnds).ToHashSet();
+
+        if (TimesheetWeek.Parse(setup.ExceptionDay) is { } exceptionDay)
+        {
+            workingDays.Add(exceptionDay);
+        }
+
+        var days = 0;
+
+        for (var date = periodStart.Date; date <= periodEnd.Date; date = date.AddDays(1))
+        {
+            if (workingDays.Contains(date.DayOfWeek))
+            {
+                days++;
+            }
+        }
+
+        return days * dailyMinutes;
     }
 
     /// <summary>Queues one Pending email of <paramref name="emailTypeId"/> per user, in one save.</summary>
@@ -424,6 +757,115 @@ public class SchedulerService : ISchedulerService
         return TimeZoneInfo.ConvertTimeToUtc(midnight, zone);
     }
 
+    // ---- auto-approving sheets ---------------------------------------------
+
+    public async Task<int> RunAutoApproveProjectSheetAsync(CancellationToken cancellationToken = default)
+    {
+        var approvedBy = _autoApproveSettings.ApprovedByUserId;
+
+        // Guarded although the options validator already refuses it at
+        // startup: writing 0 as an approver would be silent, permanent and
+        // indistinguishable from a real user.
+        if (approvedBy <= 0)
+        {
+            _logger.LogError(
+                "Auto-approve: AutoApprove:ApprovedByUserId is {ApprovedByUserId}, which is not a user id; " +
+                "nothing was approved.",
+                approvedBy);
+            return 0;
+        }
+
+        var candidates = await _schedulerRepository.GetAutoApproveCandidatesAsync(cancellationToken);
+
+        if (candidates.Count == 0)
+        {
+            _logger.LogDebug("Auto-approve: no submitted sheet belongs to a project that auto-approves.");
+            return 0;
+        }
+
+        var now = _dateTimeProvider.UtcNow;
+
+        // Due when the whole AutoApproveInDays has passed since the sheet was
+        // submitted. SubmittedDate is written from the same UTC clock, so the
+        // two are comparable.
+        var due = new List<AutoApproveCandidate>();
+
+        foreach (var candidate in candidates)
+        {
+            if (candidate.SubmittedDate is not { } submittedDate)
+            {
+                // Nothing to count from. It stays Submitted until an approver
+                // acts, which is safer than approving on a date we invented.
+                _logger.LogWarning(
+                    "Auto-approve: sheet {SheetSubmissionCode} ({SubmissionId}) of project {ProjectId} is Submitted " +
+                    "with no SubmittedDate, so there is no day to count from; it was left alone.",
+                    candidate.SheetSubmissionCode,
+                    candidate.TimesheetProjectSubmissionId,
+                    candidate.ProjectId);
+                continue;
+            }
+
+            if (submittedDate.AddDays(candidate.AutoApproveInDays) <= now)
+            {
+                due.Add(candidate);
+            }
+        }
+
+        if (due.Count == 0)
+        {
+            _logger.LogDebug("Auto-approve: no submitted sheet has waited out its project's AutoApproveInDays yet.");
+            return 0;
+        }
+
+        var submissions = await _schedulerRepository.GetProjectSubmissionsForUpdateAsync(
+            due.Select(candidate => candidate.TimesheetProjectSubmissionId).ToList(),
+            cancellationToken);
+
+        var auditLogs = new List<TimesheetProjectSubmissionAuditLog>();
+
+        foreach (var submission in submissions)
+        {
+            // Re-checked on the tracked row: an approver may have approved or
+            // rejected it between the two reads, and a decision a person made
+            // is never overwritten.
+            if (submission.StatusId != Constants.TimesheetProjectSubmission.Status.Submitted)
+            {
+                continue;
+            }
+
+            submission.StatusId = Constants.TimesheetProjectSubmission.Status.Approved;
+            submission.ApprovedBy = approvedBy;
+            submission.ApprovedDate = now;
+
+            // The one place this is ever set: nothing but this job approves a
+            // sheet without a person behind it.
+            submission.IsAutoApprove = Constants.TimesheetProjectSubmission.AutoApprove.Yes;
+
+            auditLogs.Add(new TimesheetProjectSubmissionAuditLog
+            {
+                TimesheetProjectSubmissionId = submission.TimesheetProjectSubmissionId,
+                StatusId = Constants.TimesheetProjectSubmission.Status.Approved,
+                CreatedBy = approvedBy,
+                CreateDate = now,
+            });
+        }
+
+        if (auditLogs.Count == 0)
+        {
+            _logger.LogDebug("Auto-approve: every sheet that was due had already been decided.");
+            return 0;
+        }
+
+        await _schedulerRepository.SaveProjectSubmissionStatusesAsync(auditLogs, cancellationToken);
+
+        _logger.LogInformation(
+            "Auto-approve: {Count} project timesheet(s) approved as user {ApprovedByUserId}.",
+            auditLogs.Count,
+            approvedBy);
+
+        return auditLogs.Count;
+    }
+
     // ---- sending ----------------------------------------------------------
 
     /// <summary>
@@ -435,7 +877,8 @@ public class SchedulerService : ISchedulerService
         new Dictionary<int, (string, string)>
         {
             [Constants.EmailType.Id.TimeLogReminder] = ("TimeLogTemplate.html", "Time Log Entry Reminder"),
-            [Constants.EmailType.Id.SheetSubmissionReminder] = ("SheetSubmissionTemplate.html", "Timesheet Submission Reminder")
+            [Constants.EmailType.Id.SheetSubmissionReminder] = ("SheetSubmissionTemplate.html", "Timesheet Submission Reminder"),
+            [Constants.EmailType.Id.ApproverSubmissionReminder] = ("ApproverSubmissionReminderTemplate.html", "Timesheet Approval Reminder")
         };
 
     /// <summary>
@@ -480,15 +923,38 @@ public class SchedulerService : ISchedulerService
         foreach (var email in emails)
         {
             string? error;
+            string? closedReason = null;
 
             try
             {
-                var message = await BuildMessageAsync(email, context, cancellationToken);
-                error = message.Error ?? (await _emailSender.SendAsync(message.Message!, cancellationToken)).Error;
+                var built = await BuildMessageAsync(email, context, cancellationToken);
+                closedReason = built.ClosedReason;
+                error = built.Error
+                        ?? (closedReason is null
+                            ? (await _emailSender.SendAsync(built.Message!, cancellationToken)).Error
+                            : null);
             }
             catch (Exception exception) when (exception is not OperationCanceledException)
             {
                 error = exception.Message;
+            }
+
+            if (closedReason is not null)
+            {
+                // Nothing left to say, so nothing is sent: closed the way a
+                // setup delete closes an email - Sent, with SentDate left NULL
+                // and the reason in ErrorMessage. Not an attempt, and never
+                // retried.
+                email.EmailStatusId = Constants.EmailQueue.Status.Sent;
+                email.SentDate = null;
+                email.ErrorMessage = closedReason;
+
+                _logger.LogInformation(
+                    "Send email: email {EmailQueueId} closed without sending: {Reason}.",
+                    email.EmailQueueId, closedReason);
+
+                await _emailQueueRepository.UpdateAsync(email, cancellationToken);
+                continue;
             }
 
             var attemptedAt = DateTime.SpecifyKind(_dateTimeProvider.UtcNow, DateTimeKind.Unspecified) + serverOffset;
@@ -530,6 +996,7 @@ public class SchedulerService : ISchedulerService
     private sealed record ReminderEmailContext(
         IReadOnlyDictionary<int, ReminderEmailDetails> Details,
         ILookup<int, LoggedSpan> Logged,
+        IReadOnlyDictionary<(int ApproverId, int ProjectId, DateTime RunDate), ApproverReminderDigest> ApproverDigests,
         TimeSpan ServerOffset);
 
     private async Task<ReminderEmailContext> ReminderEmailContextAsync(
@@ -537,7 +1004,9 @@ public class SchedulerService : ISchedulerService
         TimeSpan serverOffset,
         CancellationToken cancellationToken)
     {
-        var userIds = UserIdsOf(emails, _ => true);
+        // An approver needs no timesheet setup of their own, so their
+        // reminders are built from the approver digest instead.
+        var userIds = UserIdsOf(emails, email => email.EmailTypeId != Constants.EmailType.Id.ApproverSubmissionReminder);
 
         var details = userIds.Count == 0
             ? new Dictionary<int, ReminderEmailDetails>()
@@ -558,8 +1027,28 @@ public class SchedulerService : ISchedulerService
                     cancellationToken))
                 .ToLookup(span => span.UserId);
 
-        return new ReminderEmailContext(details, logged, serverOffset);
+        // An approver reminder is about its project's period that ended the
+        // day before it was queued - its UTC date, the date the queue job ran
+        // on - and is rebuilt here from live data.
+        var approverEmails = emails
+            .Where(email => email.EmailTypeId == Constants.EmailType.Id.ApproverSubmissionReminder
+                && email.UserId is not null
+                && email.ProjectId is not null)
+            .ToList();
+
+        var approverDigests = approverEmails.Count == 0
+            ? new Dictionary<(int, int, DateTime), ApproverReminderDigest>()
+            : await ApproverReminderDigestsAsync(
+                approverEmails.Select(email => ApproverRunDateOf(email, serverOffset)).Distinct().ToList(),
+                approverEmails.Select(email => email.ProjectId!.Value).Distinct().ToList(),
+                cancellationToken);
+
+        return new ReminderEmailContext(details, logged, approverDigests, serverOffset);
     }
+
+    /// <summary>The UTC date an email was queued on - <c>CreatedDate</c> is the database server's local time.</summary>
+    private static DateTime ApproverRunDateOf(EmailQueue email, TimeSpan serverOffset) =>
+        (email.CreatedDate - serverOffset).Date;
 
     private static List<int> UserIdsOf(IEnumerable<EmailQueue> emails, Func<EmailQueue, bool> predicate) =>
         emails
@@ -569,19 +1058,39 @@ public class SchedulerService : ISchedulerService
             .ToList();
 
     /// <summary>
-    /// Fills the email's template. Returns the message, or - when it cannot be
-    /// built - why, which is recorded against the email like a failed send.
+    /// What building an email came to - exactly one of the three is set: the
+    /// message to send; why it could not be built, recorded like a failed
+    /// send; or why it should not be sent at all, which closes it.
     /// </summary>
-    private async Task<(EmailMessage? Message, string? Error)> BuildMessageAsync(
+    private sealed record BuiltEmail(EmailMessage? Message, string? Error, string? ClosedReason)
+    {
+        public static BuiltEmail Ready(EmailMessage message) => new(message, null, null);
+
+        public static BuiltEmail Failed(string error) => new(null, error, null);
+
+        public static BuiltEmail Closed(string reason) => new(null, null, reason);
+    }
+
+    /// <summary>
+    /// Fills the email's template. Returns the message; or - when it cannot be
+    /// built - why, which is recorded against the email like a failed send;
+    /// or - when there is nothing left to tell - why it is closed unsent.
+    /// </summary>
+    private async Task<BuiltEmail> BuildMessageAsync(
         EmailQueue email,
         ReminderEmailContext context,
         CancellationToken cancellationToken)
     {
         var (templateName, subject) = EmailTemplates[email.EmailTypeId];
 
+        if (email.EmailTypeId == Constants.EmailType.Id.ApproverSubmissionReminder)
+        {
+            return await ApproverReminderMessageAsync(email, templateName, subject, context, cancellationToken);
+        }
+
         if (email.UserId is not { } userId || !context.Details.TryGetValue(userId, out var details))
         {
-            return (null, "The user has no live timesheet setup, or their user record is deleted.");
+            return BuiltEmail.Failed("The user has no live timesheet setup, or their user record is deleted.");
         }
 
         // The day the email is about: the day it was queued, on the user's
@@ -599,7 +1108,7 @@ public class SchedulerService : ISchedulerService
 
         if (values.Error is not null)
         {
-            return (null, values.Error);
+            return BuiltEmail.Failed(values.Error);
         }
 
         var body = await _emailTemplateStore.GetAsync(templateName, cancellationToken);
@@ -610,7 +1119,124 @@ public class SchedulerService : ISchedulerService
             body = body.Replace($"[{placeholder}]", WebUtility.HtmlEncode(value), StringComparison.Ordinal);
         }
 
-        return (new EmailMessage(email.EmailAddress.Trim(), subject, body), null);
+        return BuiltEmail.Ready(new EmailMessage(email.EmailAddress.Trim(), subject, body));
+    }
+
+    /// <summary>
+    /// Fills <c>ApproverSubmissionReminderTemplate.html</c> for one project:
+    /// the period and the number of sheets awaiting approval in the text, then
+    /// a grid titled with the project - user id, name, submission code,
+    /// expected hours and hours logged, with totals. The grid is built here, every value in it
+    /// HTML-encoded, and dropped into <c>[SubmissionGrid]</c> as markup.
+    /// <para>
+    /// Built from live data: when none of the period's sheets is still
+    /// Submitted, the email is closed without sending rather than failed.
+    /// </para>
+    /// </summary>
+    private async Task<BuiltEmail> ApproverReminderMessageAsync(
+        EmailQueue email,
+        string templateName,
+        string subject,
+        ReminderEmailContext context,
+        CancellationToken cancellationToken)
+    {
+        if (email.UserId is not { } approverId || email.ProjectId is not { } projectId)
+        {
+            return BuiltEmail.Failed("An approver reminder needs both a UserID and a ProjectID.");
+        }
+
+        var runDate = ApproverRunDateOf(email, context.ServerOffset);
+
+        if (!context.ApproverDigests.TryGetValue((approverId, projectId, runDate), out var digest))
+        {
+            return BuiltEmail.Closed(NoSubmittedSheetsLeftMessage);
+        }
+
+        var projectTitle = ProjectTitleOf(digest.Project);
+
+        var values = new Dictionary<string, string>
+        {
+            ["ApproverName"] = digest.ApproverName,
+            ["ProjectTitle"] = projectTitle,
+            ["PeriodStartDate"] = FormatDate(digest.PeriodStart),
+            ["PeriodEndDate"] = FormatDate(digest.PeriodEnd),
+            ["SheetCount"] = digest.Rows.Count.ToString(CultureInfo.InvariantCulture),
+            ["CompanyName"] = digest.Project.OrganizationName?.Trim() ?? string.Empty
+        };
+
+        var body = await _emailTemplateStore.GetAsync(templateName, cancellationToken);
+
+        foreach (var (placeholder, value) in values)
+        {
+            body = body.Replace($"[{placeholder}]", WebUtility.HtmlEncode(value), StringComparison.Ordinal);
+        }
+
+        // Already markup, every value inside it encoded - so not encoded again.
+        body = body.Replace("[SubmissionGrid]", ApproverReminderGridHtml(digest.Rows), StringComparison.Ordinal);
+
+        // The subject is plain text, so the title goes in as it is.
+        return BuiltEmail.Ready(new EmailMessage(email.EmailAddress.Trim(), $"{subject} - {projectTitle}", body));
+    }
+
+    /// <summary>"Website Revamp (PR0004)", or the code alone when the project has no name.</summary>
+    private static string ProjectTitleOf(ApproverReminderProject project) =>
+        string.IsNullOrWhiteSpace(project.ProjectName)
+            ? project.ProjectCode.Trim()
+            : $"{project.ProjectName!.Trim()} ({project.ProjectCode.Trim()})";
+
+    /// <summary>The submitted sheets of an approver reminder, as an email-safe HTML table with inline styles.</summary>
+    private static string ApproverReminderGridHtml(IReadOnlyList<ApproverReminderRow> rows)
+    {
+        static string Encode(string value) => WebUtility.HtmlEncode(value);
+
+        const string headCell =
+            "padding:8px 10px; border:1px solid #d0d7de; background-color:#1f4e78; color:#ffffff; " +
+            "font-size:13px; text-align:left; white-space:nowrap;";
+        const string cell = "padding:8px 10px; border:1px solid #d0d7de; font-size:13px; color:#333333;";
+
+        var html = new StringBuilder()
+            .Append("<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" ")
+            .Append("style=\"border-collapse:collapse;\">")
+            .Append("<tr>");
+
+        foreach (var heading in new[] { "#", "User ID", "User Name", "Submission Code", "Expected Hours", "Logged Hours" })
+        {
+            html.Append("<th style=\"").Append(headCell).Append("\">").Append(Encode(heading)).Append("</th>");
+        }
+
+        html.Append("</tr>");
+
+        var number = 0;
+
+        foreach (var row in rows)
+        {
+            number++;
+            var background = number % 2 == 0 ? "#f8f9fa" : "#ffffff";
+
+            html.Append("<tr style=\"background-color:").Append(background).Append(";\">")
+                .Append("<td style=\"").Append(cell).Append("\">").Append(number).Append("</td>")
+                .Append("<td style=\"").Append(cell).Append("\">").Append(row.UserId).Append("</td>")
+                .Append("<td style=\"").Append(cell).Append("\">").Append(Encode(row.UserName)).Append("</td>")
+                .Append("<td style=\"").Append(cell).Append(" white-space:nowrap;\">").Append(Encode(row.SheetSubmissionCode)).Append("</td>")
+                .Append("<td style=\"").Append(cell).Append(" text-align:right;\">")
+                .Append(Encode(row.ExpectedMinutes is { } expected ? FormatHours(expected) : "-")).Append("</td>")
+                .Append("<td style=\"").Append(cell).Append(" text-align:right;\">").Append(Encode(FormatHours(row.HoursLogged * 60))).Append("</td>")
+                .Append("</tr>");
+        }
+
+        html.Append("<tr style=\"background-color:#eef2f6;\">")
+            .Append("<td colspan=\"4\" style=\"").Append(cell).Append(" font-weight:bold; text-align:right;\">Total</td>")
+            .Append("<td style=\"").Append(cell).Append(" font-weight:bold; text-align:right;\">")
+            .Append(Encode(rows.Any(row => row.ExpectedMinutes is not null)
+                ? FormatHours(rows.Sum(row => row.ExpectedMinutes ?? 0))
+                : "-"))
+            .Append("</td>")
+            .Append("<td style=\"").Append(cell).Append(" font-weight:bold; text-align:right;\">")
+            .Append(Encode(FormatHours(rows.Sum(row => row.HoursLogged) * 60)))
+            .Append("</td></tr>")
+            .Append("</table>");
+
+        return html.ToString();
     }
 
     /// <summary>

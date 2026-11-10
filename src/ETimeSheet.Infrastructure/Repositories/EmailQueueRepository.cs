@@ -58,13 +58,14 @@ public class EmailQueueRepository : IEmailQueueRepository
                 && email.UserId != null
                 && userIds.Contains(email.UserId.Value)
                 && email.CreatedDate >= sinceServerTime)
-            .Select(email => new { email.UserId, email.CreatedDate })
+            .Select(email => new { email.UserId, email.CreatedDate, email.ProjectId })
             .ToListAsync(cancellationToken);
 
         return queued
             .Select(email => new QueuedEmail(
                 email.UserId!.Value,
-                DateTime.SpecifyKind(email.CreatedDate - serverOffset, DateTimeKind.Utc)))
+                DateTime.SpecifyKind(email.CreatedDate - serverOffset, DateTimeKind.Utc),
+                email.ProjectId))
             .ToList();
     }
 
