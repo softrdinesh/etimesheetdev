@@ -217,9 +217,9 @@ public class TimesheetProjectSaveRequest
     /// <summary>
     /// Optional. After how many days a submitted sheet of this project is
     /// approved automatically when no approver has acted - <c>3</c> means
-    /// three days after it was submitted. Greater than 0 when sent. Left out,
-    /// it is saved as null - on an update too - and the project does not
-    /// auto-approve.
+    /// three days after it was submitted. 0 or greater when sent; a negative
+    /// value is refused. Left out or sent as null, it is saved as null - on an
+    /// update too - and the project does not auto-approve.
     /// </summary>
     /// <example>3</example>
     public int? AutoApproveInDays { get; set; }

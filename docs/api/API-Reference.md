@@ -3624,7 +3624,7 @@ left as it was — send the whole project.
 | `status` | int \| null | no | `> 0` when sent | A `statusId` from [Project Status List](#27-project-status-list). **Not** checked against the organisation's statuses |
 | `clientId` | int | **yes** | `> 0`; a **live** (not deleted) client | The client the project is for, and the source of its currency. An update can change it |
 | `submissionFrequency` | int \| null | no | `1`, `2` or `3` when sent | How often timesheets are submitted: `1` weekly, `2` every 15 days, `3` monthly. Left out, it is saved as `null` — on an update too |
-| `autoApproveInDays` | int \| null | no | `> 0` when sent | After how many days a submitted sheet approves itself when no approver has acted. Left out, it is saved as `null` — on an update too — and the project does not auto-approve |
+| `autoApproveInDays` | int \| null | no | `>= 0` when sent | After how many days a submitted sheet approves itself when no approver has acted. Left out or sent as `null`, it is saved as `null` — on an update too — and the project does not auto-approve |
 
 #### Example request — add
 
@@ -3709,7 +3709,7 @@ left as it was — send the whole project.
 | `status <= 0` | `Status must be greater than 0 when sent.` |
 | `clientId <= 0` (or left out) | `ClientId is required and must be greater than 0.` |
 | `submissionFrequency` not 1, 2 or 3 | `SubmissionFrequency must be 1 (weekly), 2 (every 15 days) or 3 (monthly) when sent.` |
-| `autoApproveInDays <= 0` | `AutoApproveInDays must be greater than 0 when sent.` |
+| `autoApproveInDays < 0` | `AutoApproveInDays must be 0 or greater when sent.` |
 
 **400** — `clientId` names no client, or a removed one (checked after the shape
 checks; a single entry):

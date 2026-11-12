@@ -211,14 +211,16 @@ public class TimesheetProjectService : ITimesheetProjectService
             };
         }
 
-        // Checked here rather than left to the column's CHECK constraint, which
-        // would surface as a 500 instead of a 400 naming the field. Null is
-        // how a project says it does not auto-approve; 0 and below say nothing.
-        if (request.AutoApproveInDays <= 0)
+        // Optional: null - left out of the payload - is how a project says it
+        // does not auto-approve, and is saved as null. A value that is sent is
+        // saved as it arrives, and only a negative one is refused here rather
+        // than left to the column's CHECK constraint, which would surface as a
+        // 500 instead of a 400 naming the field.
+        if (request.AutoApproveInDays < 0)
         {
             failures[nameof(TimesheetProjectSaveRequest.AutoApproveInDays)] = new[]
             {
-                "AutoApproveInDays must be greater than 0 when sent."
+                "AutoApproveInDays must be 0 or greater when sent."
             };
         }
 
