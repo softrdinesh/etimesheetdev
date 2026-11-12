@@ -261,6 +261,23 @@ public interface ITimesheetProjectRepository
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Writes <paramref name="password"/> to the user's <c>dbo.Signup.Pwd</c>
+    /// and saves, touching no other column.
+    /// </summary>
+    /// <param name="password">
+    /// Stored exactly as given - this API never hashes, encrypts or encodes a
+    /// password, and never reads one back.
+    /// </param>
+    /// <returns>
+    /// <see langword="false"/> when no user has that id, so the caller can
+    /// report it rather than fail silently.
+    /// </returns>
+    Task<bool> SetUserPasswordAsync(
+        int userId,
+        string password,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Whether the user has a live assignment to this project other than
     /// <paramref name="excludedTimesheetUserProjectSetupId"/>.
     /// </summary>

@@ -84,6 +84,12 @@ public class ETimeSheetApiFactory : WebApplicationFactory<Program>
 
                 ["Cors:AllowedOrigins:0"] = "https://app.test",
 
+                // Test values, so the host's ValidateOnStart does not depend on
+                // the credential that appsettings.json carries. Nothing in the
+                // suite signs in, so neither value has to be a real password.
+                ["DefaultPassword:Encrypted"] = "test-encrypted-password",
+                ["DefaultPassword:Plain"] = "test-plain-password",
+
                 // EF Core command logging is noisy enough to bury assertion
                 // failures in the test output.
                 ["Logging:LogLevel:Microsoft.EntityFrameworkCore"] = "Warning"

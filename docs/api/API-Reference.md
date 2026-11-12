@@ -4285,11 +4285,26 @@ case.
 
 **Welcome email.** A **new** account is sent the welcome email
 (`WelcomeUserTemplate.html`) straight away, through the email service — nothing
-is queued or stored. The login URL, support address and subject come from the
-`WelcomeEmail` configuration section. An existing user put on another project
-gets no email. **A failed email does not fail the request**: the account is
-already created, so the response is still `200`, with `welcomeEmailSent: false`,
-and the reason is logged.
+is queued or stored. It carries the account's sign-in address and its
+**temporary password in plain text**, and asks the user to change it on first
+sign-in. The login URL, support address and subject come from the
+`WelcomeEmail` configuration section, the password from `DefaultPassword:Plain`.
+An existing user put on another project gets no email. **A failed email does
+not fail the request**: the account is already created, so the response is
+still `200`, with `welcomeEmailSent: false`, and the reason is logged.
+
+**Default password.** A **new** account is given the password configured as
+`DefaultPassword:Encrypted`, written to `dbo.Signup.Pwd` exactly as configured
+— the API never hashes, encrypts or encodes it, and never reads one back. It
+replaces what `spc_Signup_timesheet_user` writes for itself
+(`HASHBYTES('SHA2_512', @Email)`), as a second statement outside the
+procedure's transaction; if that statement fails the account keeps the
+email-derived password and the failure is logged, but the request still
+answers `200`. **An existing user keeps the password they have** — neither
+this endpoint nor [Edit Timesheet User](#37-edit-timesheet-user) ever changes
+an existing account's password, so adding someone to another project cannot
+lock them out. The password is never in a request, a response or a log line;
+the only place it leaves the API is the welcome email. See gap 94.
 
 #### Request body — `TimesheetUserCreateRequest` (JSON)
 
@@ -7667,3 +7682,27 @@ Documented so nobody has to rediscover them:
     `CHECK (AutoApproveInDays > 0)`, so saving `0` fails on the constraint and
     answers **500**, not 400. Closing this needs the owner to relax the
     constraint to `>= 0`.
+94. **Every account the API creates shares one password, and it is in
+    configuration in the clear.** `DefaultPassword:Encrypted` (written to
+    `dbo.Signup.Pwd`) and `DefaultPassword:Plain` (mailed to the user) are two
+    spellings of one password in `appsettings.json`, which is committed.
+    Anyone who can read the repository, the deployed config or a copy of a
+    welcome email can sign in as any account created since, until its owner
+    changes their password — and nothing requires them to. The values belong
+    in `dotnet user-secrets` locally and in the deployment's environment
+    (`DefaultPassword__Encrypted` / `DefaultPassword__Plain`), with
+    placeholders committed. A per-user generated password, a one-time link, or
+    the user choosing their own on first sign-in would close this properly.
+95. **Nothing checks that the two halves of the default password match.** The
+    API stores `Encrypted` and mails `Plain` without ever encrypting,
+    verifying or comparing anything, so a configuration where they are not the
+    same password creates accounts whose owners cannot sign in, with no error
+    anywhere. Only a real sign-in attempt reveals it.
+96. **The default password is written outside the procedure's transaction.**
+    `spc_Signup_timesheet_user` commits the account with its own
+    email-derived `Pwd`, and the API overwrites it immediately afterwards. A
+    failure in between leaves an account whose password is the SHA2_512 of its
+    email — which anyone who knows the address can derive — and the welcome
+    email will still have told the user a different password. The failure is
+    logged; the request answers `200`. Closing this needs the owner to add a
+    `@Pwd` parameter to the procedure.

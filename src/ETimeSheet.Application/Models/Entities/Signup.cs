@@ -9,9 +9,11 @@ namespace ETimeSheet.Application.Models.Entities;
 /// <c>UpdatedDate</c> and <c>UpdateBy</c>, for
 /// <c>POST api/v1/TimesheetProject/edit-timesheet-user</c>.
 /// <para>
-/// <b>The credential columns are deliberately not mapped</b> - <c>Pwd</c>,
-/// <c>ResetOTP</c> and <c>OtpExpireAt</c>. Nothing here needs them, and an
-/// unmapped column can never be loaded, logged or serialised by accident.
+/// <c>ResetOTP</c> and <c>OtpExpireAt</c> are deliberately <b>not</b> mapped:
+/// nothing here needs them, and an unmapped column can never be loaded,
+/// logged or serialised by accident. <see cref="Pwd"/> is the one credential
+/// column that is mapped, because <c>create-timesheet-user</c> has to write
+/// the default password - see the warning on it.
 /// </para>
 /// </summary>
 public class Signup
@@ -65,4 +67,19 @@ public class Signup
     public bool? IsProductOwner { get; set; }
 
     public int? RoleId { get; set; }
+
+    /// <summary>
+    /// The <c>Pwd</c> column - the user's password as the login checks it.
+    /// <c>nvarchar</c>; <c>spc_Signup_timesheet_user</c> fills it by letting
+    /// SQL Server convert a <c>binary(64)</c> hash into it, so a stored value
+    /// reads as mojibake.
+    /// <para>
+    /// <b>Write-only, and only in one place.</b>
+    /// <c>TimesheetProjectService.CreateTimesheetUserAsync</c> overwrites it
+    /// with <c>DefaultPassword:Encrypted</c> on a <b>new</b> account, and
+    /// nothing else in this API reads, compares, returns or logs it. It must
+    /// never reach a DTO, a response or a log line.
+    /// </para>
+    /// </summary>
+    public string? Pwd { get; set; }
 }
