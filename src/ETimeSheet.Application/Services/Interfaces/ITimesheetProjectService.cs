@@ -157,11 +157,16 @@ public interface ITimesheetProjectService
 
     /// <summary>
     /// Signs a user up and puts them on a project of their organisation, via
-    /// <c>spc_Signup_timesheet_user</c>. An email that is already a live user
-    /// of the same organisation only gets the project assignment; the user
-    /// itself is not changed.
+    /// <c>spc_Signup_timesheet_user</c>, once per project in
+    /// <c>ProjectDetails</c>. An email that is already a live user of the same
+    /// organisation only gets the project assignments; the user itself is not
+    /// changed, and a project they are already on is skipped rather than
+    /// assigned twice.
     /// </summary>
-    /// <returns>The user as <c>dbo.Signup</c> holds it after the save.</returns>
+    /// <returns>
+    /// The user as <c>dbo.Signup</c> holds it after the save, with the
+    /// projects they are on.
+    /// </returns>
     /// <exception cref="ETimeSheet.Shared.Exceptions.ValidationException">
     /// Any field fails its rule, or the organisation, country, project or role
     /// it names does not exist - every failure is reported together.
@@ -174,26 +179,27 @@ public interface ITimesheetProjectService
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Edits one project assignment of a user through EF Core. The name,
-    /// email, country and address are saved to <c>dbo.Signup</c> when they
-    /// change; every other field to
-    /// <c>dbo.Timesheet_Users_Project_setup</c>. Both in one transaction.
+    /// Edits a user through EF Core: their name, email, country and address
+    /// are saved to <c>dbo.Signup</c> when they change, and the projects they
+    /// are on in <c>dbo.Timesheet_Users_Project_setup</c> are reconciled
+    /// against the payload's <c>ProjectDetails</c> - a project in the list
+    /// they are not on is added, a project they are on that the list leaves
+    /// out is soft-deleted, and a project in both is left exactly as it is.
+    /// All of it in one transaction.
     /// </summary>
     /// <returns>
-    /// The assignment and the user's name, email, country and address, as
-    /// saved.
+    /// The user, and every project they are on after the save.
     /// </returns>
     /// <exception cref="ETimeSheet.Shared.Exceptions.ValidationException">
-    /// Any field fails its rule, or the country, project or role it names does
-    /// not exist - every failure is reported together.
+    /// Any field fails its rule, or the country, a project or a role it names
+    /// does not exist - every failure is reported together.
     /// </exception>
     /// <exception cref="ETimeSheet.Shared.Exceptions.NotFoundException">
-    /// No live assignment has that id, or its user is removed or belongs to
-    /// another organisation.
+    /// No user has that id, or the user is removed or belongs to another
+    /// organisation.
     /// </exception>
     /// <exception cref="ETimeSheet.Shared.Exceptions.ConflictException">
-    /// The email belongs to another user, or the user is already on the project
-    /// through another assignment.
+    /// The email belongs to another user.
     /// </exception>
     Task<TimesheetUserResponse> UpdateTimesheetUserAsync(
         TimesheetUserUpdateRequest request,
@@ -217,10 +223,14 @@ public interface ITimesheetProjectService
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Returns the timesheet users of one organisation - every live project
-    /// assignment of every live user of it - via
-    /// <c>spc_GetTimesheetUserListByOrgID</c>, ordered by user name, then
-    /// project name. An organisation with none is an empty list, not a 404.
+    /// Returns the timesheet users of one organisation via
+    /// <c>spc_GetTimesheetUserListByOrgID</c> - <b>one entry per user</b>,
+    /// carrying every live project assignment they have. The procedure's rows
+    /// are one per assignment, so they are grouped by user; the order is the
+    /// procedure's, by user name then project name. The job type, rates,
+    /// range, coordinates and daily cap are the same on every assignment of a
+    /// user, so they are reported once, from the first one. An organisation
+    /// with none is an empty list, not a 404.
     /// </summary>
     /// <exception cref="ETimeSheet.Shared.Exceptions.ValidationException">
     /// <paramref name="organizationId"/> is not a positive id.

@@ -217,9 +217,9 @@ public class TimesheetProjectSaveRequest
     /// <summary>
     /// Optional. After how many days a submitted sheet of this project is
     /// approved automatically when no approver has acted - <c>3</c> means
-    /// three days after it was submitted. Greater than 0 when sent. Left out,
-    /// it is saved as null - on an update too - and the project does not
-    /// auto-approve.
+    /// three days after it was submitted. 0 or greater when sent; a negative
+    /// value is refused. Left out or sent as null, it is saved as null - on an
+    /// update too - and the project does not auto-approve.
     /// </summary>
     /// <example>3</example>
     public int? AutoApproveInDays { get; set; }
@@ -633,8 +633,30 @@ public class TimesheetProjectBudgetByOrgDetail
 }
 
 /// <summary>
-/// Body of <c>create-timesheet-user</c> - signs a user up and puts them on a
-/// project, through <c>dbo.spc_Signup_timesheet_user</c>.
+/// One project of a timesheet user, as <c>create-timesheet-user</c> and
+/// <c>edit-timesheet-user</c> take them: the project, and the role the user
+/// holds on it. Sent as a list, so one call puts a user on several projects.
+/// </summary>
+public class TimesheetUserProjectDetail
+{
+    /// <summary>
+    /// Required, greater than 0, and a project of the payload's
+    /// organisation. The same project may not appear twice in one list.
+    /// </summary>
+    /// <example>45</example>
+    public int ProjectId { get; set; }
+
+    /// <summary>
+    /// Optional. When sent, a live role of the payload's organisation from
+    /// <c>dbo.TimesheetUserRole</c>.
+    /// </summary>
+    /// <example>22</example>
+    public int? ProjectRoleId { get; set; }
+}
+
+/// <summary>
+/// Body of <c>create-timesheet-user</c> - signs a user up and puts them on one
+/// or more projects, through <c>dbo.spc_Signup_timesheet_user</c>.
 /// <para>
 /// When <see cref="Email"/> is not yet a user, the user is created and put on
 /// the project. When it already is - a live user of the same organisation -
@@ -672,16 +694,23 @@ public class TimesheetUserCreateRequest
     /// <example>12</example>
     public int OrganizationId { get; set; }
 
-    /// <summary>Required. A project of <see cref="OrganizationId"/>.</summary>
-    /// <example>4</example>
-    public int ProjectId { get; set; }
-
     /// <summary>
-    /// Optional. When sent, a live role of <see cref="OrganizationId"/> from
-    /// <c>dbo.TimesheetUserRole</c>.
+    /// Required. The projects to put the user on, each with the role they
+    /// hold on it - at least one, each a project of
+    /// <see cref="OrganizationId"/>, and no project twice.
+    /// <para>
+    /// Every other field of this payload is the user's or is shared by every
+    /// assignment created here: <see cref="JobType"/>, <see cref="CostRate"/>,
+    /// <see cref="BillRate"/>, <see cref="WorkLocationRange"/>, the
+    /// coordinates and <see cref="MaxLogHoursPerDay"/> are written to each of
+    /// them. Only the role varies per project.
+    /// </para>
+    /// <para>
+    /// A project the user is already on is skipped rather than assigned
+    /// twice.
+    /// </para>
     /// </summary>
-    /// <example>3</example>
-    public int? ProjectRoleId { get; set; }
+    public List<TimesheetUserProjectDetail>? ProjectDetails { get; set; }
 
     /// <summary>Optional. Greater than 0 when sent.</summary>
     /// <example>1</example>
@@ -750,7 +779,12 @@ public class TimesheetUserCreateResponse
 
     public int? OrganizationId { get; set; }
 
-    public int ProjectId { get; set; }
+    /// <summary>
+    /// The projects the user is on after the call - the payload's list, in the
+    /// order it was sent. A project the user was already on is in it too; it
+    /// was kept, not assigned a second time.
+    /// </summary>
+    public List<TimesheetUserProjectDetail> ProjectDetails { get; set; } = new();
 
     /// <summary>
     /// <see langword="true"/> when the user was created by this call;
@@ -767,17 +801,29 @@ public class TimesheetUserCreateResponse
 }
 
 /// <summary>
-/// Body of <c>edit-timesheet-user</c> - edits one project assignment of a
-/// user, and the user's name, email, country and address.
+/// Body of <c>edit-timesheet-user</c> - edits a user: their name, email,
+/// country and address, and the set of projects they are on.
 /// <para>
 /// <see cref="FullName"/>, <see cref="Email"/>, <see cref="CountryId"/> and
 /// <see cref="Address"/> are saved to <c>dbo.Signup</c>, and so change for
-/// every project the user is on. Every other field is saved to the assignment
-/// in <c>dbo.Timesheet_Users_Project_setup</c>.
+/// every project the user is on. An optional one left out is saved as null,
+/// not left as it was.
 /// </para>
 /// <para>
-/// An edit overwrites every field with what is sent - an optional field left
-/// out is saved as null, not left as it was. Send the whole assignment.
+/// <see cref="ProjectDetails"/> is the <b>whole</b> list of projects the user
+/// should be on when the call finishes, and is reconciled against the
+/// assignments they already have in <c>dbo.Timesheet_Users_Project_setup</c>:
+/// a project in the list the user is not on yet is added, a project they are
+/// on that the list leaves out is soft-deleted, and a project in both is left
+/// exactly as it is - its role, rates, job type, range, coordinates and cap
+/// are not overwritten.
+/// </para>
+/// <para>
+/// <see cref="JobType"/>, <see cref="CostRate"/>, <see cref="BillRate"/>,
+/// <see cref="WorkLocationRange"/>, the coordinates and
+/// <see cref="MaxLogHoursPerDay"/> are therefore written only to the
+/// assignments this call <b>adds</b>. To change them on an assignment that
+/// already exists, the assignment has to be removed and added again.
 /// </para>
 /// <para>
 /// Validated by <c>TimesheetProjectService</c>, not by a FluentValidation
@@ -786,11 +832,14 @@ public class TimesheetUserCreateResponse
 /// </summary>
 public class TimesheetUserUpdateRequest
 {
-    /// <summary>The assignment to edit. Required, greater than 0.</summary>
-    /// <example>21</example>
-    public int TimesheetUserProjectSetupId { get; set; }
+    /// <summary>
+    /// The user to edit - a <c>dbo.Signup.UserID</c>. Required, greater than
+    /// 0, live, and a user of <see cref="OrganizationId"/>.
+    /// </summary>
+    /// <example>58</example>
+    public int UserId { get; set; }
 
-    /// <summary>Required. The user of the assignment must belong to it.</summary>
+    /// <summary>Required. The user must belong to it.</summary>
     /// <example>12</example>
     public int OrganizationId { get; set; }
 
@@ -820,20 +869,14 @@ public class TimesheetUserUpdateRequest
     public string? Address { get; set; }
 
     /// <summary>
-    /// Required. A project of <see cref="OrganizationId"/> that the user is not
-    /// already on through another assignment.
+    /// Required. The whole set of projects the user should be on when the call
+    /// finishes - at least one, each a project of
+    /// <see cref="OrganizationId"/>, and no project twice. Projects left out
+    /// are taken off the user.
     /// </summary>
-    /// <example>4</example>
-    public int ProjectId { get; set; }
+    public List<TimesheetUserProjectDetail>? ProjectDetails { get; set; }
 
-    /// <summary>
-    /// Optional. When sent, a live role of <see cref="OrganizationId"/> from
-    /// <c>dbo.TimesheetUserRole</c>.
-    /// </summary>
-    /// <example>3</example>
-    public int? ProjectRoleId { get; set; }
-
-    /// <summary>Optional. Greater than 0 when sent.</summary>
+    /// <summary>Optional. Greater than 0 when sent. Written to added assignments only.</summary>
     /// <example>1</example>
     public int? JobType { get; set; }
 
@@ -870,21 +913,20 @@ public class TimesheetUserUpdateRequest
 
     /// <summary>
     /// The user making the edit, written to <c>dbo.Signup.UpdateBy</c> when the
-    /// name or email changes. Required, greater than 0. <b>Temporary</b>: it
-    /// comes from the token once authentication is on.
+    /// name or email changes, to <c>Createdby</c> on an assignment this call
+    /// adds, and to <c>DeletedBy</c> on one it removes. Required, greater than
+    /// 0. <b>Temporary</b>: it comes from the token once authentication is on.
     /// </summary>
     /// <example>7</example>
     public int UpdatedBy { get; set; }
 }
 
 /// <summary>
-/// One project assignment of a user, with the user's name and email, as
-/// <c>edit-timesheet-user</c> returns it.
+/// A user and every project they are on, as <c>edit-timesheet-user</c> returns
+/// them after the save.
 /// </summary>
 public class TimesheetUserResponse
 {
-    public int TimesheetUserProjectSetupId { get; set; }
-
     /// <summary><c>dbo.Signup.UserID</c>.</summary>
     public int UserId { get; set; }
 
@@ -894,6 +936,29 @@ public class TimesheetUserResponse
     public string? Email { get; set; }
 
     public int? OrganizationId { get; set; }
+
+    /// <summary>The user's <c>dbo.Signup.CountryID</c>, as saved.</summary>
+    public int? CountryId { get; set; }
+
+    /// <summary>The user's <c>dbo.Signup.Address</c>, as saved.</summary>
+    public string? Address { get; set; }
+
+    /// <summary>
+    /// Every live assignment the user has after the save, by project id - the
+    /// ones kept and the ones this call added. The ones it removed are not in
+    /// it.
+    /// </summary>
+    public List<TimesheetUserAssignmentResponse> ProjectDetails { get; set; } = new();
+}
+
+/// <summary>
+/// One live project assignment of a user, as <c>edit-timesheet-user</c>
+/// returns it: the row in <c>dbo.Timesheet_Users_Project_setup</c>, without
+/// the project's own details.
+/// </summary>
+public class TimesheetUserAssignmentResponse
+{
+    public int TimesheetUserProjectSetupId { get; set; }
 
     public int? ProjectId { get; set; }
 
@@ -922,11 +987,12 @@ public class TimesheetUserResponse
     /// </summary>
     public int? MaxLogHoursPerDay { get; set; }
 
-    /// <summary>The user's <c>dbo.Signup.CountryID</c>, as saved.</summary>
-    public int? CountryId { get; set; }
-
-    /// <summary>The user's <c>dbo.Signup.Address</c>, as saved.</summary>
-    public string? Address { get; set; }
+    /// <summary>
+    /// <see langword="true"/> when this call added the assignment,
+    /// <see langword="false"/> when the user already had it and it was left
+    /// untouched.
+    /// </summary>
+    public bool IsNewAssignment { get; set; }
 }
 
 /// <summary>
@@ -957,15 +1023,17 @@ public class TimesheetUserDeleteRequest
 }
 
 /// <summary>
-/// One live project assignment of a live user of an organisation, as
-/// <c>get-timesheet-user-by-orgID</c> returns it - the user, the project and
-/// the project role, by id and by name. One per assignment: a user on three
-/// projects is three of these.
+/// One live user of an organisation, as <c>get-timesheet-user-by-orgID</c>
+/// returns them - the user once, with every live project assignment they have
+/// in <see cref="ProjectDetails"/>.
+/// <para>
+/// <c>dbo.spc_GetTimesheetUserListByOrgID</c> returns one row per assignment;
+/// the service groups them by user. A user with no live assignment is in
+/// neither - the procedure's join drops them.
+/// </para>
 /// </summary>
 public class TimesheetUserListResponse
 {
-    public int TimesheetUserProjectSetupId { get; set; }
-
     /// <summary><c>dbo.Signup.UserID</c>.</summary>
     public int UserId { get; set; }
 
@@ -975,41 +1043,6 @@ public class TimesheetUserListResponse
     public string? Email { get; set; }
 
     public int? OrganizationId { get; set; }
-
-    public int? ProjectId { get; set; }
-
-    /// <summary>The project's code - PR0001 ... Null when the project is unknown.</summary>
-    public string? ProjectCode { get; set; }
-
-    /// <summary>The project's <c>Projectname</c>. Null when the project is unknown.</summary>
-    public string? ProjectName { get; set; }
-
-    public int? ProjectRoleId { get; set; }
-
-    /// <summary>The role's <c>Rolename</c>. Null when the role is null, unknown or deleted.</summary>
-    public string? ProjectRoleName { get; set; }
-
-    public int? JobType { get; set; }
-
-    /// <summary>The <c>Cost_rate_per_hour</c> column.</summary>
-    public decimal? CostRate { get; set; }
-
-    /// <summary>The <c>Billable_rate_per_hour</c> column.</summary>
-    public decimal? BillRate { get; set; }
-
-    public int? WorkLocationRange { get; set; }
-
-    /// <summary>Text, as stored.</summary>
-    public string? ProjectLocationLatitude { get; set; }
-
-    /// <summary>Text, as stored.</summary>
-    public string? ProjectLocationLongitude { get; set; }
-
-    /// <summary>
-    /// The <c>Max_log_hour_day</c> column - the most hours a day this
-    /// assignment may log. Null when it sets no cap.
-    /// </summary>
-    public int? MaxLogHoursPerDay { get; set; }
 
     /// <summary>The user's country - <c>dbo.Signup.CountryID</c>. Null when they have none.</summary>
     /// <example>103</example>
@@ -1037,14 +1070,84 @@ public class TimesheetUserListResponse
     public string? CurrencySymbol { get; set; }
 
     /// <summary>
+    /// The job type of the user's assignments - <c>1</c> work from office,
+    /// <c>2</c> work from home.
+    /// <para>
+    /// This and the six properties below are columns of
+    /// <c>dbo.Timesheet_Users_Project_setup</c>, so each project row carries
+    /// its own. They are set the same on every project a call assigns, so they
+    /// are reported once here, taken from the user's <b>first</b> assignment -
+    /// the first project in <see cref="ProjectDetails"/>. A row edited
+    /// directly in the database could differ from the rest; that difference is
+    /// not visible here.
+    /// </para>
+    /// </summary>
+    public int? JobType { get; set; }
+
+    /// <summary>The <c>Cost_rate_per_hour</c> column of the first assignment.</summary>
+    public decimal? CostRate { get; set; }
+
+    /// <summary>The <c>Billable_rate_per_hour</c> column of the first assignment.</summary>
+    public decimal? BillRate { get; set; }
+
+    /// <summary>The <c>WorklocationRange</c> column of the first assignment.</summary>
+    public int? WorkLocationRange { get; set; }
+
+    /// <summary>Text, as stored, from the first assignment.</summary>
+    public string? ProjectLocationLatitude { get; set; }
+
+    /// <summary>Text, as stored, from the first assignment.</summary>
+    public string? ProjectLocationLongitude { get; set; }
+
+    /// <summary>
+    /// The <c>Max_log_hour_day</c> column of the first assignment - the most
+    /// hours a day the user may log. Null when it sets no cap.
+    /// </summary>
+    public int? MaxLogHoursPerDay { get; set; }
+
+    /// <summary>
     /// Whether the user is on approved leave today - today being the user's
     /// own date, in the time zone of their timesheet setup (UTC without one).
     /// True when an <b>approved</b> leave application of this organisation
     /// runs from on or before today to on or after it; submitted and rejected
-    /// leave do not count. The same on every row of one user.
+    /// leave do not count.
     /// </summary>
     /// <example>false</example>
     public bool IsOnLeave { get; set; }
+
+    /// <summary>
+    /// Every live project assignment of the user, in the procedure's order -
+    /// by project name. Never empty: a user without one is not listed at all.
+    /// </summary>
+    public List<TimesheetUserListProjectResponse> ProjectDetails { get; set; } = new();
+}
+
+/// <summary>
+/// One live project assignment of a user, inside
+/// <see cref="TimesheetUserListResponse"/> - the project and the project role,
+/// by id and by name.
+/// <para>
+/// The assignment's job type, rates, range, coordinates and daily cap are
+/// <b>not</b> here: they are the same on every project of a user, so they are
+/// reported once on <see cref="TimesheetUserListResponse"/>.
+/// </para>
+/// </summary>
+public class TimesheetUserListProjectResponse
+{
+    public int TimesheetUserProjectSetupId { get; set; }
+
+    public int? ProjectId { get; set; }
+
+    /// <summary>The project's code - PR0001 ... Null when the project is unknown.</summary>
+    public string? ProjectCode { get; set; }
+
+    /// <summary>The project's <c>Projectname</c>. Null when the project is unknown.</summary>
+    public string? ProjectName { get; set; }
+
+    public int? ProjectRoleId { get; set; }
+
+    /// <summary>The role's <c>Rolename</c>. Null when the role is null, unknown or deleted.</summary>
+    public string? ProjectRoleName { get; set; }
 }
 
 /// <summary>
@@ -1167,7 +1270,7 @@ public class TimesheetUserDetailsResponse
 /// <summary>One project assignment of a user, in <see cref="TimesheetUserDetailsResponse"/>.</summary>
 public class TimesheetUserProjectResponse
 {
-    /// <summary>The assignment - the id <c>edit-timesheet-user</c> takes.</summary>
+    /// <summary>The assignment row in <c>dbo.Timesheet_Users_Project_setup</c>.</summary>
     public int TimesheetUserProjectSetupId { get; set; }
 
     public int? ProjectId { get; set; }

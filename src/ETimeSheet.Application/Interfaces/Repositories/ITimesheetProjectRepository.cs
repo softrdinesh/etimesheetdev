@@ -221,9 +221,14 @@ public interface ITimesheetProjectRepository
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Signs a user up and puts them on a project via
+    /// Signs a user up and puts them on <b>one</b> project via
     /// <c>spc_Signup_timesheet_user</c>. The procedure returns nothing; read
     /// the user back with <see cref="GetUserByEmailAsync"/>.
+    /// <para>
+    /// Called once per project when the payload names several: the first call
+    /// creates the user and the assignment, each later one finds the user by
+    /// email and adds only the assignment. Each call is its own transaction.
+    /// </para>
     /// </summary>
     /// <param name="fullName">Already trimmed and validated.</param>
     /// <param name="email">Already trimmed and validated.</param>
@@ -247,16 +252,6 @@ public interface ITimesheetProjectRepository
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Returns one live project assignment from
-    /// <c>dbo.Timesheet_Users_Project_setup</c>, <b>tracked</b> for an edit or
-    /// a soft delete, or <see langword="null"/> when it does not exist or is
-    /// deleted already.
-    /// </summary>
-    Task<TimesheetUserProjectSetup?> GetUserProjectSetupForUpdateAsync(
-        int timesheetUserProjectSetupId,
-        CancellationToken cancellationToken = default);
-
-    /// <summary>
     /// Returns one <c>dbo.Signup</c> user, <b>tracked</b> for an edit, or
     /// <see langword="null"/> when there is none. Deleted users are returned
     /// too; the caller decides.
@@ -276,6 +271,25 @@ public interface ITimesheetProjectRepository
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Returns every live project assignment of a user, <b>tracked</b>, for
+    /// the edit to reconcile against the projects its payload names. Empty
+    /// when the user is on no project.
+    /// </summary>
+    Task<IReadOnlyList<TimesheetUserProjectSetup>> GetUserProjectSetupsForUpdateAsync(
+        int userId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Adds the assignments the edit created and saves everything the caller
+    /// changed - the user's <c>dbo.Signup</c> row and the assignments it
+    /// soft-deleted included - in one save, so either all of it is written or
+    /// none is. An empty list saves the rest.
+    /// </summary>
+    Task SaveTimesheetUserAssignmentsAsync(
+        IReadOnlyList<TimesheetUserProjectSetup> addedSetups,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Returns every live assignment of a user to a project, <b>tracked</b>
     /// for a soft delete - normally one, more only for duplicates. Empty when
     /// the user has no live assignment to the project.
@@ -291,16 +305,6 @@ public interface ITimesheetProjectRepository
     /// </summary>
     Task UpdateTimesheetUsersAsync(
         IReadOnlyList<TimesheetUserProjectSetup> setups,
-        CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// Saves the changes made to an assignment loaded by
-    /// <see cref="GetUserProjectSetupForUpdateAsync"/> - and to its user, when
-    /// loaded by <see cref="GetUserForUpdateAsync"/> - in one save, so either
-    /// both are written or neither is.
-    /// </summary>
-    Task UpdateTimesheetUserAsync(
-        TimesheetUserProjectSetup setup,
         CancellationToken cancellationToken = default);
 
     /// <summary>

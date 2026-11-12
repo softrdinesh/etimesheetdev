@@ -113,18 +113,31 @@ internal static class TimesheetProjectMappings
         PeriodEnd = budget.PeriodEnd,
     };
 
-    internal static TimesheetUserListResponse ToResponse(this TimesheetUserListDetail user) => new()
+    /// <summary>
+    /// Projects the user's columns of a <c>spc_GetTimesheetUserListByOrgID</c>
+    /// row to the list response. The procedure repeats them on every
+    /// assignment row of the user, so any one row of the group will do.
+    /// <para>
+    /// The job type, rates, range, coordinates and daily cap are the
+    /// assignment's, not the user's, but are set the same on every project of
+    /// a user - so they are taken from this row, the user's first assignment,
+    /// and reported once.
+    /// </para>
+    /// </summary>
+    internal static TimesheetUserListResponse ToUserListResponse(
+        this TimesheetUserListDetail user,
+        List<TimesheetUserListProjectResponse> projects) => new()
     {
-        TimesheetUserProjectSetupId = user.TimesheetUserProjectSetupId,
         UserId = user.UserId,
         Name = user.Name,
         Email = user.Email,
         OrganizationId = user.OrganizationId,
-        ProjectId = user.ProjectId,
-        ProjectCode = user.ProjectCode,
-        ProjectName = user.ProjectName,
-        ProjectRoleId = user.ProjectRoleId,
-        ProjectRoleName = user.ProjectRoleName,
+        CountryId = user.CountryId,
+        CountryName = user.CountryName,
+        Address = user.Address,
+        CurrencyId = user.CurrencyId,
+        CurrencyName = user.CurrencyName,
+        CurrencySymbol = user.CurrencySymbol,
         JobType = user.JobType,
         CostRate = user.CostRate,
         BillRate = user.BillRate,
@@ -132,12 +145,23 @@ internal static class TimesheetProjectMappings
         ProjectLocationLatitude = user.ProjectLocationLatitude,
         ProjectLocationLongitude = user.ProjectLocationLongitude,
         MaxLogHoursPerDay = user.MaxLogHoursPerDay,
-        CountryId = user.CountryId,
-        CountryName = user.CountryName,
-        Address = user.Address,
-        CurrencyId = user.CurrencyId,
-        CurrencyName = user.CurrencyName,
-        CurrencySymbol = user.CurrencySymbol,
+        ProjectDetails = projects,
+    };
+
+    /// <summary>
+    /// Projects the assignment's columns of a
+    /// <c>spc_GetTimesheetUserListByOrgID</c> row to one entry of that
+    /// response's project list.
+    /// </summary>
+    internal static TimesheetUserListProjectResponse ToUserListProjectResponse(
+        this TimesheetUserListDetail user) => new()
+    {
+        TimesheetUserProjectSetupId = user.TimesheetUserProjectSetupId,
+        ProjectId = user.ProjectId,
+        ProjectCode = user.ProjectCode,
+        ProjectName = user.ProjectName,
+        ProjectRoleId = user.ProjectRoleId,
+        ProjectRoleName = user.ProjectRoleName,
     };
 
     /// <summary>

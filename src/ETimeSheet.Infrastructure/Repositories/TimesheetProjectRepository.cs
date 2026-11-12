@@ -330,16 +330,6 @@ public class TimesheetProjectRepository : ITimesheetProjectRepository
         }
     }
 
-    public async Task<TimesheetUserProjectSetup?> GetUserProjectSetupForUpdateAsync(
-        int timesheetUserProjectSetupId,
-        CancellationToken cancellationToken = default) =>
-        // Tracked on purpose - this is the write path. The query filter still
-        // applies, so an assignment deleted already is not found.
-        await _db.Timesheet_Users_Project_setup
-            .FirstOrDefaultAsync(
-                setup => setup.TimesheetUserProjectSetupId == timesheetUserProjectSetupId,
-                cancellationToken);
-
     public async Task<Signup?> GetUserForUpdateAsync(
         int userId,
         CancellationToken cancellationToken = default) =>
@@ -361,12 +351,30 @@ public class TimesheetProjectRepository : ITimesheetProjectRepository
                          && setup.TimesheetUserProjectSetupId != excludedTimesheetUserProjectSetupId,
                 cancellationToken);
 
-    public async Task UpdateTimesheetUserAsync(
-        TimesheetUserProjectSetup setup,
+    public async Task<IReadOnlyList<TimesheetUserProjectSetup>> GetUserProjectSetupsForUpdateAsync(
+        int userId,
         CancellationToken cancellationToken = default) =>
-        // One SaveChanges, so the assignment and the user's dbo.Signup row go
-        // in one transaction.
+        // Tracked on purpose - this is the write path of the edit, which may
+        // soft-delete any of these. The query filter hides assignments deleted
+        // already, so only the live ones are reconciled.
+        await _db.Timesheet_Users_Project_setup
+            .Where(setup => setup.UserId == userId)
+            .ToListAsync(cancellationToken);
+
+    public async Task SaveTimesheetUserAssignmentsAsync(
+        IReadOnlyList<TimesheetUserProjectSetup> addedSetups,
+        CancellationToken cancellationToken = default)
+    {
+        if (addedSetups.Count > 0)
+        {
+            await _db.Timesheet_Users_Project_setup.AddRangeAsync(addedSetups, cancellationToken);
+        }
+
+        // One SaveChanges for the lot: the user's dbo.Signup row, the
+        // assignments soft-deleted by the caller and the ones added here all
+        // go in one transaction, or none of them does.
         await _db.SaveChangesAsync(cancellationToken);
+    }
 
     public async Task<IReadOnlyList<TimesheetUserProjectSetup>> GetUserProjectSetupListForUpdateAsync(
         int userId,
