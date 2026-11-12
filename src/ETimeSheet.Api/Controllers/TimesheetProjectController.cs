@@ -284,17 +284,24 @@ public class TimesheetProjectController : ControllerBase
     #region Timesheet User
 
     /// <summary>
-    /// Signs a user up and puts them on a project of their organisation,
-    /// through <c>dbo.spc_Signup_timesheet_user</c>.
+    /// Signs a user up and puts them on one or more projects of their
+    /// organisation, through <c>dbo.spc_Signup_timesheet_user</c>.
+    /// <para>
+    /// <c>projectDetails</c> names the projects and the role on each; at least
+    /// one, and no project twice. Every other field is the user's or is shared
+    /// by all of the assignments - rates, job type, range, coordinates and cap
+    /// are written to each of them.
+    /// </para>
     /// <para>
     /// An <c>email</c> that is not yet a user creates the user, their login
-    /// row and the project assignment. An <c>email</c> that is already a live
-    /// user of <c>organizationId</c> only adds the project assignment; the user
+    /// row and the project assignments. An <c>email</c> that is already a live
+    /// user of <c>organizationId</c> only adds the assignments; the user
     /// is not changed, so <c>fullName</c>, <c>countryId</c> and <c>address</c>
-    /// are ignored. <c>isNewUser</c> in the response says which happened.
+    /// are ignored, and a project they are already on is kept rather than
+    /// assigned twice. <c>isNewUser</c> in the response says which happened.
     /// </para>
     /// </summary>
-    /// <response code="200">The user, with their <c>userId</c>.</response>
+    /// <response code="200">The user, with their <c>userId</c> and the projects they are on.</response>
     /// <response code="400">The payload failed validation, or names an organisation, country, project or role that does not exist - every failure is listed.</response>
     /// <response code="409">The email belongs to a removed user, or to a user of another organisation.</response>
     [HttpPost("create-timesheet-user")]
@@ -306,28 +313,38 @@ public class TimesheetProjectController : ControllerBase
         CancellationToken cancellationToken)
     {
         var result = await _timesheetProjectService.CreateTimesheetUserAsync(request, cancellationToken);
-        return Ok(ApiResponse.Ok(result, result.IsNewUser ? "User created." : "User added to the project."));
+        return Ok(ApiResponse.Ok(result, result.IsNewUser ? "User created." : "User added to the project(s)."));
     }
 
     /// <summary>
-    /// Edits one project assignment of a user, identified by
-    /// <c>timesheetUserProjectSetupId</c>.
+    /// Edits a user, identified by <c>userId</c>: their details, and the set
+    /// of projects they are on.
     /// <para>
     /// <c>fullName</c>, <c>email</c>, <c>countryId</c> and <c>address</c> are
     /// saved to the user in <c>dbo.Signup</c> when they change - and so change
-    /// for every project the user is on. Every other field is saved to the
-    /// assignment in <c>dbo.Timesheet_Users_Project_setup</c>. Both are
-    /// written together, or neither is.
+    /// for every project the user is on. An optional one left out clears the
+    /// stored value.
     /// </para>
     /// <para>
-    /// An edit overwrites every field, so send the whole assignment -
-    /// <c>countryId</c> or <c>address</c> left out clears the stored value.
+    /// <c>projectDetails</c> is the <b>whole</b> set of projects the user
+    /// should be on afterwards, and is reconciled against the assignments they
+    /// already have in <c>dbo.Timesheet_Users_Project_setup</c>: a project in
+    /// the list they are not on yet is added, a project they are on that the
+    /// list leaves out is soft-deleted, and a project in both is left exactly
+    /// as it is - its role, rates, job type, range, coordinates and cap are
+    /// not overwritten.
+    /// </para>
+    /// <para>
+    /// So <c>jobType</c>, <c>costRate</c>, <c>billRate</c>,
+    /// <c>workLocationRange</c>, the coordinates and <c>maxLogHoursPerDay</c>
+    /// reach only the assignments this call adds. Everything is written
+    /// together, or none of it is.
     /// </para>
     /// </summary>
-    /// <response code="200">The saved assignment, with the user's name, email, country and address.</response>
+    /// <response code="200">The user and every project they are on after the save.</response>
     /// <response code="400">The payload failed validation, or names a country, project or role that does not exist - every failure is listed.</response>
-    /// <response code="404">No live assignment has that id, or its user is removed or belongs to another organisation.</response>
-    /// <response code="409">The email is used by another user, or the user is already on the project through another assignment.</response>
+    /// <response code="404">No user has that id, or the user is removed or belongs to another organisation.</response>
+    /// <response code="409">The email is used by another user.</response>
     [HttpPost("edit-timesheet-user")]
     [ProducesResponseType(typeof(ApiResponse<TimesheetUserResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -370,13 +387,16 @@ public class TimesheetProjectController : ControllerBase
 
     /// <summary>
     /// Returns the timesheet users of one organisation, through
-    /// <c>dbo.spc_GetTimesheetUserListByOrgID</c> - one row per live project
-    /// assignment of a live user, with the user's name and email, the
-    /// project's code and name, and the project role's name. Ordered by user
-    /// name, then project name. A user with no live assignment is not listed.
+    /// <c>dbo.spc_GetTimesheetUserListByOrgID</c> - <b>one entry per user</b>,
+    /// with their name, email, country, currency, leave flag and the job
+    /// type, rates, range, coordinates and daily cap of their assignments,
+    /// and every live project assignment they have in <c>projectDetails</c>:
+    /// the project's code and name, and the project role's name. Ordered by
+    /// user name, then project name within a user. A user with no live
+    /// assignment is not listed.
     /// </summary>
     /// <param name="orgID">The organisation whose users to list, as a route segment.</param>
-    /// <response code="200">The users' assignments. An organisation with none is an empty list, not a 404.</response>
+    /// <response code="200">The users, each with their projects. An organisation with none is an empty list, not a 404.</response>
     /// <response code="400">An organisation id that is not greater than zero.</response>
     [HttpGet("get-timesheet-user-by-orgID/{orgID:int}")]
     [ProducesResponseType(typeof(ApiResponse<IReadOnlyList<TimesheetUserListResponse>>), StatusCodes.Status200OK)]

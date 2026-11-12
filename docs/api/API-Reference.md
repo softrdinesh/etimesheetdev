@@ -4,7 +4,7 @@ Every endpoint the API exposes today, with its purpose, input payload, success
 response and failure responses — each with a worked example.
 
 Generated from the code on branch `develop` (last brought up to date
-2026-10-24). If you change a
+2026-11-13). If you change a
 controller, DTO or validator, change this file with it.
 
 ---
@@ -94,6 +94,7 @@ controller, DTO or validator, change this file with it.
   - [Remove User Leave Apply](#67-remove-user-leave-apply)
   - [Approve / Reject User Leave Apply](#68-approve--reject-user-leave-apply)
 - [Health endpoints](#health-endpoints)
+- [Background jobs](#background-jobs)
 - [Enumerations](#enumerations)
 - [Endpoint summary table](#endpoint-summary-table)
 - [Known gaps](#known-gaps)
@@ -3536,7 +3537,7 @@ then `projectId`:
 | `clientName` | string \| null | The client's name — shown even if the client has since been removed; `null` only when the id names no client |
 | `submissionFrequency` | int \| null | How often timesheets are submitted: `1` weekly, `2` every 15 days, `3` monthly; `null` when not set |
 | `submissionFrequencyName` | string \| null | `submissionFrequency` as text: `Weekly`, `Every 15 Days` or `Monthly`; `null` when not set. Worked out by the procedure, not stored |
-| `autoApproveInDays` | int \| null | After how many days a submitted sheet approves itself when no approver has acted — `3` means three days after it was submitted; `null` when the project does not auto-approve |
+| `autoApproveInDays` | int \| null | After how many days a submitted sheet approves itself when no approver has acted — `3` means three days after it was submitted; `null` (or `0`) when the project does not auto-approve. Acted on by the [`AutoApproveProjectSheet` job](#background-jobs) |
 
 `organizationId` is **not** returned — the caller already sent it in the URL.
 
@@ -3624,7 +3625,7 @@ left as it was — send the whole project.
 | `status` | int \| null | no | `> 0` when sent | A `statusId` from [Project Status List](#27-project-status-list). **Not** checked against the organisation's statuses |
 | `clientId` | int | **yes** | `> 0`; a **live** (not deleted) client | The client the project is for, and the source of its currency. An update can change it |
 | `submissionFrequency` | int \| null | no | `1`, `2` or `3` when sent | How often timesheets are submitted: `1` weekly, `2` every 15 days, `3` monthly. Left out, it is saved as `null` — on an update too |
-| `autoApproveInDays` | int \| null | no | `>= 0` when sent | After how many days a submitted sheet approves itself when no approver has acted. Left out or sent as `null`, it is saved as `null` — on an update too — and the project does not auto-approve |
+| `autoApproveInDays` | int \| null | no | `>= 0` when sent | After how many days a submitted sheet approves itself when no approver has acted — by the [`AutoApproveProjectSheet` job](#background-jobs), not by an endpoint. Left out or sent as `null`, it is saved as `null` — on an update too. `null` and `0` both mean the project never auto-approves, but `0` currently fails on the column's CHECK constraint with a **500** (see gap 93) |
 
 #### Example request — add
 
@@ -4264,14 +4265,20 @@ database yet.
 
 `POST /api/v1/TimesheetProject/create-timesheet-user`
 
-**Purpose** — Sign a user up and put them on a project of their organisation.
-Written through `dbo.spc_Signup_timesheet_user`.
+**Purpose** — Sign a user up and put them on one or more projects of their
+organisation. Written through `dbo.spc_Signup_timesheet_user`, **called once
+per project** in `projectDetails`.
 
 | `email` | Result |
 |---|---|
-| not yet a user | **Creates** the user (`dbo.Signup`, role 2), their `dbo.Login` row, and the project assignment. `isNewUser: true` |
-| a live user of `organizationId` | **Adds the project assignment only.** The user is not changed — `fullName`, `countryId` and `address` are ignored. `isNewUser: false` |
+| not yet a user | **Creates** the user (`dbo.Signup`, role 2), their `dbo.Login` row, and one assignment per project. `isNewUser: true` |
+| a live user of `organizationId` | **Adds the project assignments only.** The user is not changed — `fullName`, `countryId` and `address` are ignored. A project they are already on is **kept, not added again**. `isNewUser: false` |
 | a removed user, or a user of another organisation | **409** — nothing is written |
+
+Each call to the procedure is its own transaction, so a database failure part
+way through a multi-project payload leaves the assignments already made. Every
+id in the payload is checked before the first call, so that needs the database
+itself to fail mid-request.
 
 The email is matched ignoring case and surrounding spaces, and stored upper
 case.
@@ -4293,24 +4300,33 @@ and the reason is logged.
 | `countryId` | int \| null | no | `> 0`; an existing `dbo.Country` | |
 | `address` | string \| null | no | | Blank is saved as `null` |
 | `organizationId` | int | yes | `> 0`; an existing organisation | |
-| `projectId` | int | yes | `> 0`; a project of `organizationId` | |
-| `projectRoleId` | int \| null | no | `> 0`; a live role of `organizationId` | A `roleId` from `get-user-role-list-by-orgid` |
+| `projectDetails` | array | yes | at least one entry; no project twice | The projects to put the user on, and the role on each |
+| `projectDetails[].projectId` | int | yes | `> 0`; a project of `organizationId` | |
+| `projectDetails[].projectRoleId` | int \| null | no | `> 0`; a live role of `organizationId` | A `roleId` from `get-user-role-list-by-orgid` |
 | `jobType` | int \| null | no | `> 0` | `1` work from office, `2` work from home — see [`JobType`](#jobtype--the-jobtype-column-of-dbotimesheet_users_project_setup). Not checked against the list |
 | `costRate` | decimal | yes | `>= 0` | Cost per hour |
 | `billRate` | decimal | yes | `>= 0` | Billable rate per hour |
 | `workLocationRange` | int \| null | no | `>= 0` | |
-| `projectLocationLatitude` | string \| null | no | a number from -90 to 90, `<= 25` characters | Saved for a **new** user only |
-| `projectLocationLongitude` | string \| null | no | a number from -180 to 180, `<= 25` characters | Saved for a **new** user only, and only once the procedure revision below is applied |
+| `projectLocationLatitude` | string \| null | no | a number from -90 to 90, `<= 25` characters | Stored on the **first** assignment of a **new** user only — see the note below |
+| `projectLocationLongitude` | string \| null | no | a number from -180 to 180, `<= 25` characters | As the latitude |
 | `maxLogHoursPerDay` | int \| null | no | `0`–`24` | The most hours a day this assignment may log. [Add / Edit Project Time Log](#50-add--edit-project-time-log) enforces it; `null` caps the day at 24. Unlike the latitude and longitude, it is saved for an existing user too |
 | `createdBy` | int | yes | `> 0` | Temporary — from the token once authentication is on |
+
+Only the role varies per project. `jobType`, `costRate`, `billRate`,
+`workLocationRange`, the coordinates and `maxLogHoursPerDay` are shared: they
+are written to **every** assignment the call creates.
 
 The procedure's `@Range` parameter is **not** exposed: the procedure never
 uses it.
 
-> `projectLocationLongitude` is passed as `@Projectloclongtitude`. The
-> procedure has always accepted that parameter but, until the owner applies
-> the 2026-10-22 revision, never writes it — the longitude is validated and
-> then silently dropped. The call itself does not fail.
+> **The coordinates reach the first project only.** The procedure writes
+> `ProjectlocLatitude` / `ProjectlocLongtitude` in its **new-user** branch
+> (the 2026-10-22 revision, applied), but not yet in its existing-user branch
+> — that is the 2026-10-27 revision, **still DRAFT**. So on a payload with
+> several projects the first assignment stores the coordinates and the rest
+> store none, and for an email that is already a user none of them do. The
+> values are validated and then silently dropped; the call itself does not
+> fail. Applying the 2026-10-27 revision makes both branches write them.
 
 > `maxLogHoursPerDay` is passed as `@Maxloghourday`, added to
 > `spc_Signup_timesheet_user` on 2026-10-18 and **still DRAFT**. Until the
@@ -4327,8 +4343,10 @@ uses it.
   "countryId": 101,
   "address": "12 MG Road, Pune",
   "organizationId": 12,
-  "projectId": 4,
-  "projectRoleId": 3,
+  "projectDetails": [
+    { "projectId": 45, "projectRoleId": 22 },
+    { "projectId": 46, "projectRoleId": 3 }
+  ],
   "jobType": 1,
   "costRate": 25.00,
   "billRate": 45.00,
@@ -4343,7 +4361,7 @@ uses it.
 #### Success response — `200 OK`
 
 `data` is a `TimesheetUserCreateResponse` — the user as `dbo.Signup` holds it
-after the save. `message` is `User created.` or `User added to the project.`
+after the save. `message` is `User created.` or `User added to the project(s).`
 
 | Field | Type | Notes |
 |---|---|---|
@@ -4351,8 +4369,8 @@ after the save. `message` is `User created.` or `User added to the project.`
 | `name` | string \| null | An existing user keeps their own name |
 | `email` | string \| null | As stored — upper case |
 | `organizationId` | int \| null | |
-| `projectId` | int | |
-| `isNewUser` | bool | `false` when an existing user was only put on the project |
+| `projectDetails` | array | The projects the user is on, echoed from the payload in the order sent — one that was kept rather than added is in it too |
+| `isNewUser` | bool | `false` when an existing user was only put on the project(s) |
 | `welcomeEmailSent` | bool | Whether the welcome email went out. Always `false` when `isNewUser` is `false` |
 
 ```json
@@ -4364,7 +4382,10 @@ after the save. `message` is `User created.` or `User added to the project.`
     "name": "Priya Shah",
     "email": "PRIYA.SHAH@EXAMPLE.COM",
     "organizationId": 12,
-    "projectId": 4,
+    "projectDetails": [
+      { "projectId": 45, "projectRoleId": 22 },
+      { "projectId": 46, "projectRoleId": 3 }
+    ],
     "isNewUser": true,
     "welcomeEmailSent": true
   },
@@ -4376,8 +4397,10 @@ after the save. `message` is `User created.` or `User added to the project.`
 
 **400 — validation** (every failure listed): a missing or malformed field from
 the table above, then — once the shape is right — an organisation, country,
-project or role that does not exist, e.g.
-`ProjectId: Project '4' does not exist in organization '12'.`
+project or role that does not exist. List failures are keyed on the entry that
+failed, e.g. `ProjectDetails[0].ProjectId: Project '45' does not exist in
+organization '12'.`, and a repeated project is
+`ProjectDetails: ProjectDetails names project(s) 45 more than once; each project may appear only once.`
 
 **409** — `The user with email '…' has been removed.` /
 `The user with email '…' belongs to another organization.`
@@ -4387,11 +4410,13 @@ or the procedure failed. The procedure swallows its own errors without rolling
 back, so the API sees only SQL Server error 266; it rolls the transaction back
 and returns the generic 500. The real cause is not reported.
 
-#### Not checked
+#### Duplicates
 
-Putting the same user on the same project twice adds a second assignment row:
-`dbo.Timesheet_Users_Project_setup` has no unique constraint, and neither the
-procedure nor the API checks for an existing assignment.
+`dbo.Timesheet_Users_Project_setup` has no unique constraint and the procedure
+always inserts, so the API guards the two ways a duplicate could arise: one
+project may not appear twice in `projectDetails` (a 400), and a project an
+**existing** user is already on is skipped — the assignment they have is kept
+untouched, and nothing is written for it.
 
 ---
 
@@ -4399,17 +4424,33 @@ procedure nor the API checks for an existing assignment.
 
 `POST /api/v1/TimesheetProject/edit-timesheet-user`
 
-**Purpose** — Edit one project assignment of a user, and the user's name,
-email, country and address. Written through EF Core, not a procedure.
+**Purpose** — Edit a user: their name, email, country and address, and the set
+of projects they are on. Written through EF Core, not a procedure.
 
 | Field | Saved to |
 |---|---|
 | `fullName`, `email`, `countryId`, `address` | The user in `dbo.Signup` — **only when they change**, with `UpdatedDate` / `UpdateBy`. They change for every project the user is on |
-| everything else | The assignment in `dbo.Timesheet_Users_Project_setup` |
+| `projectDetails` | The user's assignments in `dbo.Timesheet_Users_Project_setup`, **reconciled** — see below |
+| `jobType`, `costRate`, `billRate`, `workLocationRange`, the coordinates, `maxLogHoursPerDay` | The assignments this call **adds**, and only those |
 
-Both are saved in one transaction — both or neither. **An edit overwrites every
-field**: an optional field left out is saved as `null`. Send the whole
-assignment.
+All of it is saved in one transaction — all or none.
+
+**How `projectDetails` is reconciled.** It is the *whole* set of projects the
+user should be on when the call finishes, not a patch:
+
+| The project is… | What happens |
+|---|---|
+| in `projectDetails`, and the user is **not** on it | **Added** — a new row, with the payload's `projectRoleId` for it and the shared fields above, stamped `CreateDate` / `Createdby` |
+| in `projectDetails`, and the user **is** on it | **Left exactly as it is** — same row, same `projectRoleId`, rates, job type, range, coordinates and cap. Nothing is overwritten |
+| **not** in `projectDetails`, and the user is on it | **Soft-deleted** — `IsDelete = 1`, `DeletedDate` (UTC), `DeletedBy = updatedBy`, as [Remove Timesheet User](#38-remove-timesheet-user) does it |
+
+Because an existing assignment is left untouched, **this endpoint cannot change
+the rates or the role of a project the user is already on.** To change them,
+remove the project from the list in one call and add it back in the next.
+
+A live assignment row whose `ProjectID` is `NULL` names no project, so the list
+can neither keep nor drop it: it is left alone and does not appear in the
+response.
 
 > Needs `TimesheetUserProjectSetupID` on `dbo.Timesheet_Users_Project_setup`.
 > **Applied** — the `sp_help` list supplied on 2026-10-18 shows the column
@@ -4419,35 +4460,38 @@ assignment.
 
 | Field | Type | Required | Rules | Notes |
 |---|---|---|---|---|
-| `timesheetUserProjectSetupId` | int | yes | `> 0`; a live assignment | |
-| `organizationId` | int | yes | `> 0` | The assignment's user must belong to it |
+| `userId` | int | yes | `> 0`; a live `dbo.Signup.UserID` | The user to edit |
+| `organizationId` | int | yes | `> 0` | The user must belong to it |
 | `fullName` | string | yes | `<= 50` characters after trimming | |
 | `email` | string | yes | a valid address, `<= 50` characters; not another user's | Stored upper case. Compared ignoring case, so a case-only change is not a change |
 | `countryId` | int \| null | no | `> 0`; a `dbo.Country` id that exists | Saved to `dbo.Signup.CountryID`. Left out, the user's country is **cleared** |
 | `address` | string \| null | no | trimmed; no length limit | Saved to `dbo.Signup.Address`. Left out, the user's address is **cleared** |
-| `projectId` | int | yes | `> 0`; a project of `organizationId`; not one the user is on through another live assignment | May move the assignment to another project |
-| `projectRoleId` | int \| null | no | `> 0`; a live role of `organizationId` | |
-| `jobType` | int \| null | no | `> 0` | `1` work from office, `2` work from home. Not checked against the list |
-| `costRate` | decimal | yes | `>= 0` | |
-| `billRate` | decimal | yes | `>= 0` | |
-| `workLocationRange` | int \| null | no | `>= 0` | |
-| `projectLocationLatitude` | string \| null | no | a number from -90 to 90, `<= 25` characters | |
-| `projectLocationLongitude` | string \| null | no | a number from -180 to 180, `<= 25` characters | |
-| `maxLogHoursPerDay` | int \| null | no | `0`–`24` | Stored only — [Add / Edit Project Time Log](#50-add--edit-project-time-log) enforces no daily cap |
-| `updatedBy` | int | yes | `> 0` | Temporary — from the token once authentication is on |
+| `projectDetails` | array | yes | at least one entry; no project twice | The **whole** set of projects the user should be on; one left out is taken off them |
+| `projectDetails[].projectId` | int | yes | `> 0`; a project of `organizationId` | |
+| `projectDetails[].projectRoleId` | int \| null | no | `> 0`; a live role of `organizationId` | Used on an **added** assignment only; ignored for one the user already has |
+| `jobType` | int \| null | no | `> 0` | `1` work from office, `2` work from home. Not checked against the list. Added assignments only |
+| `costRate` | decimal | yes | `>= 0` | Added assignments only |
+| `billRate` | decimal | yes | `>= 0` | Added assignments only |
+| `workLocationRange` | int \| null | no | `>= 0` | Added assignments only |
+| `projectLocationLatitude` | string \| null | no | a number from -90 to 90, `<= 25` characters | Added assignments only |
+| `projectLocationLongitude` | string \| null | no | a number from -180 to 180, `<= 25` characters | Added assignments only |
+| `maxLogHoursPerDay` | int \| null | no | `0`–`24` | Stored only — [Add / Edit Project Time Log](#50-add--edit-project-time-log) enforces no daily cap. Added assignments only |
+| `updatedBy` | int | yes | `> 0` | Written to `UpdateBy` on the user, `Createdby` on an added assignment and `DeletedBy` on a removed one. Temporary — from the token once authentication is on |
 
 #### Example request
 
 ```json
 {
-  "timesheetUserProjectSetupId": 21,
+  "userId": 58,
   "organizationId": 12,
   "fullName": "Priya Shah",
   "email": "priya.shah@example.com",
   "countryId": 1,
   "address": "14 MG Road, Pune",
-  "projectId": 4,
-  "projectRoleId": 3,
+  "projectDetails": [
+    { "projectId": 45, "projectRoleId": 22 },
+    { "projectId": 46, "projectRoleId": 22 }
+  ],
   "jobType": 1,
   "costRate": 28.00,
   "billRate": 50.00,
@@ -4459,31 +4503,55 @@ assignment.
 }
 ```
 
+The user was on projects 45 and 47. After this call they are on 45 — untouched,
+with whatever role and rates it already had — and 46, added with role 22 and
+the rates above. Project 47 is soft-deleted.
+
 #### Success response — `200 OK`
 
-`data` is a `TimesheetUserResponse`:
+`data` is a `TimesheetUserResponse` — the user, and every project they are on
+after the save, by `projectId`. `isNewAssignment` says whether this call added
+it. Removed assignments are not in the list.
 
 ```json
 {
   "success": true,
   "message": "Timesheet user saved.",
   "data": {
-    "timesheetUserProjectSetupId": 21,
     "userId": 58,
     "name": "Priya Shah",
     "email": "PRIYA.SHAH@EXAMPLE.COM",
     "organizationId": 12,
-    "projectId": 4,
-    "projectRoleId": 3,
-    "jobType": 1,
-    "costRate": 28.00,
-    "billRate": 50.00,
-    "workLocationRange": 500,
-    "projectLocationLatitude": "18.5204",
-    "projectLocationLongitude": "73.8567",
-    "maxLogHoursPerDay": 8,
     "countryId": 1,
-    "address": "14 MG Road, Pune"
+    "address": "14 MG Road, Pune",
+    "projectDetails": [
+      {
+        "timesheetUserProjectSetupId": 21,
+        "projectId": 45,
+        "projectRoleId": 3,
+        "jobType": 1,
+        "costRate": 25.00,
+        "billRate": 45.00,
+        "workLocationRange": 500,
+        "projectLocationLatitude": "18.5204",
+        "projectLocationLongitude": "73.8567",
+        "maxLogHoursPerDay": 8,
+        "isNewAssignment": false
+      },
+      {
+        "timesheetUserProjectSetupId": 94,
+        "projectId": 46,
+        "projectRoleId": 22,
+        "jobType": 1,
+        "costRate": 28.00,
+        "billRate": 50.00,
+        "workLocationRange": 500,
+        "projectLocationLatitude": "18.5204",
+        "projectLocationLongitude": "73.8567",
+        "maxLogHoursPerDay": 8,
+        "isNewAssignment": true
+      }
+    ]
   },
   "errors": []
 }
@@ -4493,13 +4561,14 @@ assignment.
 
 **400 — validation** (every failure listed): a missing or malformed field from
 the table above, then — once the shape is right — a country, project or role
-that does not exist: `CountryId: Country '99' does not exist.`
+that does not exist: `CountryId: Country '99' does not exist.` List failures
+are keyed on the entry that failed, e.g.
+`ProjectDetails[1].ProjectRoleId: Role '22' does not exist in organization '12' or has been removed.`
 
-**404** — no live assignment has that id, or its user is removed or belongs to
-another organisation: `Timesheet user '21' was not found.`
+**404** — no user has that id, or the user is removed or belongs to another
+organisation: `Timesheet user '58' was not found.`
 
-**409** — `The email '…' is already used by another user.` /
-`User '58' is already on project '4' through another assignment.`
+**409** — `The email '…' is already used by another user.`
 
 **500** — unhandled defect.
 
@@ -4512,9 +4581,12 @@ another organisation: `Timesheet user '21' was not found.`
 **Purpose** — Take a user off a project, by `userId` and `projectId`. A soft
 delete: the user's live assignment to the project in
 `dbo.Timesheet_Users_Project_setup` stays, stamped with `IsDelete = 1`,
-`DeletedDate` (UTC) and `DeletedBy`. Normally one row; if
-`create-timesheet-user` added duplicates, **every** live one is removed. The
-user in `dbo.Signup` and their other projects are **not** touched.
+`DeletedDate` (UTC) and `DeletedBy`. Normally one row; **every** live one is
+removed if the user holds duplicates — the API no longer creates them
+([Create](#36-create-timesheet-user) skips a project the user is already on
+and [Edit](#37-edit-timesheet-user) keeps the existing row), but rows written
+before that, or directly in the database, can still be duplicated. The user in
+`dbo.Signup` and their other projects are **not** touched.
 
 > Needs `TimesheetUserProjectSetupID` on `dbo.Timesheet_Users_Project_setup`.
 > **Applied** — the `sp_help` list supplied on 2026-10-18 shows the column
@@ -4555,15 +4627,29 @@ removed already: `User '58' is not on project '4'.`
 
 `GET /api/v1/TimesheetProject/get-timesheet-user-by-orgID/{orgID}`
 
-**Purpose** — The timesheet users of one organisation: every live project
-assignment in `dbo.Timesheet_Users_Project_setup` of every live user in
-`dbo.Signup` of the organisation, with the user's name and email, the
-project's code and name, the project role's name, and the user's country,
-address and currency. Read through `dbo.spc_GetTimesheetUserListByOrgID`.
+**Purpose** — The timesheet users of one organisation: every live user in
+`dbo.Signup` of the organisation, with their name, email, country, address,
+currency and leave flag, and every live project assignment they have in
+`dbo.Timesheet_Users_Project_setup` — the project's code and name and the
+project role's name. Read through `dbo.spc_GetTimesheetUserListByOrgID`.
 
-One row per **assignment**, not per user: a user on three projects is three
-rows, and a user with no live assignment is **not** listed. The organisation is
-the user's (`dbo.Signup.OrganizationID`).
+**One entry per user**, with the projects in `projectDetails`: a user on three
+projects is one entry with three projects. A user with **no** live assignment
+is not listed at all — the procedure's join drops them — so `projectDetails`
+is never empty. The organisation is the user's
+(`dbo.Signup.OrganizationID`).
+
+> The procedure still returns one row per assignment, repeating the user's
+> columns on each; the API groups them by `userId`.
+
+`jobType`, `costRate`, `billRate`, `workLocationRange`,
+`projectLocationLatitude`, `projectLocationLongitude` and `maxLogHoursPerDay`
+are columns of the **assignment**, but [Create](#36-create-timesheet-user) and
+[Edit Timesheet User](#37-edit-timesheet-user) write the same values to every
+project of a user. They are therefore reported **once, on the user**, taken
+from the first entry of `projectDetails`, and are not repeated per project. A
+row edited directly in the database could differ from the rest of the user's;
+that difference is not visible here.
 
 #### Route parameters
 
@@ -4579,35 +4665,40 @@ GET /api/v1/TimesheetProject/get-timesheet-user-by-orgID/12
 
 #### Success response — `200 OK`
 
-`data` is an array of `TimesheetUserListResponse`, ordered by `name`, then
-`projectName`, then `timesheetUserProjectSetupId`:
+`data` is an array of `TimesheetUserListResponse`, ordered by `name`:
 
 | Field | Type | Notes |
 |---|---|---|
-| `timesheetUserProjectSetupId` | int | The assignment — the id `edit-timesheet-user` takes |
 | `userId` | int | `dbo.Signup.UserID` |
 | `name` | string \| null | |
 | `email` | string \| null | As stored: upper case |
 | `organizationId` | int \| null | |
-| `projectId` | int \| null | |
-| `projectCode` | string \| null | `dbo.TimesheetProject.Code`; `null` when the project is unknown |
-| `projectName` | string \| null | The `Projectname` column; `null` when the project is unknown |
-| `projectRoleId` | int \| null | |
-| `projectRoleName` | string \| null | From `dbo.TimesheetUserRole`; `null` when the role is null, unknown or deleted |
-| `jobType` | int \| null | `1` work from office, `2` work from home |
-| `costRate` | decimal \| null | The `Cost_rate_per_hour` column |
-| `billRate` | decimal \| null | The `Billable_rate_per_hour` column |
-| `workLocationRange` | int \| null | |
-| `projectLocationLatitude` | string \| null | Text, as stored |
-| `projectLocationLongitude` | string \| null | Text, as stored |
-| `maxLogHoursPerDay` | int \| null | The most hours a day this assignment may log; `null` when it sets no cap (the time log then caps the day at 24) |
 | `countryId` | int \| null | The **user's** country — `dbo.Signup.CountryID` |
 | `countryName` | string \| null | `dbo.Country.Name`; `null` when the user has no country or it is unknown |
 | `address` | string \| null | The user's `dbo.Signup.Address` |
 | `currencyId` | int \| null | The currency of the user's country, from `dbo.CountryCurrency_Lookup` (the lowest `CurrencyID` for it, as client setup does); `null` when the user has no country or it has no currency |
 | `currencyName` | string \| null | |
 | `currencySymbol` | string \| null | Not unique — show it beside `currencyName` |
-| `isOnLeave` | bool | `true` when an **approved** leave application of this organisation ([68](#68-approve--reject-user-leave-apply)) runs from on or before today to on or after it — today being the user's own date in the time zone of their timesheet setup (UTC without one). Submitted and rejected leave do not count. The same on every row of one user |
+| `jobType` | int \| null | `1` work from office, `2` work from home. From the first assignment |
+| `costRate` | decimal \| null | The `Cost_rate_per_hour` column of the first assignment |
+| `billRate` | decimal \| null | The `Billable_rate_per_hour` column of the first assignment |
+| `workLocationRange` | int \| null | From the first assignment |
+| `projectLocationLatitude` | string \| null | Text, as stored, from the first assignment |
+| `projectLocationLongitude` | string \| null | Text, as stored, from the first assignment |
+| `maxLogHoursPerDay` | int \| null | The most hours a day the user may log; `null` when it sets no cap (the time log then caps the day at 24). From the first assignment |
+| `isOnLeave` | bool | `true` when an **approved** leave application of this organisation ([68](#68-approve--reject-user-leave-apply)) runs from on or before today to on or after it — today being the user's own date in the time zone of their timesheet setup (UTC without one). Submitted and rejected leave do not count |
+| `projectDetails` | array | Every live assignment of the user, ordered by `projectName`, then `timesheetUserProjectSetupId`. Never empty |
+
+Each entry of `projectDetails` — the project and the role only:
+
+| Field | Type | Notes |
+|---|---|---|
+| `timesheetUserProjectSetupId` | int | The assignment row in `dbo.Timesheet_Users_Project_setup` |
+| `projectId` | int \| null | |
+| `projectCode` | string \| null | `dbo.TimesheetProject.Code`; `null` when the project is unknown |
+| `projectName` | string \| null | The `Projectname` column; `null` when the project is unknown |
+| `projectRoleId` | int \| null | |
+| `projectRoleName` | string \| null | From `dbo.TimesheetUserRole`; `null` when the role is null, unknown or deleted |
 
 #### Example response
 
@@ -4617,30 +4708,42 @@ GET /api/v1/TimesheetProject/get-timesheet-user-by-orgID/12
   "message": "",
   "data": [
     {
-      "timesheetUserProjectSetupId": 31,
       "userId": 58,
       "name": "Asha Patel",
       "email": "ASHA.PATEL@EXAMPLE.COM",
       "organizationId": 12,
-      "projectId": 4,
-      "projectCode": "PR0004",
-      "projectName": "Website Rebuild",
-      "projectRoleId": 3,
-      "projectRoleName": "Developer",
-      "jobType": 1,
-      "costRate": 30.00,
-      "billRate": 45.00,
-      "workLocationRange": 200,
-      "projectLocationLatitude": "23.0225",
-      "projectLocationLongitude": null,
-      "maxLogHoursPerDay": 8,
       "countryId": 103,
       "countryName": "India",
       "address": "12 MG Road, Ahmedabad",
       "currencyId": 103,
       "currencyName": "Indian rupee",
       "currencySymbol": "₹",
-      "isOnLeave": false
+      "jobType": 1,
+      "costRate": 30.00,
+      "billRate": 45.00,
+      "workLocationRange": 200,
+      "projectLocationLatitude": "23.0225",
+      "projectLocationLongitude": "72.5714",
+      "maxLogHoursPerDay": 8,
+      "isOnLeave": false,
+      "projectDetails": [
+        {
+          "timesheetUserProjectSetupId": 31,
+          "projectId": 4,
+          "projectCode": "PR0004",
+          "projectName": "Website Rebuild",
+          "projectRoleId": 3,
+          "projectRoleName": "Developer"
+        },
+        {
+          "timesheetUserProjectSetupId": 44,
+          "projectId": 7,
+          "projectCode": "PR0007",
+          "projectName": "Mobile App",
+          "projectRoleId": 22,
+          "projectRoleName": "Tester"
+        }
+      ]
     }
   ],
   "errors": []
@@ -5362,9 +5465,16 @@ sheet:
 
 ```
 (no row) ──submit──▶ Submitted (1) ──approve──▶ Approved (2)   (final)
-                          │
+                          │              ▲
+                          │              └── the AutoApproveProjectSheet job,
+                          │                  once autoApproveInDays has passed
                           └────reject───▶ Rejected (3) ──submit──▶ Submitted (1)
 ```
+
+The approve arrow is [Approve / Reject Project Timesheet](#54-approve--reject-project-timesheet)
+**or** the [`AutoApproveProjectSheet` job](#background-jobs), which approves a
+sheet with no call to the API once it has sat Submitted longer than its
+project's `autoApproveInDays`. `isAutoApprove` on the sheet says which it was.
 
 The first submit **creates** the period's one row, already Submitted; a
 resubmit after rejection updates that same row. Pending (0) appears only on
@@ -6174,7 +6284,7 @@ Each item of `projects`:
 
 | Field | Type | Notes |
 |---|---|---|
-| `timesheetUserProjectSetupId` | int | The assignment — the id `edit-timesheet-user` takes |
+| `timesheetUserProjectSetupId` | int | The assignment row in `dbo.Timesheet_Users_Project_setup` |
 | `projectId` | int \| null | |
 | `projectCode` | string \| null | |
 | `projectName` | string \| null | |
@@ -6968,6 +7078,38 @@ endpoints are unauthenticated.
 
 ---
 
+## Background jobs
+
+Not endpoints, but they write the same tables the endpoints read, so a value
+can change with no call to the API. Listed here so a client is not surprised
+by it.
+
+Each job is scheduled at startup from its row in `dbo.SchedulerConfiguration`,
+looked up by the id in `Shared/Constants/SchedulerJobs.cs`. A row with
+`IsEnabled = 0`, or a row missing what its schedule type needs, is logged and
+not scheduled; changes take effect on the next restart.
+
+| Id | Job | What it does | What it changes for a client |
+|---|---|---|---|
+| 1 | `SendEmail` | Sends every queued email in `dbo.EmailQueue` that is still due an attempt | Nothing an endpoint returns. Every email in this reference — welcome, submission, leave apply, reminders — is sent by this job |
+| 2 | `TimeLogReminderEmailQueue` | Queues a time-log reminder for every user due one, from their `needToSendReminder` / `reminderTimeBeforeCutoff` setup | Nothing an endpoint returns |
+| 3 | `TimesheetReminderEmailQueue` | Queues a timesheet submission reminder for every user due one | Nothing an endpoint returns |
+| 4 | `ApproverReminderEmailQueue` | Once a day, queues one reminder per project whose submission period ended yesterday with sheets still Submitted, to that project's timesheet approver | Nothing an endpoint returns |
+| 5 | `AutoApproveProjectSheet` | Once a day, approves every project sheet that has sat `Submitted` longer than its project's `autoApproveInDays`, counting whole days from `submittedDate` | **A sheet's `statusId` becomes `2` (Approved) with no call to [Approve / Reject Project Timesheet](#54-approve--reject-project-timesheet).** `approvedBy` is the configured `AutoApprove:ApprovedByUserId`, and `isAutoApprove` is `1` — the only way to tell it apart from a human approval. An audit row is written as for any approval |
+
+A project with `autoApproveInDays` `null` **or** `0` is never picked up: the
+job only takes projects with a value greater than `0`.
+
+> **Rows 4 and 5 are not in the database yet.** Row 5
+> (`AutoApproveProjectSheet`) is recorded as a DRAFT in
+> `docs/database/schema/dbo.SchedulerConfiguration.sql` and has not been
+> inserted; row 4 (`ApproverReminderEmailQueue`) was never supplied and is not
+> recorded at all. Until the owner inserts them, both jobs are logged as
+> unscheduled at startup and do not run — so no sheet auto-approves, whatever
+> `autoApproveInDays` says.
+
+---
+
 ## Enumerations
 
 ### `TimeLogStatus` — the `Status` column of `dbo.TimeLog`
@@ -7084,10 +7226,10 @@ authentication is off.
 | 33 | Add / Edit Project Status | POST | `/api/v1/TimesheetProject/add-edit-timesheet-project-status` | Add a status (`statusId` 0 / absent) or edit one, with its colour | `TimesheetProjectStatusSaveRequest` | `TimesheetProjectStatusResponse` | 400, 404, 500 |
 | 34 | Remove Project Status | POST | `/api/v1/TimesheetProject/remove-timesheet-project-status` | Soft-delete a project status | `TimesheetProjectStatusDeleteRequest` | `null` | 400, 404, 500 |
 | 35 | Organisation Project Budget List | GET | `/api/v1/TimesheetProject/get-timesheet-project-budget-by-orgID/{orgID}` | Budget lines of every project of an organisation, with project and category name | route param | `TimesheetProjectBudgetByOrgResponse[]` | 400, 500 |
-| 36 | Create Timesheet User | POST | `/api/v1/TimesheetProject/create-timesheet-user` | Sign a user up and put them on a project; an existing user of the organisation gets the assignment only | `TimesheetUserCreateRequest` | `TimesheetUserCreateResponse` | 400, 409, 500 |
-| 37 | Edit Timesheet User | POST | `/api/v1/TimesheetProject/edit-timesheet-user` | Edit an assignment; name/email/country/address saved to `dbo.Signup` when changed | `TimesheetUserUpdateRequest` | `TimesheetUserResponse` | 400, 404, 409, 500 |
+| 36 | Create Timesheet User | POST | `/api/v1/TimesheetProject/create-timesheet-user` | Sign a user up and put them on the projects in `projectDetails`; an existing user of the organisation gets the assignments only | `TimesheetUserCreateRequest` | `TimesheetUserCreateResponse` | 400, 409, 500 |
+| 37 | Edit Timesheet User | POST | `/api/v1/TimesheetProject/edit-timesheet-user` | Edit a user by `userId`; name/email/country/address saved to `dbo.Signup` when changed, and `projectDetails` reconciled — added, kept untouched or soft-deleted | `TimesheetUserUpdateRequest` | `TimesheetUserResponse` | 400, 404, 409, 500 |
 | 38 | Remove Timesheet User | POST | `/api/v1/TimesheetProject/remove-timesheet-user` | Take a user off a project by `userId` + `projectId` (soft delete); the user is not touched | `TimesheetUserDeleteRequest` | `null` | 400, 404, 500 |
-| 39 | Organisation Timesheet User List | GET | `/api/v1/TimesheetProject/get-timesheet-user-by-orgID/{orgID}` | Every live project assignment of every live user of an organisation, with project and role name, and the user's country, address and currency | route param | `TimesheetUserListResponse[]` | 400, 500 |
+| 39 | Organisation Timesheet User List | GET | `/api/v1/TimesheetProject/get-timesheet-user-by-orgID/{orgID}` | Every live user of an organisation once, with their country, address, currency, job type, rates and cap, and all their live project assignments in `projectDetails` | route param | `TimesheetUserListResponse[]` | 400, 500 |
 | 40 | Holiday List | GET | `/api/v1/TimesheetProject/get-timesheet-holiday-setup?orgID=&projectID=` | Live holidays of an organisation, a project or both, by date, with country, client and project names | query params (at least one) | `TimesheetHolidaySetupResponse[]` | 400, 500 |
 | 41 | Add / Edit Holiday | POST | `/api/v1/TimesheetProject/add-edit-timesheet-holiday-setup` | Add a holiday (`timesheetHolidaySetupId` 0 / absent) or edit one, with its description | `TimesheetHolidaySetupSaveRequest` | `TimesheetHolidaySetupResponse` | 400, 404, 500 |
 | 42 | Remove Holiday | POST | `/api/v1/TimesheetProject/remove-timesheet-holiday-setup` | Soft-delete a holiday of an organisation | `TimesheetHolidaySetupDeleteRequest` | `null` | 400, 404, 500 |
@@ -7257,10 +7399,12 @@ Documented so nobody has to rediscover them:
     `spc_AddEditTimesheetApproverSetup` are
     recorded in `docs/database/procedures/` and must be created by hand; each
     matching endpoint answers 500 until its procedure exists in its latest
-    version. `spc_Signup_timesheet_user` exists in the database but its
-    2026-10-18 revision — the `@Maxloghourday` parameter — does not, so
-    [Create Timesheet User](#36-create-timesheet-user) answers 500 until the
-    owner applies it.
+    version. `spc_Signup_timesheet_user` exists in the database but two of
+    its recorded revisions do not: the 2026-10-18 one - the
+    `@Maxloghourday` parameter - so
+    [Create Timesheet User](#36-create-timesheet-user) answers 500 until
+    the owner applies it, and the 2026-10-27 one, which makes the
+    existing-user branch store the project coordinates (see 90).
 33. **Project removes are hard deletes.** Neither `dbo.TimesheetProject` nor
     `dbo.TimesheetProjectBudget` has a soft-delete or audit column, so a removed
     project or budget cannot be recovered and nothing records who removed it.
@@ -7307,9 +7451,10 @@ Documented so nobody has to rediscover them:
 45. **A budget is not checked against its project.** Its period may fall
     outside the project's `startDate` / `endDate`, and its hours and amount may
     exceed the project's `totalHours` / `totalBudget`.
-46. **Organisation Timesheet User List lists assignments, not users.** A user
-    on several projects appears once per project, and a live user with no live
-    assignment does not appear at all.
+46. *(Resolved 2026-11-13.)* The list returns **one entry per user**, with
+    their projects in `projectDetails`. Still true: a live user with no live
+    assignment does not appear at all - `spc_GetTimesheetUserListByOrgID`
+    joins the assignment table, so there is no row to group.
 47. **The module flags are not enforced.** User Access Setup stores which
     modules a user may use, but no endpoint reads them: with authentication
     off, every caller can still reach every module. They are data for a client
@@ -7483,3 +7628,42 @@ Documented so nobody has to rediscover them:
     being the application's own user.
 88. **The applicant is not told the decision.** Approve / Reject (68) sends no
     email; only applying (66) emails the approvers.
+89. **Edit Timesheet User cannot change an assignment the user already has.**
+    `projectDetails` keeps a project in both the payload and the database
+    exactly as it is, so the payload's `projectRoleId`, `jobType`, `costRate`,
+    `billRate`, `workLocationRange`, coordinates and `maxLogHoursPerDay` reach
+    **added** assignments only. Changing them on an existing one needs two
+    calls: one that leaves the project out (soft-deleting the row) and one
+    that adds it back with the new values - which loses the old row's id and
+    its `CreateDate` / `Createdby`.
+90. **Create Timesheet User is not atomic across projects.**
+    `spc_Signup_timesheet_user` is called once per entry of `projectDetails`
+    and opens its own transaction each time, so a database failure part way
+    through leaves the user and the assignments already made. Every id in the
+    payload is validated before the first call, so this needs SQL Server
+    itself to fail mid-request. The coordinates reach the first assignment
+    only, until the procedure's 2026-10-27 revision is applied (see 32).
+91. **Organisation Timesheet User List reports the shared assignment fields
+    from the first project.** `jobType`, `costRate`, `billRate`,
+    `workLocationRange`, the coordinates and `maxLogHoursPerDay` are columns
+    of `dbo.Timesheet_Users_Project_setup`, so each assignment has its own,
+    but the response carries one set, taken from the first entry of
+    `projectDetails`. Create and Edit write the same values to every project
+    of a user, so they normally agree; a row changed directly in the database
+    can differ, and that difference is invisible here.
+92. **Two background jobs change what the API returns with no call to it.**
+    `AutoApproveProjectSheet` flips a sheet from Submitted to Approved once
+    it has waited out its project's `autoApproveInDays`, and
+    `ApproverReminderEmailQueue` queues reminder emails. So
+    [Project Timesheet List](#52-project-timesheet-list) can show an
+    approval nobody requested through an endpoint - `isAutoApprove` is the
+    only way to tell one apart from an approval made through
+    [Approve / Reject Project Timesheet](#54-approve--reject-project-timesheet). See
+    [Background jobs](#background-jobs).
+93. **A project's `autoApproveInDays` may be 0 in the API but not in the
+    database.** The API accepts `0` (and treats it, like `null`, as "never
+    auto-approves": the job only picks up projects with a value greater than
+    0), but `CK_TimesheetProject_AutoApproveInDays` still reads
+    `CHECK (AutoApproveInDays > 0)`, so saving `0` fails on the constraint and
+    answers **500**, not 400. Closing this needs the owner to relax the
+    constraint to `>= 0`.

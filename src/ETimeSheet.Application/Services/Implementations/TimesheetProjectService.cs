@@ -684,21 +684,10 @@ public class TimesheetProjectService : ITimesheetProjectService
             };
         }
 
-        if (request.ProjectId <= 0)
-        {
-            failures[nameof(TimesheetUserCreateRequest.ProjectId)] = new[]
-            {
-                "ProjectId is required and must be greater than 0."
-            };
-        }
-
-        if (request.ProjectRoleId <= 0)
-        {
-            failures[nameof(TimesheetUserCreateRequest.ProjectRoleId)] = new[]
-            {
-                "ProjectRoleId must be greater than 0 when sent."
-            };
-        }
+        var projectDetails = ValidateProjectDetails(
+            failures,
+            nameof(TimesheetUserCreateRequest.ProjectDetails),
+            request.ProjectDetails);
 
         if (request.JobType <= 0)
         {
@@ -759,24 +748,12 @@ public class TimesheetProjectService : ITimesheetProjectService
             };
         }
 
-        var project = await _timesheetProjectRepository.GetByIdAsync(request.ProjectId, cancellationToken);
-
-        if (project is null || project.OrganizationId != request.OrganizationId)
-        {
-            failures[nameof(TimesheetUserCreateRequest.ProjectId)] = new[]
-            {
-                $"Project '{request.ProjectId}' does not exist in organization '{request.OrganizationId}'."
-            };
-        }
-
-        if (request.ProjectRoleId is { } projectRoleId
-            && !await _timesheetProjectRepository.UserRoleExistsAsync(projectRoleId, request.OrganizationId, cancellationToken))
-        {
-            failures[nameof(TimesheetUserCreateRequest.ProjectRoleId)] = new[]
-            {
-                $"Role '{projectRoleId}' does not exist in organization '{request.OrganizationId}' or has been removed."
-            };
-        }
+        await AddProjectDetailsFailuresAsync(
+            failures,
+            nameof(TimesheetUserCreateRequest.ProjectDetails),
+            projectDetails,
+            request.OrganizationId,
+            cancellationToken);
 
         if (failures.Count > 0)
         {
@@ -801,23 +778,48 @@ public class TimesheetProjectService : ITimesheetProjectService
             }
         }
 
-        await _timesheetProjectRepository.CreateTimesheetUserAsync(
-            fullName!,
-            email!,
-            request.CountryId,
-            address,
-            request.OrganizationId,
-            request.ProjectRoleId,
-            request.JobType,
-            request.CostRate!.Value,
-            request.BillRate!.Value,
-            request.CreatedBy,
-            request.WorkLocationRange,
-            request.ProjectId,
-            latitude,
-            longitude,
-            request.MaxLogHoursPerDay,
-            cancellationToken);
+        // One call to the procedure per project: the first creates the user,
+        // their login row and the assignment, every later one finds the user
+        // by email and adds only the assignment. Each call is its own
+        // transaction, so a failure part way through leaves the assignments
+        // already made - the payload's own ids were all checked above, so that
+        // needs the database to fail mid-call.
+        foreach (var detail in projectDetails)
+        {
+            // The procedure's existing-user branch always inserts, so a user
+            // already on the project would get a second row for it.
+            if (existingUser is not null
+                && await _timesheetProjectRepository.UserProjectSetupExistsAsync(
+                    existingUser.UserId,
+                    detail.ProjectId,
+                    0,
+                    cancellationToken))
+            {
+                _logger.LogInformation(
+                    "User {UserId} is already on project {ProjectId}; the assignment was kept, not added again.",
+                    existingUser.UserId,
+                    detail.ProjectId);
+                continue;
+            }
+
+            await _timesheetProjectRepository.CreateTimesheetUserAsync(
+                fullName!,
+                email!,
+                request.CountryId,
+                address,
+                request.OrganizationId,
+                detail.ProjectRoleId,
+                request.JobType,
+                request.CostRate!.Value,
+                request.BillRate!.Value,
+                request.CreatedBy,
+                request.WorkLocationRange,
+                detail.ProjectId,
+                latitude,
+                longitude,
+                request.MaxLogHoursPerDay,
+                cancellationToken);
+        }
 
         // The procedure returns nothing, so the user is read back.
         var user = await _timesheetProjectRepository.GetUserByEmailAsync(email!, cancellationToken)
@@ -825,9 +827,9 @@ public class TimesheetProjectService : ITimesheetProjectService
                 "spc_Signup_timesheet_user completed without error but the user cannot be found.");
 
         _logger.LogInformation(
-            "User {UserId} put on project {ProjectId} of organization {OrganizationId} by user {CreatedBy} ({Outcome}).",
+            "User {UserId} put on project(s) {ProjectIds} of organization {OrganizationId} by user {CreatedBy} ({Outcome}).",
             user.UserId,
-            request.ProjectId,
+            string.Join(", ", projectDetails.Select(detail => detail.ProjectId)),
             request.OrganizationId,
             request.CreatedBy,
             existingUser is null ? "new user" : "existing user");
@@ -844,7 +846,7 @@ public class TimesheetProjectService : ITimesheetProjectService
             Name = user.Name,
             Email = user.Email,
             OrganizationId = user.OrganizationId,
-            ProjectId = request.ProjectId,
+            ProjectDetails = projectDetails,
             IsNewUser = existingUser is null,
             WelcomeEmailSent = welcomeEmailSent,
         };
@@ -913,11 +915,11 @@ public class TimesheetProjectService : ITimesheetProjectService
         var longitude = string.IsNullOrWhiteSpace(request.ProjectLocationLongitude) ? null : request.ProjectLocationLongitude.Trim();
         var failures = new Dictionary<string, string[]>();
 
-        if (request.TimesheetUserProjectSetupId <= 0)
+        if (request.UserId <= 0)
         {
-            failures[nameof(TimesheetUserUpdateRequest.TimesheetUserProjectSetupId)] = new[]
+            failures[nameof(TimesheetUserUpdateRequest.UserId)] = new[]
             {
-                "TimesheetUserProjectSetupId is required and must be greater than 0."
+                "UserId is required and must be greater than 0."
             };
         }
 
@@ -940,21 +942,10 @@ public class TimesheetProjectService : ITimesheetProjectService
             };
         }
 
-        if (request.ProjectId <= 0)
-        {
-            failures[nameof(TimesheetUserUpdateRequest.ProjectId)] = new[]
-            {
-                "ProjectId is required and must be greater than 0."
-            };
-        }
-
-        if (request.ProjectRoleId <= 0)
-        {
-            failures[nameof(TimesheetUserUpdateRequest.ProjectRoleId)] = new[]
-            {
-                "ProjectRoleId must be greater than 0 when sent."
-            };
-        }
+        var projectDetails = ValidateProjectDetails(
+            failures,
+            nameof(TimesheetUserUpdateRequest.ProjectDetails),
+            request.ProjectDetails);
 
         if (request.JobType <= 0)
         {
@@ -996,19 +987,13 @@ public class TimesheetProjectService : ITimesheetProjectService
             throw new ValidationException(failures);
         }
 
-        // The assignment, and its user, must exist, be live, and belong to the
-        // organisation - otherwise it is a 404, as for another organisation's
-        // project. The query filter hides a deleted assignment.
-        var setup = await _timesheetProjectRepository.GetUserProjectSetupForUpdateAsync(
-                request.TimesheetUserProjectSetupId,
-                cancellationToken)
-            ?? throw NotFoundException.For("Timesheet user", request.TimesheetUserProjectSetupId);
-
-        var user = await _timesheetProjectRepository.GetUserForUpdateAsync(setup.UserId, cancellationToken);
+        // The user must exist, be live and belong to the organisation -
+        // otherwise it is a 404, as for another organisation's user.
+        var user = await _timesheetProjectRepository.GetUserForUpdateAsync(request.UserId, cancellationToken);
 
         if (user is null || user.IsDelete != 0 || user.OrganizationId != request.OrganizationId)
         {
-            throw NotFoundException.For("Timesheet user", request.TimesheetUserProjectSetupId);
+            throw NotFoundException.For("Timesheet user", request.UserId);
         }
 
         // Then what the payload names. No foreign key protects these columns.
@@ -1021,38 +1006,16 @@ public class TimesheetProjectService : ITimesheetProjectService
             };
         }
 
-        var project = await _timesheetProjectRepository.GetByIdAsync(request.ProjectId, cancellationToken);
-
-        if (project is null || project.OrganizationId != request.OrganizationId)
-        {
-            failures[nameof(TimesheetUserUpdateRequest.ProjectId)] = new[]
-            {
-                $"Project '{request.ProjectId}' does not exist in organization '{request.OrganizationId}'."
-            };
-        }
-
-        if (request.ProjectRoleId is { } projectRoleId
-            && !await _timesheetProjectRepository.UserRoleExistsAsync(projectRoleId, request.OrganizationId, cancellationToken))
-        {
-            failures[nameof(TimesheetUserUpdateRequest.ProjectRoleId)] = new[]
-            {
-                $"Role '{projectRoleId}' does not exist in organization '{request.OrganizationId}' or has been removed."
-            };
-        }
+        await AddProjectDetailsFailuresAsync(
+            failures,
+            nameof(TimesheetUserUpdateRequest.ProjectDetails),
+            projectDetails,
+            request.OrganizationId,
+            cancellationToken);
 
         if (failures.Count > 0)
         {
             throw new ValidationException(failures);
-        }
-
-        if (await _timesheetProjectRepository.UserProjectSetupExistsAsync(
-                setup.UserId,
-                request.ProjectId,
-                setup.TimesheetUserProjectSetupId,
-                cancellationToken))
-        {
-            throw new ConflictException(
-                $"User '{setup.UserId}' is already on project '{request.ProjectId}' through another assignment.");
         }
 
         // dbo.Signup is touched only when the name, email, country or address
@@ -1096,39 +1059,121 @@ public class TimesheetProjectService : ITimesheetProjectService
             user.Address = address;
         }
 
+        var now = _dateTimeProvider.UtcNow;
+
         if (emailChanged || nameChanged || countryChanged || addressChanged)
         {
-            user.UpdatedDate = _dateTimeProvider.UtcNow;
+            user.UpdatedDate = now;
             user.UpdateBy = request.UpdatedBy;
         }
 
-        // Everything else is the assignment's, and is overwritten as sent.
-        setup.ProjectId = request.ProjectId;
-        setup.ProjectRoleId = request.ProjectRoleId;
-        setup.JobType = request.JobType;
-        setup.CostRate = request.CostRate;
-        setup.BillRate = request.BillRate;
-        setup.WorkLocationRange = request.WorkLocationRange;
-        setup.ProjectLocationLatitude = latitude;
-        setup.ProjectLocationLongitude = longitude;
-        setup.MaxLogHoursPerDay = request.MaxLogHoursPerDay;
+        // The projects are reconciled, not overwritten: the payload names the
+        // whole set the user should be on when this returns.
+        //   - a project they are on that the payload names too is left exactly
+        //     as it is, down to its role and rates;
+        //   - a project the payload names that they are not on is added;
+        //   - a project they are on that the payload leaves out is
+        //     soft-deleted.
+        var existingSetups = await _timesheetProjectRepository.GetUserProjectSetupsForUpdateAsync(
+            user.UserId,
+            cancellationToken);
 
-        await _timesheetProjectRepository.UpdateTimesheetUserAsync(setup, cancellationToken);
+        var requestedProjectIds = projectDetails
+            .Select(detail => detail.ProjectId)
+            .ToHashSet();
+
+        var keptSetups = new List<TimesheetUserProjectSetup>();
+        var removedSetups = new List<TimesheetUserProjectSetup>();
+
+        foreach (var existingSetup in existingSetups)
+        {
+            // A row with no ProjectID names no project, so the payload can
+            // neither keep nor drop it: it is left alone.
+            if (existingSetup.ProjectId is not { } existingProjectId)
+            {
+                continue;
+            }
+
+            if (requestedProjectIds.Contains(existingProjectId))
+            {
+                keptSetups.Add(existingSetup);
+                continue;
+            }
+
+            // A soft delete, never a DELETE statement, as remove-timesheet-user
+            // does it: the row stays and the query filter stops returning it.
+            existingSetup.IsDelete = 1;
+            existingSetup.DeletedDate = now;
+            existingSetup.DeletedBy = request.UpdatedBy;
+            removedSetups.Add(existingSetup);
+        }
+
+        var keptProjectIds = keptSetups
+            .Select(keptSetup => keptSetup.ProjectId!.Value)
+            .ToHashSet();
+
+        // Added rows carry the payload's shared values; the kept rows keep
+        // their own, which is why an edit cannot change them.
+        var addedSetups = projectDetails
+            .Where(detail => !keptProjectIds.Contains(detail.ProjectId))
+            .Select(detail => new TimesheetUserProjectSetup
+            {
+                UserId = user.UserId,
+                ProjectId = detail.ProjectId,
+                ProjectRoleId = detail.ProjectRoleId,
+                JobType = request.JobType,
+                CostRate = request.CostRate,
+                BillRate = request.BillRate,
+                WorkLocationRange = request.WorkLocationRange,
+                ProjectLocationLatitude = latitude,
+                ProjectLocationLongitude = longitude,
+                MaxLogHoursPerDay = request.MaxLogHoursPerDay,
+                CreateDate = now,
+                CreatedBy = request.UpdatedBy,
+                IsDelete = 0,
+            })
+            .ToList();
+
+        // One save: the user, the rows taken off them and the rows added all
+        // go together, or none does.
+        await _timesheetProjectRepository.SaveTimesheetUserAssignmentsAsync(addedSetups, cancellationToken);
 
         _logger.LogInformation(
-            "Timesheet user assignment {TimesheetUserProjectSetupId} of user {UserId} edited by user {UpdatedBy}; dbo.Signup {SignupOutcome}.",
-            setup.TimesheetUserProjectSetupId,
+            "Timesheet user {UserId} edited by user {UpdatedBy}: {KeptCount} project(s) kept, {AddedCount} added, "
+            + "{RemovedCount} removed; dbo.Signup {SignupOutcome}.",
             user.UserId,
             request.UpdatedBy,
+            keptSetups.Count,
+            addedSetups.Count,
+            removedSetups.Count,
             emailChanged || nameChanged || countryChanged || addressChanged ? "updated" : "unchanged");
 
         return new TimesheetUserResponse
         {
-            TimesheetUserProjectSetupId = setup.TimesheetUserProjectSetupId,
             UserId = user.UserId,
             Name = user.Name,
             Email = user.Email,
             OrganizationId = user.OrganizationId,
+            CountryId = user.CountryId,
+            Address = user.Address,
+            ProjectDetails = keptSetups
+                .Select(keptSetup => ToAssignmentResponse(keptSetup, isNewAssignment: false))
+                .Concat(addedSetups.Select(addedSetup => ToAssignmentResponse(addedSetup, isNewAssignment: true)))
+                .OrderBy(assignment => assignment.ProjectId)
+                .ToList(),
+        };
+    }
+
+    /// <summary>
+    /// One assignment row as <c>edit-timesheet-user</c> returns it. Private:
+    /// the mapping belongs to this endpoint, not to the service's contract.
+    /// </summary>
+    private static TimesheetUserAssignmentResponse ToAssignmentResponse(
+        TimesheetUserProjectSetup setup,
+        bool isNewAssignment) =>
+        new()
+        {
+            TimesheetUserProjectSetupId = setup.TimesheetUserProjectSetupId,
             ProjectId = setup.ProjectId,
             ProjectRoleId = setup.ProjectRoleId,
             JobType = setup.JobType,
@@ -1138,10 +1183,8 @@ public class TimesheetProjectService : ITimesheetProjectService
             ProjectLocationLatitude = setup.ProjectLocationLatitude,
             ProjectLocationLongitude = setup.ProjectLocationLongitude,
             MaxLogHoursPerDay = setup.MaxLogHoursPerDay,
-            CountryId = user.CountryId,
-            Address = user.Address,
+            IsNewAssignment = isNewAssignment,
         };
-    }
 
     public async Task DeleteTimesheetUserAsync(
         TimesheetUserDeleteRequest request,
@@ -1213,6 +1256,121 @@ public class TimesheetProjectService : ITimesheetProjectService
             request.ProjectId,
             request.DeletedBy,
             setups.Count);
+    }
+
+    /// <summary>
+    /// The shape rules of a <c>projectDetails</c> list, shared by
+    /// <c>create-timesheet-user</c> and <c>edit-timesheet-user</c>: at least
+    /// one project, every id positive, and no project twice. Returns the list
+    /// to work with - empty when it failed, so the caller's later steps are
+    /// no-ops until the 400 is thrown.
+    /// </summary>
+    private static List<TimesheetUserProjectDetail> ValidateProjectDetails(
+        Dictionary<string, string[]> failures,
+        string field,
+        List<TimesheetUserProjectDetail>? projectDetails)
+    {
+        if (projectDetails is null || projectDetails.Count == 0)
+        {
+            failures[field] = new[] { $"{field} is required and must name at least one project." };
+            return new List<TimesheetUserProjectDetail>();
+        }
+
+        var itemFailed = false;
+
+        for (var index = 0; index < projectDetails.Count; index++)
+        {
+            var detail = projectDetails[index];
+
+            if (detail is null)
+            {
+                failures[$"{field}[{index}]"] = new[] { "A project is required." };
+                itemFailed = true;
+                continue;
+            }
+
+            if (detail.ProjectId <= 0)
+            {
+                failures[$"{field}[{index}].{nameof(TimesheetUserProjectDetail.ProjectId)}"] = new[]
+                {
+                    "ProjectId is required and must be greater than 0."
+                };
+                itemFailed = true;
+            }
+
+            if (detail.ProjectRoleId <= 0)
+            {
+                failures[$"{field}[{index}].{nameof(TimesheetUserProjectDetail.ProjectRoleId)}"] = new[]
+                {
+                    "ProjectRoleId must be greater than 0 when sent."
+                };
+                itemFailed = true;
+            }
+        }
+
+        if (itemFailed)
+        {
+            return new List<TimesheetUserProjectDetail>();
+        }
+
+        // Refused rather than deduplicated: two entries for one project with
+        // different roles say two different things, and silently keeping one
+        // of them would be a guess.
+        var duplicateProjectIds = projectDetails
+            .GroupBy(detail => detail.ProjectId)
+            .Where(group => group.Count() > 1)
+            .Select(group => group.Key)
+            .ToList();
+
+        if (duplicateProjectIds.Count > 0)
+        {
+            failures[field] = new[]
+            {
+                $"{field} names project(s) {string.Join(", ", duplicateProjectIds)} more than once; each project may appear only once."
+            };
+
+            return new List<TimesheetUserProjectDetail>();
+        }
+
+        return projectDetails;
+    }
+
+    /// <summary>
+    /// The database rules of a <c>projectDetails</c> list: every project must
+    /// belong to the organisation and every role it names must be a live role
+    /// of it. No foreign key protects either column, so a wrong id would
+    /// otherwise be saved as sent. Every failure is collected, keyed on the
+    /// item the caller sent.
+    /// </summary>
+    private async Task AddProjectDetailsFailuresAsync(
+        Dictionary<string, string[]> failures,
+        string field,
+        IReadOnlyList<TimesheetUserProjectDetail> projectDetails,
+        int organizationId,
+        CancellationToken cancellationToken)
+    {
+        for (var index = 0; index < projectDetails.Count; index++)
+        {
+            var detail = projectDetails[index];
+            var project = await _timesheetProjectRepository.GetByIdAsync(detail.ProjectId, cancellationToken);
+
+            if (project is null || project.OrganizationId != organizationId)
+            {
+                failures[$"{field}[{index}].{nameof(TimesheetUserProjectDetail.ProjectId)}"] = new[]
+                {
+                    $"Project '{detail.ProjectId}' does not exist in organization '{organizationId}'."
+                };
+            }
+
+            if (detail.ProjectRoleId is { } projectRoleId
+                && !await _timesheetProjectRepository.UserRoleExistsAsync(projectRoleId, organizationId, cancellationToken))
+            {
+                failures[$"{field}[{index}].{nameof(TimesheetUserProjectDetail.ProjectRoleId)}"] = new[]
+                {
+                    $"Role '{projectRoleId}' does not exist in organization '{organizationId}' or has been removed."
+                };
+            }
+        }
     }
 
     private static void AddFullNameFailure(Dictionary<string, string[]> failures, string field, string? fullName)
@@ -1333,11 +1491,17 @@ public class TimesheetProjectService : ITimesheetProjectService
             ? new HashSet<int>()
             : await GetUsersOnLeaveTodayAsync(organizationId, null, cancellationToken);
 
+        // The procedure returns one row per assignment; the user is repeated on
+        // each. Grouped so a user appears once, with their projects - GroupBy
+        // keeps the procedure's order, by user name then project name.
         return users
-            .Select(user =>
+            .GroupBy(user => user.UserId)
+            .Select(rowsOfUser =>
             {
-                var response = user.ToResponse();
-                response.IsOnLeave = usersOnLeave.Contains(user.UserId);
+                var response = rowsOfUser.First().ToUserListResponse(
+                    rowsOfUser.Select(row => row.ToUserListProjectResponse()).ToList());
+
+                response.IsOnLeave = usersOnLeave.Contains(rowsOfUser.Key);
                 return response;
             })
             .ToList();
