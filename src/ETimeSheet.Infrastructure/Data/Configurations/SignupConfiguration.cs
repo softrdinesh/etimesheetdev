@@ -10,9 +10,11 @@ namespace ETimeSheet.Infrastructure.Data.Configurations;
 /// <c>sp_help</c> reports nvarchar lengths in bytes, so every length below is
 /// half the figure it printed.
 /// <para>
-/// <c>Pwd</c>, <c>ResetOTP</c> and <c>OtpExpireAt</c> are not mapped - see the
-/// entity. No index is declared, and there is no query filter: callers say
-/// <c>IsDelete == 0</c> where they mean live users.
+/// <c>ResetOTP</c> and <c>OtpExpireAt</c> are not mapped - see the entity.
+/// <c>Pwd</c> is, because the default password has to be written on create; it
+/// is write-only and must never reach a response or a log. No index is
+/// declared, and there is no query filter: callers say <c>IsDelete == 0</c>
+/// where they mean live users.
 /// </para>
 /// </summary>
 public class SignupConfiguration : IEntityTypeConfiguration<Signup>
@@ -47,5 +49,10 @@ public class SignupConfiguration : IEntityTypeConfiguration<Signup>
         builder.Property(user => user.ProfilePicture).HasColumnName("ProfilePicture").HasMaxLength(200);
         builder.Property(user => user.IsProductOwner).HasColumnName("IsProductOwner");
         builder.Property(user => user.RoleId).HasColumnName("RoleID");
+
+        // No length is declared: the column's own length was never supplied,
+        // and the value written is the 32 characters a converted binary(64)
+        // hash produces, well inside any plausible one.
+        builder.Property(user => user.Pwd).HasColumnName("Pwd");
     }
 }

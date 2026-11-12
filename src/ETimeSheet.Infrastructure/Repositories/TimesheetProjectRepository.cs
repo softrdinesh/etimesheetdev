@@ -337,6 +337,26 @@ public class TimesheetProjectRepository : ITimesheetProjectRepository
         await _db.Signup
             .FirstOrDefaultAsync(user => user.UserId == userId, cancellationToken);
 
+    public async Task<bool> SetUserPasswordAsync(
+        int userId,
+        string password,
+        CancellationToken cancellationToken = default)
+    {
+        // Only the one column is sent: the row is loaded tracked and nothing
+        // else on it is touched, so an account another application changed
+        // between the procedure's insert and this update keeps those changes.
+        var user = await _db.Signup.FirstOrDefaultAsync(row => row.UserId == userId, cancellationToken);
+
+        if (user is null)
+        {
+            return false;
+        }
+
+        user.Pwd = password;
+        await _db.SaveChangesAsync(cancellationToken);
+        return true;
+    }
+
     public async Task<bool> UserProjectSetupExistsAsync(
         int userId,
         int projectId,

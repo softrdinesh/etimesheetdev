@@ -96,6 +96,7 @@ public class TimesheetProjectService : ITimesheetProjectService
     private readonly IEmailSender _emailSender;
     private readonly IEmailTemplateStore _emailTemplateStore;
     private readonly WelcomeEmailSettings _welcomeEmailSettings;
+    private readonly DefaultPasswordSettings _defaultPasswordSettings;
     private readonly ILogger<TimesheetProjectService> _logger;
 
     public TimesheetProjectService(
@@ -104,6 +105,7 @@ public class TimesheetProjectService : ITimesheetProjectService
         IEmailSender emailSender,
         IEmailTemplateStore emailTemplateStore,
         IOptions<WelcomeEmailSettings> welcomeEmailSettings,
+        IOptions<DefaultPasswordSettings> defaultPasswordSettings,
         ILogger<TimesheetProjectService> logger)
     {
         _timesheetProjectRepository = timesheetProjectRepository;
@@ -111,6 +113,7 @@ public class TimesheetProjectService : ITimesheetProjectService
         _emailSender = emailSender;
         _emailTemplateStore = emailTemplateStore;
         _welcomeEmailSettings = welcomeEmailSettings.Value;
+        _defaultPasswordSettings = defaultPasswordSettings.Value;
         _logger = logger;
     }
 
@@ -834,6 +837,47 @@ public class TimesheetProjectService : ITimesheetProjectService
             request.CreatedBy,
             existingUser is null ? "new user" : "existing user");
 
+        // Only a new account gets the default password. An existing user keeps
+        // the password they already have - an edit never touches it either, so
+        // adding someone to a second project cannot lock them out.
+        //
+        // The procedure has already written Pwd itself, as HASHBYTES('SHA2_512',
+        // @Email) converted into the nvarchar column, so this overwrites that
+        // with the configured value. It is a second statement, not part of the
+        // procedure's transaction: if it fails, the account exists with the
+        // email-derived password instead, and the failure is logged - the
+        // request is not failed, because a retry would only find the email
+        // taken and add duplicate assignments.
+        if (existingUser is null)
+        {
+            try
+            {
+                var passwordSet = await _timesheetProjectRepository.SetUserPasswordAsync(
+                    user.UserId,
+                    _defaultPasswordSettings.Encrypted,
+                    cancellationToken);
+
+                // The value itself is never logged, here or anywhere else.
+                if (passwordSet)
+                {
+                    _logger.LogInformation("New user {UserId} was given the default password.", user.UserId);
+                }
+                else
+                {
+                    _logger.LogError(
+                        "New user {UserId} could not be given the default password: the user was not found when writing it.",
+                        user.UserId);
+                }
+            }
+            catch (Exception exception)
+            {
+                _logger.LogError(
+                    exception,
+                    "New user {UserId} could not be given the default password; their dbo.Signup.Pwd is still the one spc_Signup_timesheet_user wrote.",
+                    user.UserId);
+            }
+        }
+
         // Only a new account is welcomed; an existing user was only put on
         // another project. Sent to the address as the caller typed it - the
         // stored one is upper case.
@@ -854,7 +898,9 @@ public class TimesheetProjectService : ITimesheetProjectService
 
     /// <summary>
     /// Sends the welcome email to a new account, directly through the email
-    /// service - nothing is queued or stored. Never throws: the account exists
+    /// service - nothing is queued or stored. It carries the account's sign-in
+    /// address and the plain default password, and asks the user to change it.
+    /// Never throws: the account exists
     /// by now, and failing the request would invite a retry that, finding the
     /// email taken, only adds a second project assignment. A failure is logged
     /// and reported as <see langword="false"/>.
@@ -865,12 +911,18 @@ public class TimesheetProjectService : ITimesheetProjectService
         {
             var body = await _emailTemplateStore.GetAsync(WelcomeEmailTemplateName, CancellationToken.None);
 
-            // Every value is HTML-encoded: a name with a '<' in it is text, not markup.
+            // Every value is HTML-encoded: a name with a '<' in it is text, not
+            // markup - and so is a password with an '&' or a '<' in it.
             var values = new Dictionary<string, string>
             {
                 ["UserName"] = userName,
                 ["NexoraLoginURL"] = _welcomeEmailSettings.LoginUrl,
                 ["SupportEmail"] = _welcomeEmailSettings.SupportEmail,
+                ["UserEmail"] = emailAddress,
+
+                // The plain password, never the stored one. This is the only
+                // place it leaves the application, and it is never logged.
+                ["DefaultPassword"] = _defaultPasswordSettings.Plain,
             };
 
             foreach (var (placeholder, value) in values)

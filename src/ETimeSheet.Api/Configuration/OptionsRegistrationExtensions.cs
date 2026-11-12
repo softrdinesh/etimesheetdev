@@ -27,6 +27,7 @@ public static class OptionsRegistrationExtensions
         services.AddValidatedOptions<EmailServiceSettings>(configuration, EmailServiceSettings.SectionName);
         services.AddValidatedOptions<WelcomeEmailSettings>(configuration, WelcomeEmailSettings.SectionName);
         services.AddValidatedOptions<AutoApproveSettings>(configuration, AutoApproveSettings.SectionName);
+        services.AddValidatedOptions<DefaultPasswordSettings>(configuration, DefaultPasswordSettings.SectionName);
 
         return services;
     }
