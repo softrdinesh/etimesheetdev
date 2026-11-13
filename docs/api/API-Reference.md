@@ -4315,33 +4315,37 @@ the only place it leaves the API is the welcome email. See gap 94.
 | `countryId` | int \| null | no | `> 0`; an existing `dbo.Country` | |
 | `address` | string \| null | no | | Blank is saved as `null` |
 | `organizationId` | int | yes | `> 0`; an existing organisation | |
-| `projectDetails` | array | yes | at least one entry; no project twice | The projects to put the user on, and the role on each |
+| `projectDetails` | array | yes | at least one entry; no project twice | The projects to put the user on, and the role and terms on each |
 | `projectDetails[].projectId` | int | yes | `> 0`; a project of `organizationId` | |
 | `projectDetails[].projectRoleId` | int \| null | no | `> 0`; a live role of `organizationId` | A `roleId` from `get-user-role-list-by-orgid` |
-| `jobType` | int \| null | no | `> 0` | `1` work from office, `2` work from home — see [`JobType`](#jobtype--the-jobtype-column-of-dbotimesheet_users_project_setup). Not checked against the list |
-| `costRate` | decimal | yes | `>= 0` | Cost per hour |
-| `billRate` | decimal | yes | `>= 0` | Billable rate per hour |
-| `workLocationRange` | int \| null | no | `>= 0` | |
-| `projectLocationLatitude` | string \| null | no | a number from -90 to 90, `<= 25` characters | Stored on the **first** assignment of a **new** user only — see the note below |
-| `projectLocationLongitude` | string \| null | no | a number from -180 to 180, `<= 25` characters | As the latitude |
-| `maxLogHoursPerDay` | int \| null | no | `0`–`24` | The most hours a day this assignment may log. [Add / Edit Project Time Log](#50-add--edit-project-time-log) enforces it; `null` caps the day at 24. Unlike the latitude and longitude, it is saved for an existing user too |
+| `projectDetails[].jobType` | int \| null | no | `> 0` | `1` work from office, `2` work from home — see [`JobType`](#jobtype--the-jobtype-column-of-dbotimesheet_users_project_setup). Not checked against the list |
+| `projectDetails[].costRate` | decimal | yes | `>= 0` | Cost per hour on this project |
+| `projectDetails[].billRate` | decimal | yes | `>= 0` | Billable rate per hour on this project |
+| `projectDetails[].workLocationRange` | int \| null | no | `>= 0` | |
+| `projectDetails[].projectLocationLatitude` | string \| null | no | a number from -90 to 90, `<= 25` characters | Trimmed; blank is `null`. See the note below |
+| `projectDetails[].projectLocationLongitude` | string \| null | no | a number from -180 to 180, `<= 25` characters | As the latitude |
+| `projectDetails[].maxLogHoursPerDay` | int \| null | no | `0`–`24` | The most hours a day this assignment may log. [Add / Edit Project Time Log](#50-add--edit-project-time-log) enforces it; `null` caps the day at 24 |
 | `createdBy` | int | yes | `> 0` | Temporary — from the token once authentication is on |
 
-Only the role varies per project. `jobType`, `costRate`, `billRate`,
-`workLocationRange`, the coordinates and `maxLogHoursPerDay` are shared: they
-are written to **every** assignment the call creates.
+**Every term is per project.** `jobType`, `costRate`, `billRate`,
+`workLocationRange`, the coordinates and `maxLogHoursPerDay` are columns of
+`dbo.Timesheet_Users_Project_setup`, so each entry of `projectDetails` carries
+its own and one call may put a user on two projects on different terms. Every
+other field of the payload is the user's own.
+
+Validation failures on them are keyed on the entry that failed, e.g.
+`ProjectDetails[1].CostRate: ProjectDetails[1].CostRate is required.`
 
 The procedure's `@Range` parameter is **not** exposed: the procedure never
 uses it.
 
-> **The coordinates reach the first project only.** The procedure writes
-> `ProjectlocLatitude` / `ProjectlocLongtitude` in its **new-user** branch
-> (the 2026-10-22 revision, applied), but not yet in its existing-user branch
-> — that is the 2026-10-27 revision, **still DRAFT**. So on a payload with
-> several projects the first assignment stores the coordinates and the rest
-> store none, and for an email that is already a user none of them do. The
-> values are validated and then silently dropped; the call itself does not
-> fail. Applying the 2026-10-27 revision makes both branches write them.
+> **The coordinates reach a new user's assignments only.** The procedure
+> writes `ProjectlocLatitude` / `ProjectlocLongtitude` in its **new-user**
+> branch (the 2026-10-22 revision, applied), but not yet in its existing-user
+> branch — that is the 2026-10-27 revision, **still DRAFT**. So for an email
+> that is already a user, no assignment stores coordinates: the values are
+> validated and then silently dropped, and the call itself does not fail.
+> Applying the 2026-10-27 revision makes both branches write them.
 
 > `maxLogHoursPerDay` is passed as `@Maxloghourday`, added to
 > `spc_Signup_timesheet_user` on 2026-10-18 and **still DRAFT**. Until the
@@ -4359,16 +4363,29 @@ uses it.
   "address": "12 MG Road, Pune",
   "organizationId": 12,
   "projectDetails": [
-    { "projectId": 45, "projectRoleId": 22 },
-    { "projectId": 46, "projectRoleId": 3 }
+    {
+      "projectId": 45,
+      "projectRoleId": 22,
+      "jobType": 1,
+      "costRate": 25.00,
+      "billRate": 45.00,
+      "workLocationRange": 500,
+      "projectLocationLatitude": "18.5204",
+      "projectLocationLongitude": "73.8567",
+      "maxLogHoursPerDay": 8
+    },
+    {
+      "projectId": 46,
+      "projectRoleId": 3,
+      "jobType": 2,
+      "costRate": 30.00,
+      "billRate": 55.00,
+      "workLocationRange": 0,
+      "projectLocationLatitude": null,
+      "projectLocationLongitude": null,
+      "maxLogHoursPerDay": 6
+    }
   ],
-  "jobType": 1,
-  "costRate": 25.00,
-  "billRate": 45.00,
-  "workLocationRange": 500,
-  "projectLocationLatitude": "18.5204",
-  "projectLocationLongitude": "73.8567",
-  "maxLogHoursPerDay": 8,
   "createdBy": 7
 }
 ```
@@ -4384,7 +4401,7 @@ after the save. `message` is `User created.` or `User added to the project(s).`
 | `name` | string \| null | An existing user keeps their own name |
 | `email` | string \| null | As stored — upper case |
 | `organizationId` | int \| null | |
-| `projectDetails` | array | The projects the user is on, echoed from the payload in the order sent — one that was kept rather than added is in it too |
+| `projectDetails` | array | The projects the user is on, echoed from the payload in the order sent, each with the role and terms it carried — one that was kept rather than added is in it too |
 | `isNewUser` | bool | `false` when an existing user was only put on the project(s) |
 | `welcomeEmailSent` | bool | Whether the welcome email went out. Always `false` when `isNewUser` is `false` |
 
@@ -4398,8 +4415,28 @@ after the save. `message` is `User created.` or `User added to the project(s).`
     "email": "PRIYA.SHAH@EXAMPLE.COM",
     "organizationId": 12,
     "projectDetails": [
-      { "projectId": 45, "projectRoleId": 22 },
-      { "projectId": 46, "projectRoleId": 3 }
+      {
+        "projectId": 45,
+        "projectRoleId": 22,
+        "jobType": 1,
+        "costRate": 25.00,
+        "billRate": 45.00,
+        "workLocationRange": 500,
+        "projectLocationLatitude": "18.5204",
+        "projectLocationLongitude": "73.8567",
+        "maxLogHoursPerDay": 8
+      },
+      {
+        "projectId": 46,
+        "projectRoleId": 3,
+        "jobType": 2,
+        "costRate": 30.00,
+        "billRate": 55.00,
+        "workLocationRange": 0,
+        "projectLocationLatitude": null,
+        "projectLocationLongitude": null,
+        "maxLogHoursPerDay": 6
+      }
     ],
     "isNewUser": true,
     "welcomeEmailSent": true
@@ -4446,7 +4483,7 @@ of projects they are on. Written through EF Core, not a procedure.
 |---|---|
 | `fullName`, `email`, `countryId`, `address` | The user in `dbo.Signup` — **only when they change**, with `UpdatedDate` / `UpdateBy`. They change for every project the user is on |
 | `projectDetails` | The user's assignments in `dbo.Timesheet_Users_Project_setup`, **reconciled** — see below |
-| `jobType`, `costRate`, `billRate`, `workLocationRange`, the coordinates, `maxLogHoursPerDay` | The assignments this call **adds**, and only those |
+| `projectDetails[].jobType`, `.costRate`, `.billRate`, `.workLocationRange`, the coordinates, `.maxLogHoursPerDay` | The assignment this call **adds** for that entry, and only that one |
 
 All of it is saved in one transaction — all or none.
 
@@ -4455,7 +4492,7 @@ user should be on when the call finishes, not a patch:
 
 | The project is… | What happens |
 |---|---|
-| in `projectDetails`, and the user is **not** on it | **Added** — a new row, with the payload's `projectRoleId` for it and the shared fields above, stamped `CreateDate` / `Createdby` |
+| in `projectDetails`, and the user is **not** on it | **Added** — a new row, with that entry's `projectRoleId` and its own job type, rates, range, coordinates and cap, stamped `CreateDate` / `Createdby` |
 | in `projectDetails`, and the user **is** on it | **Left exactly as it is** — same row, same `projectRoleId`, rates, job type, range, coordinates and cap. Nothing is overwritten |
 | **not** in `projectDetails`, and the user is on it | **Soft-deleted** — `IsDelete = 1`, `DeletedDate` (UTC), `DeletedBy = updatedBy`, as [Remove Timesheet User](#38-remove-timesheet-user) does it |
 
@@ -4481,16 +4518,16 @@ response.
 | `email` | string | yes | a valid address, `<= 50` characters; not another user's | Stored upper case. Compared ignoring case, so a case-only change is not a change |
 | `countryId` | int \| null | no | `> 0`; a `dbo.Country` id that exists | Saved to `dbo.Signup.CountryID`. Left out, the user's country is **cleared** |
 | `address` | string \| null | no | trimmed; no length limit | Saved to `dbo.Signup.Address`. Left out, the user's address is **cleared** |
-| `projectDetails` | array | yes | at least one entry; no project twice | The **whole** set of projects the user should be on; one left out is taken off them |
+| `projectDetails` | array | yes | at least one entry; no project twice | The **whole** set of projects the user should be on, each with its role and terms; one left out is taken off them |
 | `projectDetails[].projectId` | int | yes | `> 0`; a project of `organizationId` | |
 | `projectDetails[].projectRoleId` | int \| null | no | `> 0`; a live role of `organizationId` | Used on an **added** assignment only; ignored for one the user already has |
-| `jobType` | int \| null | no | `> 0` | `1` work from office, `2` work from home. Not checked against the list. Added assignments only |
-| `costRate` | decimal | yes | `>= 0` | Added assignments only |
-| `billRate` | decimal | yes | `>= 0` | Added assignments only |
-| `workLocationRange` | int \| null | no | `>= 0` | Added assignments only |
-| `projectLocationLatitude` | string \| null | no | a number from -90 to 90, `<= 25` characters | Added assignments only |
-| `projectLocationLongitude` | string \| null | no | a number from -180 to 180, `<= 25` characters | Added assignments only |
-| `maxLogHoursPerDay` | int \| null | no | `0`–`24` | Stored only — [Add / Edit Project Time Log](#50-add--edit-project-time-log) enforces no daily cap. Added assignments only |
+| `projectDetails[].jobType` | int \| null | no | `> 0` | `1` work from office, `2` work from home. Not checked against the list. Added assignments only |
+| `projectDetails[].costRate` | decimal | yes | `>= 0` | Added assignments only |
+| `projectDetails[].billRate` | decimal | yes | `>= 0` | Added assignments only |
+| `projectDetails[].workLocationRange` | int \| null | no | `>= 0` | Added assignments only |
+| `projectDetails[].projectLocationLatitude` | string \| null | no | a number from -90 to 90, `<= 25` characters | Added assignments only |
+| `projectDetails[].projectLocationLongitude` | string \| null | no | a number from -180 to 180, `<= 25` characters | Added assignments only |
+| `projectDetails[].maxLogHoursPerDay` | int \| null | no | `0`–`24` | Stored only — [Add / Edit Project Time Log](#50-add--edit-project-time-log) enforces no daily cap. Added assignments only |
 | `updatedBy` | int | yes | `> 0` | Written to `UpdateBy` on the user, `Createdby` on an added assignment and `DeletedBy` on a removed one. Temporary — from the token once authentication is on |
 
 #### Example request
@@ -4504,23 +4541,37 @@ response.
   "countryId": 1,
   "address": "14 MG Road, Pune",
   "projectDetails": [
-    { "projectId": 45, "projectRoleId": 22 },
-    { "projectId": 46, "projectRoleId": 22 }
+    {
+      "projectId": 45,
+      "projectRoleId": 22,
+      "jobType": 1,
+      "costRate": 25.00,
+      "billRate": 45.00,
+      "workLocationRange": 500,
+      "projectLocationLatitude": "18.5204",
+      "projectLocationLongitude": "73.8567",
+      "maxLogHoursPerDay": 8
+    },
+    {
+      "projectId": 46,
+      "projectRoleId": 22,
+      "jobType": 1,
+      "costRate": 28.00,
+      "billRate": 50.00,
+      "workLocationRange": 500,
+      "projectLocationLatitude": "18.5204",
+      "projectLocationLongitude": "73.8567",
+      "maxLogHoursPerDay": 8
+    }
   ],
-  "jobType": 1,
-  "costRate": 28.00,
-  "billRate": 50.00,
-  "workLocationRange": 500,
-  "projectLocationLatitude": "18.5204",
-  "projectLocationLongitude": "73.8567",
-  "maxLogHoursPerDay": 8,
   "updatedBy": 7
 }
 ```
 
 The user was on projects 45 and 47. After this call they are on 45 — untouched,
-with whatever role and rates it already had — and 46, added with role 22 and
-the rates above. Project 47 is soft-deleted.
+with whatever role and rates it already had, so the entry's values for it are
+ignored — and 46, added with role 22 and that entry's own terms. Project 47 is
+soft-deleted.
 
 #### Success response — `200 OK`
 
@@ -4645,8 +4696,9 @@ removed already: `User '58' is not on project '4'.`
 **Purpose** — The timesheet users of one organisation: every live user in
 `dbo.Signup` of the organisation, with their name, email, country, address,
 currency and leave flag, and every live project assignment they have in
-`dbo.Timesheet_Users_Project_setup` — the project's code and name and the
-project role's name. Read through `dbo.spc_GetTimesheetUserListByOrgID`.
+`dbo.Timesheet_Users_Project_setup` — the project's code and name, the project
+role's name, and that assignment's own job type, rates, range, coordinates and
+daily cap. Read through `dbo.spc_GetTimesheetUserListByOrgID`.
 
 **One entry per user**, with the projects in `projectDetails`: a user on three
 projects is one entry with three projects. A user with **no** live assignment
@@ -4659,12 +4711,9 @@ is never empty. The organisation is the user's
 
 `jobType`, `costRate`, `billRate`, `workLocationRange`,
 `projectLocationLatitude`, `projectLocationLongitude` and `maxLogHoursPerDay`
-are columns of the **assignment**, but [Create](#36-create-timesheet-user) and
-[Edit Timesheet User](#37-edit-timesheet-user) write the same values to every
-project of a user. They are therefore reported **once, on the user**, taken
-from the first entry of `projectDetails`, and are not repeated per project. A
-row edited directly in the database could differ from the rest of the user's;
-that difference is not visible here.
+are columns of the **assignment**, and [Create](#36-create-timesheet-user) and
+[Edit Timesheet User](#37-edit-timesheet-user) take them per project. They are
+therefore reported **on each entry of `projectDetails`**, not once on the user.
 
 #### Route parameters
 
@@ -4694,17 +4743,11 @@ GET /api/v1/TimesheetProject/get-timesheet-user-by-orgID/12
 | `currencyId` | int \| null | The currency of the user's country, from `dbo.CountryCurrency_Lookup` (the lowest `CurrencyID` for it, as client setup does); `null` when the user has no country or it has no currency |
 | `currencyName` | string \| null | |
 | `currencySymbol` | string \| null | Not unique — show it beside `currencyName` |
-| `jobType` | int \| null | `1` work from office, `2` work from home. From the first assignment |
-| `costRate` | decimal \| null | The `Cost_rate_per_hour` column of the first assignment |
-| `billRate` | decimal \| null | The `Billable_rate_per_hour` column of the first assignment |
-| `workLocationRange` | int \| null | From the first assignment |
-| `projectLocationLatitude` | string \| null | Text, as stored, from the first assignment |
-| `projectLocationLongitude` | string \| null | Text, as stored, from the first assignment |
-| `maxLogHoursPerDay` | int \| null | The most hours a day the user may log; `null` when it sets no cap (the time log then caps the day at 24). From the first assignment |
 | `isOnLeave` | bool | `true` when an **approved** leave application of this organisation ([68](#68-approve--reject-user-leave-apply)) runs from on or before today to on or after it — today being the user's own date in the time zone of their timesheet setup (UTC without one). Submitted and rejected leave do not count |
 | `projectDetails` | array | Every live assignment of the user, ordered by `projectName`, then `timesheetUserProjectSetupId`. Never empty |
 
-Each entry of `projectDetails` — the project and the role only:
+Each entry of `projectDetails` — the project, the role, and the terms the user
+holds the project on:
 
 | Field | Type | Notes |
 |---|---|---|
@@ -4714,6 +4757,13 @@ Each entry of `projectDetails` — the project and the role only:
 | `projectName` | string \| null | The `Projectname` column; `null` when the project is unknown |
 | `projectRoleId` | int \| null | |
 | `projectRoleName` | string \| null | From `dbo.TimesheetUserRole`; `null` when the role is null, unknown or deleted |
+| `jobType` | int \| null | `1` work from office, `2` work from home |
+| `costRate` | decimal \| null | The `Cost_rate_per_hour` column of this assignment |
+| `billRate` | decimal \| null | The `Billable_rate_per_hour` column of this assignment |
+| `workLocationRange` | int \| null | The `WorklocationRange` column of this assignment |
+| `projectLocationLatitude` | string \| null | Text, as stored |
+| `projectLocationLongitude` | string \| null | Text, as stored |
+| `maxLogHoursPerDay` | int \| null | The most hours a day this assignment may log; `null` when it sets no cap (the time log then caps the day at 24) |
 
 #### Example response
 
@@ -4733,13 +4783,6 @@ Each entry of `projectDetails` — the project and the role only:
       "currencyId": 103,
       "currencyName": "Indian rupee",
       "currencySymbol": "₹",
-      "jobType": 1,
-      "costRate": 30.00,
-      "billRate": 45.00,
-      "workLocationRange": 200,
-      "projectLocationLatitude": "23.0225",
-      "projectLocationLongitude": "72.5714",
-      "maxLogHoursPerDay": 8,
       "isOnLeave": false,
       "projectDetails": [
         {
@@ -4748,7 +4791,14 @@ Each entry of `projectDetails` — the project and the role only:
           "projectCode": "PR0004",
           "projectName": "Website Rebuild",
           "projectRoleId": 3,
-          "projectRoleName": "Developer"
+          "projectRoleName": "Developer",
+          "jobType": 1,
+          "costRate": 30.00,
+          "billRate": 45.00,
+          "workLocationRange": 200,
+          "projectLocationLatitude": "23.0225",
+          "projectLocationLongitude": "72.5714",
+          "maxLogHoursPerDay": 8
         },
         {
           "timesheetUserProjectSetupId": 44,
@@ -4756,7 +4806,14 @@ Each entry of `projectDetails` — the project and the role only:
           "projectCode": "PR0007",
           "projectName": "Mobile App",
           "projectRoleId": 22,
-          "projectRoleName": "Tester"
+          "projectRoleName": "Tester",
+          "jobType": 2,
+          "costRate": 35.00,
+          "billRate": 60.00,
+          "workLocationRange": 0,
+          "projectLocationLatitude": null,
+          "projectLocationLongitude": null,
+          "maxLogHoursPerDay": 6
         }
       ]
     }
@@ -7645,27 +7702,29 @@ Documented so nobody has to rediscover them:
     email; only applying (66) emails the approvers.
 89. **Edit Timesheet User cannot change an assignment the user already has.**
     `projectDetails` keeps a project in both the payload and the database
-    exactly as it is, so the payload's `projectRoleId`, `jobType`, `costRate`,
+    exactly as it is, so an entry's `projectRoleId`, `jobType`, `costRate`,
     `billRate`, `workLocationRange`, coordinates and `maxLogHoursPerDay` reach
-    **added** assignments only. Changing them on an existing one needs two
-    calls: one that leaves the project out (soft-deleting the row) and one
-    that adds it back with the new values - which loses the old row's id and
-    its `CreateDate` / `Createdby`.
+    **added** assignments only - sending new values for a project the user is
+    already on is accepted and then ignored. Changing them on an existing one
+    needs two calls: one that leaves the project out (soft-deleting the row)
+    and one that adds it back with the new values - which loses the old row's
+    id and its `CreateDate` / `Createdby`.
 90. **Create Timesheet User is not atomic across projects.**
     `spc_Signup_timesheet_user` is called once per entry of `projectDetails`
     and opens its own transaction each time, so a database failure part way
     through leaves the user and the assignments already made. Every id in the
     payload is validated before the first call, so this needs SQL Server
-    itself to fail mid-request. The coordinates reach the first assignment
-    only, until the procedure's 2026-10-27 revision is applied (see 32).
-91. **Organisation Timesheet User List reports the shared assignment fields
-    from the first project.** `jobType`, `costRate`, `billRate`,
-    `workLocationRange`, the coordinates and `maxLogHoursPerDay` are columns
-    of `dbo.Timesheet_Users_Project_setup`, so each assignment has its own,
-    but the response carries one set, taken from the first entry of
-    `projectDetails`. Create and Edit write the same values to every project
-    of a user, so they normally agree; a row changed directly in the database
-    can differ, and that difference is invisible here.
+    itself to fail mid-request. For an email that is already a user, no
+    assignment stores coordinates until the procedure's 2026-10-27 revision is
+    applied (see 32).
+91. *(Resolved - `jobType`, `costRate`, `billRate`, `workLocationRange`, the
+    coordinates and `maxLogHoursPerDay` are now taken per project by Create
+    and Edit, and reported per project by the list.)* **Organisation Timesheet
+    User List reported the shared assignment fields from the first project.**
+    They are columns of `dbo.Timesheet_Users_Project_setup`, so each
+    assignment has its own, but the response used to carry one set taken from
+    the first entry of `projectDetails`, hiding any difference between a
+    user's projects.
 92. **Two background jobs change what the API returns with no call to it.**
     `AutoApproveProjectSheet` flips a sheet from Submitted to Approved once
     it has waited out its project's `autoApproveInDays`, and

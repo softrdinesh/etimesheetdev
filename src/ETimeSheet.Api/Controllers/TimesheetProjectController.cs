@@ -287,10 +287,12 @@ public class TimesheetProjectController : ControllerBase
     /// Signs a user up and puts them on one or more projects of their
     /// organisation, through <c>dbo.spc_Signup_timesheet_user</c>.
     /// <para>
-    /// <c>projectDetails</c> names the projects and the role on each; at least
-    /// one, and no project twice. Every other field is the user's or is shared
-    /// by all of the assignments - rates, job type, range, coordinates and cap
-    /// are written to each of them.
+    /// <c>projectDetails</c> names the projects and, on each, the role and
+    /// the terms it is assigned on - <c>jobType</c>, <c>costRate</c>,
+    /// <c>billRate</c>, <c>workLocationRange</c>, the coordinates and
+    /// <c>maxLogHoursPerDay</c>. At least one project, and no project twice.
+    /// Every other field is the user's own, so two projects of one user may
+    /// be assigned on different terms.
     /// </para>
     /// <para>
     /// An <c>email</c> that is not yet a user creates the user, their login
@@ -335,10 +337,10 @@ public class TimesheetProjectController : ControllerBase
     /// not overwritten.
     /// </para>
     /// <para>
-    /// So <c>jobType</c>, <c>costRate</c>, <c>billRate</c>,
-    /// <c>workLocationRange</c>, the coordinates and <c>maxLogHoursPerDay</c>
-    /// reach only the assignments this call adds. Everything is written
-    /// together, or none of it is.
+    /// So the <c>jobType</c>, <c>costRate</c>, <c>billRate</c>,
+    /// <c>workLocationRange</c>, coordinates and <c>maxLogHoursPerDay</c> an
+    /// item carries reach only the assignments this call adds. Everything is
+    /// written together, or none of it is.
     /// </para>
     /// </summary>
     /// <response code="200">The user and every project they are on after the save.</response>
@@ -388,12 +390,12 @@ public class TimesheetProjectController : ControllerBase
     /// <summary>
     /// Returns the timesheet users of one organisation, through
     /// <c>dbo.spc_GetTimesheetUserListByOrgID</c> - <b>one entry per user</b>,
-    /// with their name, email, country, currency, leave flag and the job
-    /// type, rates, range, coordinates and daily cap of their assignments,
-    /// and every live project assignment they have in <c>projectDetails</c>:
-    /// the project's code and name, and the project role's name. Ordered by
-    /// user name, then project name within a user. A user with no live
-    /// assignment is not listed.
+    /// with their name, email, country, currency and leave flag, and every
+    /// live project assignment they have in <c>projectDetails</c>: the
+    /// project's code and name, the project role's name, and that
+    /// assignment's own job type, rates, range, coordinates and daily cap.
+    /// Ordered by user name, then project name within a user. A user with no
+    /// live assignment is not listed.
     /// </summary>
     /// <param name="orgID">The organisation whose users to list, as a route segment.</param>
     /// <response code="200">The users, each with their projects. An organisation with none is an empty list, not a 404.</response>

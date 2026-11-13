@@ -634,8 +634,15 @@ public class TimesheetProjectBudgetByOrgDetail
 
 /// <summary>
 /// One project of a timesheet user, as <c>create-timesheet-user</c> and
-/// <c>edit-timesheet-user</c> take them: the project, and the role the user
-/// holds on it. Sent as a list, so one call puts a user on several projects.
+/// <c>edit-timesheet-user</c> take them: the project, the role the user holds
+/// on it, and the terms they hold it on. Sent as a list, so one call puts a
+/// user on several projects.
+/// <para>
+/// Every property here is a column of
+/// <c>dbo.Timesheet_Users_Project_setup</c>, so each project in the list
+/// carries its own: two projects of one user may have different job types,
+/// rates, ranges, coordinates and daily caps.
+/// </para>
 /// </summary>
 public class TimesheetUserProjectDetail
 {
@@ -652,6 +659,47 @@ public class TimesheetUserProjectDetail
     /// </summary>
     /// <example>22</example>
     public int? ProjectRoleId { get; set; }
+
+    /// <summary>Optional. Greater than 0 when sent.</summary>
+    /// <example>1</example>
+    public int? JobType { get; set; }
+
+    /// <summary>Required. The cost per hour on this project. Not negative.</summary>
+    /// <example>25.00</example>
+    public decimal? CostRate { get; set; }
+
+    /// <summary>Required. The billable rate per hour on this project. Not negative.</summary>
+    /// <example>45.00</example>
+    public decimal? BillRate { get; set; }
+
+    /// <summary>Optional. The work-location range. Not negative.</summary>
+    /// <example>500</example>
+    public int? WorkLocationRange { get; set; }
+
+    /// <summary>
+    /// Optional. The project location's latitude, a number from -90 to 90,
+    /// 25 characters or fewer.
+    /// </summary>
+    /// <example>18.5204</example>
+    public string? ProjectLocationLatitude { get; set; }
+
+    /// <summary>
+    /// Optional. The project location's longitude, a number from -180 to 180,
+    /// 25 characters or fewer.
+    /// </summary>
+    /// <example>73.8567</example>
+    public string? ProjectLocationLongitude { get; set; }
+
+    /// <summary>
+    /// Optional. The most hours a day this assignment may log. Not negative,
+    /// and 24 or fewer. Left out means this assignment sets no cap.
+    /// <para>
+    /// <b>Stored only.</b> No endpoint enforces it: the daily cap the time log
+    /// applies is the user's <c>dbo.TimesheetMasterSetup.MaxTimeInHrs</c>.
+    /// </para>
+    /// </summary>
+    /// <example>8</example>
+    public int? MaxLogHoursPerDay { get; set; }
 }
 
 /// <summary>
@@ -696,14 +744,12 @@ public class TimesheetUserCreateRequest
 
     /// <summary>
     /// Required. The projects to put the user on, each with the role they
-    /// hold on it - at least one, each a project of
-    /// <see cref="OrganizationId"/>, and no project twice.
+    /// hold on it and the terms they hold it on - at least one, each a
+    /// project of <see cref="OrganizationId"/>, and no project twice.
     /// <para>
-    /// Every other field of this payload is the user's or is shared by every
-    /// assignment created here: <see cref="JobType"/>, <see cref="CostRate"/>,
-    /// <see cref="BillRate"/>, <see cref="WorkLocationRange"/>, the
-    /// coordinates and <see cref="MaxLogHoursPerDay"/> are written to each of
-    /// them. Only the role varies per project.
+    /// The job type, the rates, the range, the coordinates and the daily cap
+    /// are on each item, not on this payload: every project is assigned on
+    /// its own terms. Every other field here is the user's own.
     /// </para>
     /// <para>
     /// A project the user is already on is skipped rather than assigned
@@ -711,47 +757,6 @@ public class TimesheetUserCreateRequest
     /// </para>
     /// </summary>
     public List<TimesheetUserProjectDetail>? ProjectDetails { get; set; }
-
-    /// <summary>Optional. Greater than 0 when sent.</summary>
-    /// <example>1</example>
-    public int? JobType { get; set; }
-
-    /// <summary>Required. The cost per hour. Not negative.</summary>
-    /// <example>25.00</example>
-    public decimal? CostRate { get; set; }
-
-    /// <summary>Required. The billable rate per hour. Not negative.</summary>
-    /// <example>45.00</example>
-    public decimal? BillRate { get; set; }
-
-    /// <summary>Optional. The work-location range. Not negative.</summary>
-    /// <example>500</example>
-    public int? WorkLocationRange { get; set; }
-
-    /// <summary>
-    /// Optional. The project location's latitude, a number from -90 to 90,
-    /// 25 characters or fewer. Saved for a new user only.
-    /// </summary>
-    /// <example>18.5204</example>
-    public string? ProjectLocationLatitude { get; set; }
-
-    /// <summary>
-    /// Optional. The project location's longitude, a number from -180 to 180,
-    /// 25 characters or fewer. Saved for a new user only.
-    /// </summary>
-    /// <example>73.8567</example>
-    public string? ProjectLocationLongitude { get; set; }
-
-    /// <summary>
-    /// Optional. The most hours a day this assignment may log. Not negative,
-    /// and 24 or fewer. Left out means this assignment sets no cap.
-    /// <para>
-    /// <b>Stored only.</b> No endpoint enforces it: the daily cap the time log
-    /// applies is the user's <c>dbo.TimesheetMasterSetup.MaxTimeInHrs</c>.
-    /// </para>
-    /// </summary>
-    /// <example>8</example>
-    public int? MaxLogHoursPerDay { get; set; }
 
     /// <summary>
     /// The user creating the assignment, written to <c>CreatedBy</c>. Required,
@@ -819,11 +824,10 @@ public class TimesheetUserCreateResponse
 /// are not overwritten.
 /// </para>
 /// <para>
-/// <see cref="JobType"/>, <see cref="CostRate"/>, <see cref="BillRate"/>,
-/// <see cref="WorkLocationRange"/>, the coordinates and
-/// <see cref="MaxLogHoursPerDay"/> are therefore written only to the
-/// assignments this call <b>adds</b>. To change them on an assignment that
-/// already exists, the assignment has to be removed and added again.
+/// Each item carries its own job type, rates, range, coordinates and daily
+/// cap, and they are therefore written only to the assignments this call
+/// <b>adds</b>. To change them on an assignment that already exists, the
+/// assignment has to be removed and added again.
 /// </para>
 /// <para>
 /// Validated by <c>TimesheetProjectService</c>, not by a FluentValidation
@@ -870,46 +874,11 @@ public class TimesheetUserUpdateRequest
 
     /// <summary>
     /// Required. The whole set of projects the user should be on when the call
-    /// finishes - at least one, each a project of
-    /// <see cref="OrganizationId"/>, and no project twice. Projects left out
-    /// are taken off the user.
+    /// finishes, each with the role and the terms it is held on - at least
+    /// one, each a project of <see cref="OrganizationId"/>, and no project
+    /// twice. Projects left out are taken off the user.
     /// </summary>
     public List<TimesheetUserProjectDetail>? ProjectDetails { get; set; }
-
-    /// <summary>Optional. Greater than 0 when sent. Written to added assignments only.</summary>
-    /// <example>1</example>
-    public int? JobType { get; set; }
-
-    /// <summary>Required. The cost per hour. Not negative.</summary>
-    /// <example>25.00</example>
-    public decimal? CostRate { get; set; }
-
-    /// <summary>Required. The billable rate per hour. Not negative.</summary>
-    /// <example>45.00</example>
-    public decimal? BillRate { get; set; }
-
-    /// <summary>Optional. The work-location range. Not negative.</summary>
-    /// <example>500</example>
-    public int? WorkLocationRange { get; set; }
-
-    /// <summary>Optional. A number from -90 to 90, 25 characters or fewer.</summary>
-    /// <example>18.5204</example>
-    public string? ProjectLocationLatitude { get; set; }
-
-    /// <summary>Optional. A number from -180 to 180, 25 characters or fewer.</summary>
-    /// <example>73.8567</example>
-    public string? ProjectLocationLongitude { get; set; }
-
-    /// <summary>
-    /// Optional. The most hours a day this assignment may log. Not negative,
-    /// and 24 or fewer. Left out means this assignment sets no cap.
-    /// <para>
-    /// <b>Stored only.</b> No endpoint enforces it: the daily cap the time log
-    /// applies is the user's <c>dbo.TimesheetMasterSetup.MaxTimeInHrs</c>.
-    /// </para>
-    /// </summary>
-    /// <example>8</example>
-    public int? MaxLogHoursPerDay { get; set; }
 
     /// <summary>
     /// The user making the edit, written to <c>dbo.Signup.UpdateBy</c> when the
@@ -1070,42 +1039,6 @@ public class TimesheetUserListResponse
     public string? CurrencySymbol { get; set; }
 
     /// <summary>
-    /// The job type of the user's assignments - <c>1</c> work from office,
-    /// <c>2</c> work from home.
-    /// <para>
-    /// This and the six properties below are columns of
-    /// <c>dbo.Timesheet_Users_Project_setup</c>, so each project row carries
-    /// its own. They are set the same on every project a call assigns, so they
-    /// are reported once here, taken from the user's <b>first</b> assignment -
-    /// the first project in <see cref="ProjectDetails"/>. A row edited
-    /// directly in the database could differ from the rest; that difference is
-    /// not visible here.
-    /// </para>
-    /// </summary>
-    public int? JobType { get; set; }
-
-    /// <summary>The <c>Cost_rate_per_hour</c> column of the first assignment.</summary>
-    public decimal? CostRate { get; set; }
-
-    /// <summary>The <c>Billable_rate_per_hour</c> column of the first assignment.</summary>
-    public decimal? BillRate { get; set; }
-
-    /// <summary>The <c>WorklocationRange</c> column of the first assignment.</summary>
-    public int? WorkLocationRange { get; set; }
-
-    /// <summary>Text, as stored, from the first assignment.</summary>
-    public string? ProjectLocationLatitude { get; set; }
-
-    /// <summary>Text, as stored, from the first assignment.</summary>
-    public string? ProjectLocationLongitude { get; set; }
-
-    /// <summary>
-    /// The <c>Max_log_hour_day</c> column of the first assignment - the most
-    /// hours a day the user may log. Null when it sets no cap.
-    /// </summary>
-    public int? MaxLogHoursPerDay { get; set; }
-
-    /// <summary>
     /// Whether the user is on approved leave today - today being the user's
     /// own date, in the time zone of their timesheet setup (UTC without one).
     /// True when an <b>approved</b> leave application of this organisation
@@ -1125,11 +1058,11 @@ public class TimesheetUserListResponse
 /// <summary>
 /// One live project assignment of a user, inside
 /// <see cref="TimesheetUserListResponse"/> - the project and the project role,
-/// by id and by name.
+/// by id and by name, and the terms the user holds the project on.
 /// <para>
-/// The assignment's job type, rates, range, coordinates and daily cap are
-/// <b>not</b> here: they are the same on every project of a user, so they are
-/// reported once on <see cref="TimesheetUserListResponse"/>.
+/// The job type, rates, range, coordinates and daily cap are columns of
+/// <c>dbo.Timesheet_Users_Project_setup</c>, so they are the assignment's own
+/// and are reported here, on each project, rather than once on the user.
 /// </para>
 /// </summary>
 public class TimesheetUserListProjectResponse
@@ -1148,6 +1081,33 @@ public class TimesheetUserListProjectResponse
 
     /// <summary>The role's <c>Rolename</c>. Null when the role is null, unknown or deleted.</summary>
     public string? ProjectRoleName { get; set; }
+
+    /// <summary>
+    /// The job type of this assignment - <c>1</c> work from office,
+    /// <c>2</c> work from home.
+    /// </summary>
+    public int? JobType { get; set; }
+
+    /// <summary>The <c>Cost_rate_per_hour</c> column of this assignment.</summary>
+    public decimal? CostRate { get; set; }
+
+    /// <summary>The <c>Billable_rate_per_hour</c> column of this assignment.</summary>
+    public decimal? BillRate { get; set; }
+
+    /// <summary>The <c>WorklocationRange</c> column of this assignment.</summary>
+    public int? WorkLocationRange { get; set; }
+
+    /// <summary>Text, as stored.</summary>
+    public string? ProjectLocationLatitude { get; set; }
+
+    /// <summary>Text, as stored.</summary>
+    public string? ProjectLocationLongitude { get; set; }
+
+    /// <summary>
+    /// The <c>Max_log_hour_day</c> column of this assignment - the most hours
+    /// a day it may log. Null when it sets no cap.
+    /// </summary>
+    public int? MaxLogHoursPerDay { get; set; }
 }
 
 /// <summary>

@@ -119,9 +119,9 @@ internal static class TimesheetProjectMappings
     /// assignment row of the user, so any one row of the group will do.
     /// <para>
     /// The job type, rates, range, coordinates and daily cap are the
-    /// assignment's, not the user's, but are set the same on every project of
-    /// a user - so they are taken from this row, the user's first assignment,
-    /// and reported once.
+    /// assignment's, not the user's, so they are not here: each one is
+    /// reported on its own project, by
+    /// <see cref="ToUserListProjectResponse"/>.
     /// </para>
     /// </summary>
     internal static TimesheetUserListResponse ToUserListResponse(
@@ -138,13 +138,6 @@ internal static class TimesheetProjectMappings
         CurrencyId = user.CurrencyId,
         CurrencyName = user.CurrencyName,
         CurrencySymbol = user.CurrencySymbol,
-        JobType = user.JobType,
-        CostRate = user.CostRate,
-        BillRate = user.BillRate,
-        WorkLocationRange = user.WorkLocationRange,
-        ProjectLocationLatitude = user.ProjectLocationLatitude,
-        ProjectLocationLongitude = user.ProjectLocationLongitude,
-        MaxLogHoursPerDay = user.MaxLogHoursPerDay,
         ProjectDetails = projects,
     };
 
@@ -162,6 +155,13 @@ internal static class TimesheetProjectMappings
         ProjectName = user.ProjectName,
         ProjectRoleId = user.ProjectRoleId,
         ProjectRoleName = user.ProjectRoleName,
+        JobType = user.JobType,
+        CostRate = user.CostRate,
+        BillRate = user.BillRate,
+        WorkLocationRange = user.WorkLocationRange,
+        ProjectLocationLatitude = user.ProjectLocationLatitude,
+        ProjectLocationLongitude = user.ProjectLocationLongitude,
+        MaxLogHoursPerDay = user.MaxLogHoursPerDay,
     };
 
     /// <summary>
