@@ -664,8 +664,6 @@ public class TimesheetProjectService : ITimesheetProjectService
         var fullName = string.IsNullOrWhiteSpace(request.FullName) ? null : request.FullName.Trim();
         var email = string.IsNullOrWhiteSpace(request.Email) ? null : request.Email.Trim();
         var address = string.IsNullOrWhiteSpace(request.Address) ? null : request.Address.Trim();
-        var latitude = string.IsNullOrWhiteSpace(request.ProjectLocationLatitude) ? null : request.ProjectLocationLatitude.Trim();
-        var longitude = string.IsNullOrWhiteSpace(request.ProjectLocationLongitude) ? null : request.ProjectLocationLongitude.Trim();
         var failures = new Dictionary<string, string[]>();
 
         AddFullNameFailure(failures, nameof(TimesheetUserCreateRequest.FullName), fullName);
@@ -691,33 +689,6 @@ public class TimesheetProjectService : ITimesheetProjectService
             failures,
             nameof(TimesheetUserCreateRequest.ProjectDetails),
             request.ProjectDetails);
-
-        if (request.JobType <= 0)
-        {
-            failures[nameof(TimesheetUserCreateRequest.JobType)] = new[]
-            {
-                "JobType must be greater than 0 when sent."
-            };
-        }
-
-        AddRateFailure(failures, nameof(TimesheetUserCreateRequest.CostRate), request.CostRate);
-        AddRateFailure(failures, nameof(TimesheetUserCreateRequest.BillRate), request.BillRate);
-
-        if (request.WorkLocationRange < 0)
-        {
-            failures[nameof(TimesheetUserCreateRequest.WorkLocationRange)] = new[]
-            {
-                "WorkLocationRange must not be negative."
-            };
-        }
-
-        AddMaxLogHoursPerDayFailure(
-            failures,
-            nameof(TimesheetUserCreateRequest.MaxLogHoursPerDay),
-            request.MaxLogHoursPerDay);
-
-        AddCoordinateFailure(failures, nameof(TimesheetUserCreateRequest.ProjectLocationLatitude), latitude, 90m);
-        AddCoordinateFailure(failures, nameof(TimesheetUserCreateRequest.ProjectLocationLongitude), longitude, 180m);
 
         if (request.CreatedBy <= 0)
         {
@@ -812,15 +783,15 @@ public class TimesheetProjectService : ITimesheetProjectService
                 address,
                 request.OrganizationId,
                 detail.ProjectRoleId,
-                request.JobType,
-                request.CostRate!.Value,
-                request.BillRate!.Value,
+                detail.JobType,
+                detail.CostRate!.Value,
+                detail.BillRate!.Value,
                 request.CreatedBy,
-                request.WorkLocationRange,
+                detail.WorkLocationRange,
                 detail.ProjectId,
-                latitude,
-                longitude,
-                request.MaxLogHoursPerDay,
+                detail.ProjectLocationLatitude,
+                detail.ProjectLocationLongitude,
+                detail.MaxLogHoursPerDay,
                 cancellationToken);
         }
 
@@ -963,8 +934,6 @@ public class TimesheetProjectService : ITimesheetProjectService
         var fullName = string.IsNullOrWhiteSpace(request.FullName) ? null : request.FullName.Trim();
         var email = string.IsNullOrWhiteSpace(request.Email) ? null : request.Email.Trim();
         var address = string.IsNullOrWhiteSpace(request.Address) ? null : request.Address.Trim();
-        var latitude = string.IsNullOrWhiteSpace(request.ProjectLocationLatitude) ? null : request.ProjectLocationLatitude.Trim();
-        var longitude = string.IsNullOrWhiteSpace(request.ProjectLocationLongitude) ? null : request.ProjectLocationLongitude.Trim();
         var failures = new Dictionary<string, string[]>();
 
         if (request.UserId <= 0)
@@ -998,33 +967,6 @@ public class TimesheetProjectService : ITimesheetProjectService
             failures,
             nameof(TimesheetUserUpdateRequest.ProjectDetails),
             request.ProjectDetails);
-
-        if (request.JobType <= 0)
-        {
-            failures[nameof(TimesheetUserUpdateRequest.JobType)] = new[]
-            {
-                "JobType must be greater than 0 when sent."
-            };
-        }
-
-        AddRateFailure(failures, nameof(TimesheetUserUpdateRequest.CostRate), request.CostRate);
-        AddRateFailure(failures, nameof(TimesheetUserUpdateRequest.BillRate), request.BillRate);
-
-        if (request.WorkLocationRange < 0)
-        {
-            failures[nameof(TimesheetUserUpdateRequest.WorkLocationRange)] = new[]
-            {
-                "WorkLocationRange must not be negative."
-            };
-        }
-
-        AddMaxLogHoursPerDayFailure(
-            failures,
-            nameof(TimesheetUserUpdateRequest.MaxLogHoursPerDay),
-            request.MaxLogHoursPerDay);
-
-        AddCoordinateFailure(failures, nameof(TimesheetUserUpdateRequest.ProjectLocationLatitude), latitude, 90m);
-        AddCoordinateFailure(failures, nameof(TimesheetUserUpdateRequest.ProjectLocationLongitude), longitude, 180m);
 
         if (request.UpdatedBy <= 0)
         {
@@ -1164,8 +1106,8 @@ public class TimesheetProjectService : ITimesheetProjectService
             .Select(keptSetup => keptSetup.ProjectId!.Value)
             .ToHashSet();
 
-        // Added rows carry the payload's shared values; the kept rows keep
-        // their own, which is why an edit cannot change them.
+        // Added rows carry the values their own item of the payload sent; the
+        // kept rows keep their own, which is why an edit cannot change them.
         var addedSetups = projectDetails
             .Where(detail => !keptProjectIds.Contains(detail.ProjectId))
             .Select(detail => new TimesheetUserProjectSetup
@@ -1173,13 +1115,13 @@ public class TimesheetProjectService : ITimesheetProjectService
                 UserId = user.UserId,
                 ProjectId = detail.ProjectId,
                 ProjectRoleId = detail.ProjectRoleId,
-                JobType = request.JobType,
-                CostRate = request.CostRate,
-                BillRate = request.BillRate,
-                WorkLocationRange = request.WorkLocationRange,
-                ProjectLocationLatitude = latitude,
-                ProjectLocationLongitude = longitude,
-                MaxLogHoursPerDay = request.MaxLogHoursPerDay,
+                JobType = detail.JobType,
+                CostRate = detail.CostRate,
+                BillRate = detail.BillRate,
+                WorkLocationRange = detail.WorkLocationRange,
+                ProjectLocationLatitude = detail.ProjectLocationLatitude,
+                ProjectLocationLongitude = detail.ProjectLocationLongitude,
+                MaxLogHoursPerDay = detail.MaxLogHoursPerDay,
                 CreateDate = now,
                 CreatedBy = request.UpdatedBy,
                 IsDelete = 0,
@@ -1313,9 +1255,15 @@ public class TimesheetProjectService : ITimesheetProjectService
     /// <summary>
     /// The shape rules of a <c>projectDetails</c> list, shared by
     /// <c>create-timesheet-user</c> and <c>edit-timesheet-user</c>: at least
-    /// one project, every id positive, and no project twice. Returns the list
-    /// to work with - empty when it failed, so the caller's later steps are
-    /// no-ops until the 400 is thrown.
+    /// one project, every id positive, no project twice, and every term the
+    /// item assigns the project on - job type, rates, range, coordinates and
+    /// daily cap - within its own limits. Returns the list to work with -
+    /// empty when it failed, so the caller's later steps are no-ops until the
+    /// 400 is thrown.
+    /// <para>
+    /// Each item's coordinates are trimmed in place, so what is validated is
+    /// what is stored and echoed back.
+    /// </para>
     /// </summary>
     private static List<TimesheetUserProjectDetail> ValidateProjectDetails(
         Dictionary<string, string[]> failures,
@@ -1341,21 +1289,83 @@ public class TimesheetProjectService : ITimesheetProjectService
                 continue;
             }
 
+            // Every failure of this item is keyed on the item the caller sent,
+            // so a 400 names the project the value belongs to.
+            var itemField = $"{field}[{index}]";
+            var failureCountBeforeItem = failures.Count;
+
             if (detail.ProjectId <= 0)
             {
-                failures[$"{field}[{index}].{nameof(TimesheetUserProjectDetail.ProjectId)}"] = new[]
+                failures[$"{itemField}.{nameof(TimesheetUserProjectDetail.ProjectId)}"] = new[]
                 {
                     "ProjectId is required and must be greater than 0."
                 };
-                itemFailed = true;
             }
 
             if (detail.ProjectRoleId <= 0)
             {
-                failures[$"{field}[{index}].{nameof(TimesheetUserProjectDetail.ProjectRoleId)}"] = new[]
+                failures[$"{itemField}.{nameof(TimesheetUserProjectDetail.ProjectRoleId)}"] = new[]
                 {
                     "ProjectRoleId must be greater than 0 when sent."
                 };
+            }
+
+            if (detail.JobType <= 0)
+            {
+                failures[$"{itemField}.{nameof(TimesheetUserProjectDetail.JobType)}"] = new[]
+                {
+                    "JobType must be greater than 0 when sent."
+                };
+            }
+
+            AddRateFailure(
+                failures,
+                $"{itemField}.{nameof(TimesheetUserProjectDetail.CostRate)}",
+                detail.CostRate);
+
+            AddRateFailure(
+                failures,
+                $"{itemField}.{nameof(TimesheetUserProjectDetail.BillRate)}",
+                detail.BillRate);
+
+            if (detail.WorkLocationRange < 0)
+            {
+                failures[$"{itemField}.{nameof(TimesheetUserProjectDetail.WorkLocationRange)}"] = new[]
+                {
+                    "WorkLocationRange must not be negative."
+                };
+            }
+
+            AddMaxLogHoursPerDayFailure(
+                failures,
+                $"{itemField}.{nameof(TimesheetUserProjectDetail.MaxLogHoursPerDay)}",
+                detail.MaxLogHoursPerDay);
+
+            // Trimmed on the item itself: the value validated here is the one
+            // written to dbo.Timesheet_Users_Project_setup and the one the
+            // create response echoes back.
+            detail.ProjectLocationLatitude = string.IsNullOrWhiteSpace(detail.ProjectLocationLatitude)
+                ? null
+                : detail.ProjectLocationLatitude.Trim();
+
+            detail.ProjectLocationLongitude = string.IsNullOrWhiteSpace(detail.ProjectLocationLongitude)
+                ? null
+                : detail.ProjectLocationLongitude.Trim();
+
+            AddCoordinateFailure(
+                failures,
+                $"{itemField}.{nameof(TimesheetUserProjectDetail.ProjectLocationLatitude)}",
+                detail.ProjectLocationLatitude,
+                90m);
+
+            AddCoordinateFailure(
+                failures,
+                $"{itemField}.{nameof(TimesheetUserProjectDetail.ProjectLocationLongitude)}",
+                detail.ProjectLocationLongitude,
+                180m);
+
+            if (failures.Count > failureCountBeforeItem)
+            {
                 itemFailed = true;
             }
         }
