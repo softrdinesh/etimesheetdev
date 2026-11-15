@@ -310,30 +310,32 @@ public class SchedulerRepository : ISchedulerRepository
             .Select(user => new UserName(user.UserId, user.Name))
             .ToListAsync(cancellationToken);
 
-    public async Task<IReadOnlyList<WorkingWeekSetup>> GetWorkingWeekSetupsAsync(
+    public async Task<IReadOnlyList<ProjectDailyHourCap>> GetProjectDailyHourCapsAsync(
+        IReadOnlyCollection<int> projectIds,
         IReadOnlyCollection<int> userIds,
         CancellationToken cancellationToken = default)
     {
-        // The setup's query filter drops deleted setups. Projected, so only
-        // the columns the expected hours need are read.
-        var setups = await _db.TimesheetMasterSetup
+        // The setup's query filter drops deleted assignments. Projected, so
+        // only the columns the expected hours need are read.
+        var setups = await _db.Timesheet_Users_Project_setup
             .AsNoTracking()
-            .Where(setup => setup.UserId != null && userIds.Contains(setup.UserId.Value))
-            .Select(setup => new WorkingWeekSetup
+            .Where(setup => setup.ProjectId != null
+                            && projectIds.Contains(setup.ProjectId.Value)
+                            && userIds.Contains(setup.UserId))
+            .Select(setup => new ProjectDailyHourCap
             {
-                SetupId = setup.SetupId,
-                UserId = setup.UserId!.Value,
-                StartDay = setup.StartDay,
-                EndDay = setup.EndDay,
-                ExceptionDay = setup.ExceptionDay,
-                MaxTimeInHrs = setup.MaxTimeInHrs,
-                MaxTimInMins = setup.MaxTimInMins
+                SetupId = setup.TimesheetUserProjectSetupId,
+                UserId = setup.UserId,
+                ProjectId = setup.ProjectId!.Value,
+                MaxLogHoursPerDay = setup.MaxLogHoursPerDay
             })
             .ToListAsync(cancellationToken);
 
-        // One setup per user - the lowest SetupID, as the procedures pick.
+        // Nothing stops the same user being put on one project twice, so the
+        // lowest TimesheetUserProjectSetupID wins - the same rule the rest of
+        // the module picks a duplicate by.
         return setups
-            .GroupBy(setup => setup.UserId)
+            .GroupBy(setup => (setup.ProjectId, setup.UserId))
             .Select(group => group.OrderBy(setup => setup.SetupId).First())
             .ToList();
     }

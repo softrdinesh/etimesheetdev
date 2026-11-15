@@ -136,12 +136,14 @@ public interface ISchedulerRepository
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Returns the working week and daily time of each of
-    /// <paramref name="userIds"/>: their live <c>dbo.TimesheetMasterSetup</c>,
-    /// the lowest <c>SetupID</c> when there are several. A user with no live
-    /// setup is absent. Untracked.
+    /// Returns the daily hour cap of each of <paramref name="userIds"/> on each
+    /// of <paramref name="projectIds"/>: their live
+    /// <c>dbo.Timesheet_Users_Project_setup</c> row, the lowest
+    /// <c>TimesheetUserProjectSetupID</c> when a user is on one project twice.
+    /// A user with no live row on a project is absent. Untracked.
     /// </summary>
-    Task<IReadOnlyList<WorkingWeekSetup>> GetWorkingWeekSetupsAsync(
+    Task<IReadOnlyList<ProjectDailyHourCap>> GetProjectDailyHourCapsAsync(
+        IReadOnlyCollection<int> projectIds,
         IReadOnlyCollection<int> userIds,
         CancellationToken cancellationToken = default);
 }

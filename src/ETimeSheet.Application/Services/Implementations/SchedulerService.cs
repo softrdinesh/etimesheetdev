@@ -369,10 +369,13 @@ public class SchedulerService : ISchedulerService
             : (await _schedulerRepository.GetUserNamesAsync(userIds, cancellationToken))
                 .ToDictionary(user => user.UserId, user => user.Name.Trim());
 
-        var workingWeeks = userIds.Count == 0
-            ? new Dictionary<int, WorkingWeekSetup>()
-            : (await _schedulerRepository.GetWorkingWeekSetupsAsync(userIds, cancellationToken))
-                .ToDictionary(setup => setup.UserId);
+        // The daily cap is per user AND project, so it is keyed by both: one
+        // person on two projects can be expected to give each a different day.
+        var dailyHourCaps = userIds.Count == 0
+            ? new Dictionary<(int ProjectId, int UserId), ProjectDailyHourCap>()
+            : (await _schedulerRepository.GetProjectDailyHourCapsAsync(
+                    endedProjectIds, userIds, cancellationToken))
+                .ToDictionary(setup => (setup.ProjectId, setup.UserId));
 
         var digests = new Dictionary<(int, int, DateTime), ApproverReminderDigest>();
 
@@ -383,8 +386,8 @@ public class SchedulerService : ISchedulerService
                     sheet.UserId,
                     names.TryGetValue(sheet.UserId, out var name) ? name : string.Empty,
                     sheet.Code,
-                    workingWeeks.TryGetValue(sheet.UserId, out var workingWeek)
-                        ? ExpectedMinutesInPeriod(workingWeek, start, end)
+                    dailyHourCaps.TryGetValue((project.ProjectId, sheet.UserId), out var cap)
+                        ? ExpectedMinutesInPeriod(cap, start, end)
                         : null,
                     sheet.Hours))
                 .OrderBy(row => row.UserName, StringComparer.OrdinalIgnoreCase)
@@ -411,52 +414,33 @@ public class SchedulerService : ISchedulerService
     }
 
     /// <summary>
-    /// The minutes <paramref name="setup"/> expects from
+    /// The minutes <paramref name="cap"/> expects from
     /// <paramref name="periodStart"/> to <paramref name="periodEnd"/>
-    /// inclusive: its daily time - <c>MaxTimeinhrs</c> plus the minutes of
-    /// <c>MaxTiminmins</c>, as the time log reminder reads it - times its
-    /// working days in the period, which are <c>StartDay</c>..<c>EndDay</c>
-    /// and its exception day, as the time log save counts them.
+    /// inclusive: <c>Max_log_hour_day</c> on the user's
+    /// <c>dbo.Timesheet_Users_Project_setup</c> row for that project, times
+    /// the days in the period.
     /// <para>
-    /// Null when the setup has no daily time or no usable working week: an
-    /// expectation it cannot state is shown as unknown, not as zero.
-    /// Holidays are not taken off.
+    /// Null when the setup states no cap, or a cap of zero: an expectation it
+    /// cannot state is shown as unknown, not as zero. Weekends and holidays
+    /// are not taken off - see the comment in the body.
     /// </para>
     /// </summary>
-    private static int? ExpectedMinutesInPeriod(WorkingWeekSetup setup, DateTime periodStart, DateTime periodEnd)
+    private static int? ExpectedMinutesInPeriod(ProjectDailyHourCap cap, DateTime periodStart, DateTime periodEnd)
     {
-        if (setup.MaxTimeInHrs is not { } maxTimeInHrs
-            || TimesheetWeek.Parse(setup.StartDay) is not { } weekStarts
-            || TimesheetWeek.Parse(setup.EndDay) is not { } weekEnds)
+        if (cap.MaxLogHoursPerDay is not ({ } hoursPerDay and > 0))
         {
             return null;
         }
 
-        var dailyMinutes = ExpectedMinutesOf(maxTimeInHrs, setup.MaxTimInMins);
+        // Every day of the period counts. The project module states a cap per
+        // day and nothing else: which days of the week a person works is in
+        // dbo.TimesheetMasterSetup, which these reminders deliberately do not
+        // read, so there is nothing here to exclude a weekend by. A shorter
+        // week has to come from a column of the project module, not from a
+        // weekday rule invented in this file.
+        var days = (periodEnd.Date - periodStart.Date).Days + 1;
 
-        if (dailyMinutes <= 0)
-        {
-            return null;
-        }
-
-        var workingDays = TimesheetWeek.Span(weekStarts, weekEnds).ToHashSet();
-
-        if (TimesheetWeek.Parse(setup.ExceptionDay) is { } exceptionDay)
-        {
-            workingDays.Add(exceptionDay);
-        }
-
-        var days = 0;
-
-        for (var date = periodStart.Date; date <= periodEnd.Date; date = date.AddDays(1))
-        {
-            if (workingDays.Contains(date.DayOfWeek))
-            {
-                days++;
-            }
-        }
-
-        return days * dailyMinutes;
+        return days * hoursPerDay * 60;
     }
 
     /// <summary>Queues one Pending email of <paramref name="emailTypeId"/> per user, in one save.</summary>
