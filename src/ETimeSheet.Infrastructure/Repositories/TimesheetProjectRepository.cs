@@ -280,6 +280,7 @@ public class TimesheetProjectRepository : ITimesheetProjectRepository
         string? projectLocationLatitude,
         string? projectLocationLongitude,
         int? maxLogHoursPerDay,
+        string password,
         CancellationToken cancellationToken = default)
     {
         // Opened here so the EXEC and the clean-up below share one connection.
@@ -293,6 +294,12 @@ public class TimesheetProjectRepository : ITimesheetProjectRepository
             // writes neither in the existing-user branch before its 2026-10-27
             // one; until the owner applies those, they are accepted and
             // dropped.
+            //
+            // @Password is the 2026-11-15 revision and is NOT optional in the
+            // same way: a procedure that does not declare it yet rejects the
+            // whole EXEC, so this endpoint answers 500 until the owner applies
+            // it. The password is sent in plain text for the procedure to hash
+            // - it is never hashed, encoded or logged here.
             await _db.Database.ExecuteSqlInterpolatedAsync(
                 $@"EXEC dbo.spc_Signup_timesheet_user
                     @Fullname = {fullName},
@@ -309,7 +316,8 @@ public class TimesheetProjectRepository : ITimesheetProjectRepository
                     @projectID = {projectId},
                     @Projectloclatitude = {projectLocationLatitude},
                     @Projectloclongtitude = {projectLocationLongitude},
-                    @Maxloghourday = {maxLogHoursPerDay}",
+                    @Maxloghourday = {maxLogHoursPerDay},
+                    @Password = {password}",
                 cancellationToken);
         }
         catch
@@ -336,26 +344,6 @@ public class TimesheetProjectRepository : ITimesheetProjectRepository
         // Tracked on purpose - the edit may change the name and email.
         await _db.Signup
             .FirstOrDefaultAsync(user => user.UserId == userId, cancellationToken);
-
-    public async Task<bool> SetUserPasswordAsync(
-        int userId,
-        string password,
-        CancellationToken cancellationToken = default)
-    {
-        // Only the one column is sent: the row is loaded tracked and nothing
-        // else on it is touched, so an account another application changed
-        // between the procedure's insert and this update keeps those changes.
-        var user = await _db.Signup.FirstOrDefaultAsync(row => row.UserId == userId, cancellationToken);
-
-        if (user is null)
-        {
-            return false;
-        }
-
-        user.Pwd = password;
-        await _db.SaveChangesAsync(cancellationToken);
-        return true;
-    }
 
     public async Task<bool> UserProjectSetupExistsAsync(
         int userId,

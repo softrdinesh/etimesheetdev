@@ -12,6 +12,21 @@
                BOTH branches insert the same columns of
                dbo.Timesheet_Users_Project_setup. Until the owner applies this,
                a project added to an existing user still stores no coordinates.
+    Revised:   2026-11-15 - DRAFT, NOT YET APPLIED: @Password nvarchar(50) = null
+               added as the last parameter, and Pwd is now
+               HASHBYTES('SHA2_512', @Password) - the hash of the DEFAULT
+               PASSWORD the API sends, not of the email. @Password defaults to
+               NULL and ISNULL falls back to @Email, so a caller that does not
+               send it behaves exactly as before. Until the owner applies this,
+               create-timesheet-user still leaves the email-derived password
+               in Pwd and the new account cannot sign in with the default
+               password the welcome email gives it.
+
+               The parameter is nvarchar on purpose: HASHBYTES over varchar
+               and over nvarchar produce DIFFERENT hashes, and the login
+               checks this column. If the login hashes the typed password as
+               varchar, this must be varchar(50) to match - the owner should
+               confirm against the login's own hashing before applying.
 
     Signs a user up to the timesheet and puts them on a project:
       - Email not yet in dbo.Signup: adds the user to dbo.Signup (RoleID 2,
@@ -42,9 +57,14 @@
         nothing either way - success and failure look the same.
       - The CATCH block does not ROLLBACK. A failure inside the TRY leaves the
         transaction open on the caller's connection.
-      - Pwd is HASHBYTES('SHA2_512', @Email) - a hash of the EMAIL, not of a
-        password. It is unsalted and derivable by anyone who knows the
-        address, so it does not protect the account.
+      - Pwd is HASHBYTES('SHA2_512', @Password), converted by SQL Server into
+        the nvarchar column - so a stored value reads as mojibake. It is an
+        unsalted hash with no work factor; one default password is shared by
+        every account the API creates, and the user is told to change it.
+        A caller that sends no @Password still gets the old behaviour, a hash
+        of the EMAIL, which anyone who knows the address can derive.
+      - Only the new-user branch writes Pwd. An existing user put on another
+        project keeps the password they already have.
       - Both branches insert the same columns of
         dbo.Timesheet_Users_Project_setup, coordinates and @Maxloghourday
         included: an existing user put on another project gets that project's
@@ -70,7 +90,8 @@
 
 CREATE OR ALTER Procedure [dbo].[spc_Signup_timesheet_user](@Fullname nvarchar(50),@Email nvarchar(100),@CountryID int=null,@Address nvarchar(max),@OrgID int=null,
 @ProjectroleID int=null,@Jobtype int=null,@Range int=null,@Costrate decimal(18,2),@Billrate decimal(18,2),@LoginuserID int,@worklocrange int=null,@projectID int=null,
-@Projectloclatitude nvarchar(25)=null,@Projectloclongtitude nvarchar(25)=null,@Maxloghourday int=null
+@Projectloclatitude nvarchar(25)=null,@Projectloclongtitude nvarchar(25)=null,@Maxloghourday int=null,
+@Password nvarchar(50)=null
 )
 AS
 BEGIN
@@ -80,7 +101,7 @@ Declare @ID int
 Declare @Message nvarchar(max)
 Declare @OrganizationName nvarchar(50)
 Declare @Organizationsize nvarchar(15)
-SET @Encrypt_pwd=HASHBYTES('SHA2_512', @Email);
+SET @Encrypt_pwd=HASHBYTES('SHA2_512', ISNULL(@Password,@Email));
 Declare @OrganID int=0;
 BEGIN TRAN
 BEGIN TRY

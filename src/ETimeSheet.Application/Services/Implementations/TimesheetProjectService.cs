@@ -792,6 +792,12 @@ public class TimesheetProjectService : ITimesheetProjectService
                 detail.ProjectLocationLatitude,
                 detail.ProjectLocationLongitude,
                 detail.MaxLogHoursPerDay,
+
+                // The procedure hashes this into dbo.Signup.Pwd, and only on
+                // the branch that creates the user: an existing user put on a
+                // second project keeps the password they already have. The
+                // value itself is never logged.
+                _defaultPasswordSettings.Plain,
                 cancellationToken);
         }
 
@@ -808,46 +814,12 @@ public class TimesheetProjectService : ITimesheetProjectService
             request.CreatedBy,
             existingUser is null ? "new user" : "existing user");
 
-        // Only a new account gets the default password. An existing user keeps
-        // the password they already have - an edit never touches it either, so
-        // adding someone to a second project cannot lock them out.
-        //
-        // The procedure has already written Pwd itself, as HASHBYTES('SHA2_512',
-        // @Email) converted into the nvarchar column, so this overwrites that
-        // with the configured value. It is a second statement, not part of the
-        // procedure's transaction: if it fails, the account exists with the
-        // email-derived password instead, and the failure is logged - the
-        // request is not failed, because a retry would only find the email
-        // taken and add duplicate assignments.
-        if (existingUser is null)
-        {
-            try
-            {
-                var passwordSet = await _timesheetProjectRepository.SetUserPasswordAsync(
-                    user.UserId,
-                    _defaultPasswordSettings.Encrypted,
-                    cancellationToken);
-
-                // The value itself is never logged, here or anywhere else.
-                if (passwordSet)
-                {
-                    _logger.LogInformation("New user {UserId} was given the default password.", user.UserId);
-                }
-                else
-                {
-                    _logger.LogError(
-                        "New user {UserId} could not be given the default password: the user was not found when writing it.",
-                        user.UserId);
-                }
-            }
-            catch (Exception exception)
-            {
-                _logger.LogError(
-                    exception,
-                    "New user {UserId} could not be given the default password; their dbo.Signup.Pwd is still the one spc_Signup_timesheet_user wrote.",
-                    user.UserId);
-            }
-        }
+        // The default password is the procedure's own work now - it hashes
+        // @Password into dbo.Signup.Pwd inside the same transaction as the
+        // insert, so there is nothing to write back here and no window in
+        // which an account exists with a different password. An existing user
+        // keeps the password they already have; an edit never touches it
+        // either, so adding someone to a second project cannot lock them out.
 
         // Only a new account is welcomed; an existing user was only put on
         // another project. Sent to the address as the caller typed it - the

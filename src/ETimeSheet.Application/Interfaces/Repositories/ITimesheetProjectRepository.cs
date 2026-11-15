@@ -233,6 +233,12 @@ public interface ITimesheetProjectRepository
     /// <param name="fullName">Already trimmed and validated.</param>
     /// <param name="email">Already trimmed and validated.</param>
     /// <param name="address">Already trimmed; null when blank.</param>
+    /// <param name="password">
+    /// The default password in plain text, sent as <c>@Password</c> for the
+    /// procedure to hash into <c>dbo.Signup.Pwd</c>. Only the new-user branch
+    /// stores it; a later call for the same email ignores it. Never hashed,
+    /// encoded or logged on this side.
+    /// </param>
     Task CreateTimesheetUserAsync(
         string fullName,
         string email,
@@ -249,6 +255,7 @@ public interface ITimesheetProjectRepository
         string? projectLocationLatitude,
         string? projectLocationLongitude,
         int? maxLogHoursPerDay,
+        string password,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -258,23 +265,6 @@ public interface ITimesheetProjectRepository
     /// </summary>
     Task<Signup?> GetUserForUpdateAsync(
         int userId,
-        CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// Writes <paramref name="password"/> to the user's <c>dbo.Signup.Pwd</c>
-    /// and saves, touching no other column.
-    /// </summary>
-    /// <param name="password">
-    /// Stored exactly as given - this API never hashes, encrypts or encodes a
-    /// password, and never reads one back.
-    /// </param>
-    /// <returns>
-    /// <see langword="false"/> when no user has that id, so the caller can
-    /// report it rather than fail silently.
-    /// </returns>
-    Task<bool> SetUserPasswordAsync(
-        int userId,
-        string password,
         CancellationToken cancellationToken = default);
 
     /// <summary>
