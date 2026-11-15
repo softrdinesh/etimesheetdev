@@ -162,6 +162,7 @@ internal static class TimesheetProjectMappings
         ProjectLocationLatitude = user.ProjectLocationLatitude,
         ProjectLocationLongitude = user.ProjectLocationLongitude,
         MaxLogHoursPerDay = user.MaxLogHoursPerDay,
+        IsTimeLogDisabled = user.IsTimeLogDisabled,
     };
 
     /// <summary>
@@ -216,6 +217,7 @@ internal static class TimesheetProjectMappings
         CostRate = row.CostRate,
         BillRate = row.BillRate,
         MaxLogHoursPerDay = row.MaxLogHoursPerDay,
+        IsTimeLogDisabled = row.IsTimeLogDisabled,
         TotalExpectedHours = row.TotalExpectedHours,
         TotalLoggedHours = row.TotalLoggedHours ?? 0,
         CurrentPeriodStartDate = row.CurrentPeriodStartDate,

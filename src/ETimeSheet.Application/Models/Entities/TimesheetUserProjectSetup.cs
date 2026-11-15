@@ -71,4 +71,21 @@ public class TimesheetUserProjectSetup
     /// </para>
     /// </summary>
     public int? MaxLogHoursPerDay { get; set; }
+
+    /// <summary>
+    /// The <c>IsTimeLogDisabled</c> column - whether an administrator has
+    /// turned time logging <b>off</b> for this assignment.
+    /// <para>
+    /// <c>1</c> means time may not be logged on this project and its sheets
+    /// may not be submitted; <c>0</c> - the column's default - and
+    /// <see langword="null"/> both mean the assignment works normally.
+    /// </para>
+    /// <para>
+    /// A nullable <c>int</c>, like <c>IsDelete</c> on this table rather than a
+    /// <c>bit</c>. <b>Only 1 disables</b>: null is read exactly as 0, so a row
+    /// written before the column existed, or by hand without it, is left
+    /// working.
+    /// </para>
+    /// </summary>
+    public int? IsTimeLogDisabled { get; set; }
 }

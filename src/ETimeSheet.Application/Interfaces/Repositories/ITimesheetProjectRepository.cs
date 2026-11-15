@@ -255,6 +255,7 @@ public interface ITimesheetProjectRepository
         string? projectLocationLatitude,
         string? projectLocationLongitude,
         int? maxLogHoursPerDay,
+        int? isTimeLogDisabled,
         string password,
         CancellationToken cancellationToken = default);
 
@@ -265,6 +266,21 @@ public interface ITimesheetProjectRepository
     /// </summary>
     Task<Signup?> GetUserForUpdateAsync(
         int userId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The user's live assignment to this project - the lowest
+    /// <c>TimesheetUserProjectSetupID</c> when they are on it more than once -
+    /// untracked, or <see langword="null"/> when they are not on it at all.
+    /// <para>
+    /// This is both the assignment check and the row that says whether the
+    /// assignment may log time (<c>IsTimeLogDisabled</c>), so the write path
+    /// asks for it once rather than asking twice about the same row.
+    /// </para>
+    /// </summary>
+    Task<TimesheetUserProjectSetup?> GetUserProjectSetupAsync(
+        int userId,
+        int projectId,
         CancellationToken cancellationToken = default);
 
     /// <summary>

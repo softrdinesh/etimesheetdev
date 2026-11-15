@@ -22,6 +22,16 @@
                in Pwd and the new account cannot sign in with the default
                password the welcome email gives it.
 
+    Revised:   2026-11-15 - DRAFT, NOT YET APPLIED: @IsTimeLogDisabled int = 0
+               added as the last parameter, and written to IsTimeLogDisabled in
+               BOTH insert branches, for the column added to the table the same
+               day (../data/dbo.Timesheet_Users_Project_setup_AddIsTimeLogDisabled.sql).
+               0 or NULL means the assignment works normally and 1 means an
+               administrator has turned its time logging off. It defaults to 0,
+               and ISNULL writes 0 for a caller that sends NULL, so an
+               assignment created without it can log time, exactly as before. Until the owner applies this, create-timesheet-user
+               answers 500.
+
                The parameter is nvarchar on purpose: HASHBYTES over varchar
                and over nvarchar produce DIFFERENT hashes, and the login
                checks this column. If the login hashes the typed password as
@@ -91,7 +101,8 @@
 CREATE OR ALTER Procedure [dbo].[spc_Signup_timesheet_user](@Fullname nvarchar(50),@Email nvarchar(100),@CountryID int=null,@Address nvarchar(max),@OrgID int=null,
 @ProjectroleID int=null,@Jobtype int=null,@Range int=null,@Costrate decimal(18,2),@Billrate decimal(18,2),@LoginuserID int,@worklocrange int=null,@projectID int=null,
 @Projectloclatitude nvarchar(25)=null,@Projectloclongtitude nvarchar(25)=null,@Maxloghourday int=null,
-@Password nvarchar(50)=null
+@Password nvarchar(50)=null,
+@IsTimeLogDisabled int=0
 )
 AS
 BEGIN
@@ -112,16 +123,16 @@ BEGIN
   Values(@Fullname,upper(trim(@Email)),@Encrypt_pwd,NULL,GETUTCDATE(),@CountryID,'','',@OrganizationName,@Organizationsize,@Address,@OrgID,0,0,2)
   Select @ID=SCOPE_IDENTITY();
   Insert into dbo.Login(UserID, IsLoginSuccess, LoginErrcnt, LastLogindatetime, CurrentLatitude, CurrentLongtitude) values(@ID,0,0,GETUTCDATE(),'','')
-  Insert into dbo.Timesheet_Users_Project_setup(UserID,ProjectRoleID,Cost_rate_per_hour,Billable_rate_per_hour,CreateDate,CreatedBy,IsDelete,Jobtype,Worklocationrange,ProjectID,ProjectlocLatitude,ProjectlocLongtitude,Max_log_hour_day)
-   values(@ID,@ProjectroleID,@Costrate,@Billrate,GETDATE(),@LoginuserID,0,@Jobtype,@worklocrange,@projectID,@Projectloclatitude,@Projectloclongtitude,@Maxloghourday)
+  Insert into dbo.Timesheet_Users_Project_setup(UserID,ProjectRoleID,Cost_rate_per_hour,Billable_rate_per_hour,CreateDate,CreatedBy,IsDelete,Jobtype,Worklocationrange,ProjectID,ProjectlocLatitude,ProjectlocLongtitude,Max_log_hour_day,IsTimeLogDisabled)
+   values(@ID,@ProjectroleID,@Costrate,@Billrate,GETDATE(),@LoginuserID,0,@Jobtype,@worklocrange,@projectID,@Projectloclatitude,@Projectloclongtitude,@Maxloghourday,ISNULL(@IsTimeLogDisabled,0))
   SET @Code=5999
   SET @Message='Account created'
 END
 ELSE
 BEGIN
     Select @ID=UserID from dbo.Signup where TRIM(upper(Email))=TRIM(upper(@Email))
-    Insert into dbo.Timesheet_Users_Project_setup(UserID,ProjectRoleID,Cost_rate_per_hour,Billable_rate_per_hour,CreateDate,CreatedBy,IsDelete,Jobtype,Worklocationrange,ProjectID,ProjectlocLatitude,ProjectlocLongtitude,Max_log_hour_day)
-   values(@ID,@ProjectroleID,@Costrate,@Billrate,GETDATE(),@LoginuserID,0,@Jobtype,@worklocrange,@projectID,@Projectloclatitude,@Projectloclongtitude,@Maxloghourday)
+    Insert into dbo.Timesheet_Users_Project_setup(UserID,ProjectRoleID,Cost_rate_per_hour,Billable_rate_per_hour,CreateDate,CreatedBy,IsDelete,Jobtype,Worklocationrange,ProjectID,ProjectlocLatitude,ProjectlocLongtitude,Max_log_hour_day,IsTimeLogDisabled)
+   values(@ID,@ProjectroleID,@Costrate,@Billrate,GETDATE(),@LoginuserID,0,@Jobtype,@worklocrange,@projectID,@Projectloclatitude,@Projectloclongtitude,@Maxloghourday,ISNULL(@IsTimeLogDisabled,0))
   SET @Code=5999
   SET @Message='Account created'
 END

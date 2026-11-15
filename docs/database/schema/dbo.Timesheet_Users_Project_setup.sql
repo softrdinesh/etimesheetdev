@@ -10,6 +10,13 @@
     Revised:  2026-10-18 - APPLIED by the owner, per that same sp_help list:
               Max_log_hour_day int NULL added as the last column - the most
               hours a day this assignment may log.
+    Revised:  2026-11-15 - NOT YET APPLIED: IsTimeLogDisabled int NULL
+              DEFAULT 0 added as the last column - whether an administrator
+              has turned time logging OFF for this assignment. Run
+              ../data/dbo.Timesheet_Users_Project_setup_AddIsTimeLogDisabled.sql
+              to apply it; this file is the record and begins with DROP TABLE.
+              Until it is applied, every endpoint that reads or writes the
+              column answers 500 with "Invalid column name 'IsTimeLogDisabled'".
 
     A user's assignment to a project: their project role, cost and billable
     rates per hour, job type, work-location range, the project location and
@@ -42,6 +49,14 @@
         ProjectRoleID presumably dbo.TimesheetUserRole.RoleID. No foreign key
         was reported for either.
       - Cost_rate_per_hour and Billable_rate_per_hour are decimal(18,2).
+      - IsTimeLogDisabled is an int, nullable, defaulting to 0 - the same
+        shape as IsDelete on this table, not a bit. 1 means an administrator
+        has turned this assignment's time logging off, so
+        add-edit-timesheet-project-time-log refuses every day of it and
+        submit-timesheet-project-sheet refuses its periods; 0 - the default -
+        or NULL means the assignment works normally. Only 1 disables: NULL is
+        read exactly as 0, as it is for IsDelete, so a row written by hand
+        without the column is left working.
       - Max_log_hour_day is a whole number of HOURS, nullable: NULL means this
         assignment sets no cap of its own. It is read and written by the user
         setup endpoints, but no longer caps anything: since 2026-10-27
@@ -91,6 +106,8 @@ CREATE TABLE dbo.Timesheet_Users_Project_setup
     ProjectlocLatitude      nvarchar(25)    NULL,
     ProjectlocLongtitude    nvarchar(25)    NULL,
     Max_log_hour_day        int             NULL,
+    IsTimeLogDisabled        int             NULL
+        CONSTRAINT DF_Timesheet_Users_Project_setup_IsTimeLogDisabled DEFAULT (0),
     CONSTRAINT PK_Timesheet_Users_Project_setup PRIMARY KEY (TimesheetUserProjectSetupID)
 );
 GO

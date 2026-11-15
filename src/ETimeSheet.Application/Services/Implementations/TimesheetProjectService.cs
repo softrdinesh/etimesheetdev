@@ -78,6 +78,20 @@ public class TimesheetProjectService : ITimesheetProjectService
     /// </summary>
     private const int MaxLogHoursPerDayMaximum = 24;
 
+    /// <summary>
+    /// <c>dbo.Timesheet_Users_Project_setup.IsTimeLogDisabled</c> when the
+    /// assignment works normally. The column's default, and what null is read
+    /// as.
+    /// </summary>
+    private const int TimeLogEnabled = 0;
+
+    /// <summary>
+    /// <c>IsTimeLogDisabled</c> when an administrator has turned the
+    /// assignment's time logging off: no entry may be added, changed or
+    /// removed on it, and its sheets may not be submitted.
+    /// </summary>
+    private const int TimeLogDisabled = 1;
+
     /// <summary>The welcome email for a new account, in <c>Infrastructure/Assets/EmailTemplates/</c>.</summary>
     private const string WelcomeEmailTemplateName = "WelcomeUserTemplate.html";
 
@@ -794,6 +808,10 @@ public class TimesheetProjectService : ITimesheetProjectService
                 detail.ProjectLocationLongitude,
                 detail.MaxLogHoursPerDay,
 
+                // Left out means the assignment works normally: the column
+                // defaults to 0, and 1 is what turns logging off.
+                detail.IsTimeLogDisabled ?? TimeLogEnabled,
+
                 // The procedure hashes this into dbo.Signup.Pwd, and only on
                 // the branch that creates the user: an existing user put on a
                 // second project keeps the password they already have. The
@@ -1063,6 +1081,27 @@ public class TimesheetProjectService : ITimesheetProjectService
 
             if (requestedProjectIds.Contains(existingProjectId))
             {
+                // IsTimeLogDisabled is the ONE field an edit may change on an
+                // assignment the user already has. Every other field here
+                // describes the assignment as it was agreed - its role, its
+                // rates - and changing those is the two-call dance gap 89
+                // describes. This one is an administrator's switch: a block
+                // that could only be applied by removing the assignment and
+                // adding it back, losing the row's id and its CreateDate,
+                // would not be a usable block at all.
+                //
+                // Sent, it is applied; left out, the assignment keeps what it
+                // has - so a payload written before this field existed cannot
+                // silently unblock anyone.
+                var requested = projectDetails
+                    .First(detail => detail.ProjectId == existingProjectId)
+                    .IsTimeLogDisabled;
+
+                if (requested is { } isTimeLogDisabled)
+                {
+                    existingSetup.IsTimeLogDisabled = isTimeLogDisabled;
+                }
+
                 keptSetups.Add(existingSetup);
                 continue;
             }
@@ -1080,7 +1119,8 @@ public class TimesheetProjectService : ITimesheetProjectService
             .ToHashSet();
 
         // Added rows carry the values their own item of the payload sent; the
-        // kept rows keep their own, which is why an edit cannot change them.
+        // kept rows keep their own, apart from IsTimeLogDisabled above - which
+        // is why an edit cannot change anything else about them.
         var addedSetups = projectDetails
             .Where(detail => !keptProjectIds.Contains(detail.ProjectId))
             .Select(detail => new TimesheetUserProjectSetup
@@ -1095,6 +1135,7 @@ public class TimesheetProjectService : ITimesheetProjectService
                 ProjectLocationLatitude = detail.ProjectLocationLatitude,
                 ProjectLocationLongitude = detail.ProjectLocationLongitude,
                 MaxLogHoursPerDay = detail.MaxLogHoursPerDay,
+                IsTimeLogDisabled = detail.IsTimeLogDisabled ?? TimeLogEnabled,
                 CreateDate = now,
                 CreatedBy = request.UpdatedBy,
                 IsDelete = 0,
@@ -1150,6 +1191,7 @@ public class TimesheetProjectService : ITimesheetProjectService
             ProjectLocationLatitude = setup.ProjectLocationLatitude,
             ProjectLocationLongitude = setup.ProjectLocationLongitude,
             MaxLogHoursPerDay = setup.MaxLogHoursPerDay,
+            IsTimeLogDisabled = setup.IsTimeLogDisabled,
             IsNewAssignment = isNewAssignment,
         };
 
@@ -1313,6 +1355,21 @@ public class TimesheetProjectService : ITimesheetProjectService
                 failures,
                 $"{itemField}.{nameof(TimesheetUserProjectDetail.MaxLogHoursPerDay)}",
                 detail.MaxLogHoursPerDay);
+
+            // The column is an int, so the payload could carry any number. Only
+            // two of them mean anything, and a 7 stored here would be read as
+            // "not 1" - not blocked - by this service and as something else by
+            // the next reader.
+            if (detail.IsTimeLogDisabled is { } isTimeLogDisabled
+                && isTimeLogDisabled != TimeLogEnabled
+                && isTimeLogDisabled != TimeLogDisabled)
+            {
+                failures[$"{itemField}.{nameof(TimesheetUserProjectDetail.IsTimeLogDisabled)}"] = new[]
+                {
+                    $"{nameof(TimesheetUserProjectDetail.IsTimeLogDisabled)} must be " +
+                    $"{TimeLogEnabled} (time logging allowed) or {TimeLogDisabled} (disabled) when sent."
+                };
+            }
 
             // Trimmed on the item itself: the value validated here is the one
             // written to dbo.Timesheet_Users_Project_setup and the one the
@@ -2537,16 +2594,18 @@ public class TimesheetProjectService : ITimesheetProjectService
                 $"LogDate must not be after the project's end date, {projectEndDate:yyyy-MM-dd}.");
         }
 
-        if (!await _timesheetProjectRepository.UserProjectSetupExistsAsync(
+        // One read of the assignment, which answers two questions: is the user
+        // on this project at all, and has an administrator blocked their time
+        // logging on it.
+        var assignment = await _timesheetProjectRepository.GetUserProjectSetupAsync(
                 request.UserId,
                 request.ProjectId,
-                0,
-                cancellationToken))
-        {
-            throw new ValidationException(
+                cancellationToken)
+            ?? throw new ValidationException(
                 nameof(TimesheetProjectTimeLogSaveRequest.ProjectId),
                 $"User '{request.UserId}' is not assigned to project '{request.ProjectId}'.");
-        }
+
+        RequireTimeLogIsEnabled(assignment, request.UserId, request.ProjectId);
 
         // No time on a day off - whenever it is logged, before or after.
         await RequireNotOnLeaveAsync(request.UserId, logDate, cancellationToken);
@@ -2848,6 +2907,38 @@ public class TimesheetProjectService : ITimesheetProjectService
             throw new BusinessException(
                 $"You are on approved leave on {logDate:yyyy-MM-dd} (leave {leave.LeaveId}, " +
                 $"{leave.StartDate:yyyy-MM-dd} to {leave.EndDate:yyyy-MM-dd}), so no time can be logged that day.");
+        }
+    }
+
+    /// <summary>
+    /// Refuses anything on an assignment whose time logging an administrator
+    /// has turned off - <c>IsTimeLogDisabled</c> = 1.
+    /// <para>
+    /// It stops the sheet being submitted as well as the time being logged: a
+    /// switch that let the user hand in a period they are no longer allowed to
+    /// record would put the sheet in front of an approver as a finished
+    /// statement while the user could not finish it.
+    /// </para>
+    /// <para>
+    /// <b>Only 1 disables.</b> 0 is the column's default and null is read
+    /// exactly as 0, so an assignment written before the column existed is
+    /// left working.
+    /// </para>
+    /// </summary>
+    /// <exception cref="BusinessException">Time logging is turned off on the assignment.</exception>
+    private static void RequireTimeLogIsEnabled(
+        TimesheetUserProjectSetup assignment,
+        int userId,
+        int projectId)
+    {
+        // A business rule rather than a validation failure: the payload is
+        // perfectly well formed, and it is the assignment that says no.
+        if (assignment.IsTimeLogDisabled == TimeLogDisabled)
+        {
+            throw new BusinessException(
+                $"Time logging is disabled by an administrator on project '{projectId}' for user " +
+                $"'{userId}', so no time can be logged or changed on it and its timesheets cannot be " +
+                "submitted.");
         }
     }
 
@@ -3290,6 +3381,22 @@ public class TimesheetProjectService : ITimesheetProjectService
 
         var (projectStartDate, submissionFrequency, organizationId) = RequireSubmissionSetup(project);
 
+        // Read once, and used twice below: an administrator may have turned
+        // this assignment's time logging off, and the first submit of a period
+        // needs the user to be on the project at all.
+        var assignment = await _timesheetProjectRepository.GetUserProjectSetupAsync(
+            request.UserId,
+            request.ProjectId,
+            cancellationToken);
+
+        // Checked on EVERY submit, not only the first: a resubmit after a
+        // rejection is a submit too, and an assignment turned off between the
+        // two must not slip one through.
+        if (assignment is not null)
+        {
+            RequireTimeLogIsEnabled(assignment, request.UserId, request.ProjectId);
+        }
+
         // The period is never sent: it is the one the code belongs to - a
         // submitted sheet's, for a resubmit, or the time log's - or the one
         // containing PeriodDate. When both are sent they must agree.
@@ -3453,11 +3560,10 @@ public class TimesheetProjectService : ITimesheetProjectService
 
         if (submission is null)
         {
-            if (!await _timesheetProjectRepository.UserProjectSetupExistsAsync(
-                    request.UserId,
-                    request.ProjectId,
-                    0,
-                    cancellationToken))
+            // Only the FIRST submit needs the assignment to still exist: a
+            // sheet already handed in stays the user's to resubmit even after
+            // they have been taken off the project.
+            if (assignment is null)
             {
                 throw new BusinessException(
                     $"User '{request.UserId}' is not assigned to project '{request.ProjectId}', so they have no " +

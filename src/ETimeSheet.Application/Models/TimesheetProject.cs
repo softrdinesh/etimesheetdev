@@ -700,6 +700,25 @@ public class TimesheetUserProjectDetail
     /// </summary>
     /// <example>8</example>
     public int? MaxLogHoursPerDay { get; set; }
+
+    /// <summary>
+    /// Optional. Whether time logging on this assignment is turned
+    /// <b>off</b>. <b>0 or 1 only.</b>
+    /// <para>
+    /// <c>0</c> - the default, and what a payload that leaves it out gets -
+    /// means the user may log time on the project and submit its sheets;
+    /// <c>1</c> stops both, and
+    /// <c>add-edit-timesheet-project-time-log</c> and
+    /// <c>submit-timesheet-project-sheet</c> then answer 400.
+    /// </para>
+    /// <para>
+    /// On an edit this is the one field that also reaches an assignment the
+    /// user already has: sent, it is applied; left out, that assignment keeps
+    /// the value it has.
+    /// </para>
+    /// </summary>
+    /// <example>0</example>
+    public int? IsTimeLogDisabled { get; set; }
 }
 
 /// <summary>
@@ -957,6 +976,13 @@ public class TimesheetUserAssignmentResponse
     public int? MaxLogHoursPerDay { get; set; }
 
     /// <summary>
+    /// The <c>IsTimeLogDisabled</c> column: <c>1</c> when time logging on this
+    /// assignment is <b>blocked</b>, <c>0</c> or <c>null</c> when it is
+    /// allowed.
+    /// </summary>
+    public int? IsTimeLogDisabled { get; set; }
+
+    /// <summary>
     /// <see langword="true"/> when this call added the assignment,
     /// <see langword="false"/> when the user already had it and it was left
     /// untouched.
@@ -1108,6 +1134,13 @@ public class TimesheetUserListProjectResponse
     /// a day it may log. Null when it sets no cap.
     /// </summary>
     public int? MaxLogHoursPerDay { get; set; }
+
+    /// <summary>
+    /// <c>1</c> when time logging on this assignment is <b>blocked</b>,
+    /// <c>0</c> or <c>null</c> when it is allowed - the
+    /// <c>IsTimeLogDisabled</c> column.
+    /// </summary>
+    public int? IsTimeLogDisabled { get; set; }
 }
 
 /// <summary>
@@ -1151,6 +1184,9 @@ public class TimesheetUserListDetail
     public string? ProjectLocationLongitude { get; set; }
 
     public int? MaxLogHoursPerDay { get; set; }
+
+    /// <summary><c>1</c> = time logging is blocked on this assignment; 0 or null = allowed.</summary>
+    public int? IsTimeLogDisabled { get; set; }
 
     public int? CountryId { get; set; }
 
@@ -1278,6 +1314,12 @@ public class TimesheetUserProjectResponse
 
     /// <summary>The most hours a day the user may log on the project; null = no cap of its own (24).</summary>
     public int? MaxLogHoursPerDay { get; set; }
+
+    /// <summary>
+    /// <c>1</c> when time logging on this project is <b>blocked</b> for this
+    /// user, <c>0</c> or <c>null</c> when it is allowed.
+    /// </summary>
+    public int? IsTimeLogDisabled { get; set; }
 
     /// <summary>The project's budgeted hours - <c>dbo.TimesheetProject.Totalhours</c>, the same for every user on it.</summary>
     /// <example>120</example>
@@ -1409,6 +1451,9 @@ public class TimesheetUserDetailsDetail
     public decimal? BillRate { get; set; }
 
     public int? MaxLogHoursPerDay { get; set; }
+
+    /// <summary><c>1</c> = time logging is blocked on this assignment; 0 or null = allowed.</summary>
+    public int? IsTimeLogDisabled { get; set; }
 
     public string? ProjectLocationLatitude { get; set; }
 

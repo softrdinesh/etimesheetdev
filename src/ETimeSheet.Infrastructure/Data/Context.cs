@@ -907,6 +907,7 @@ public class Context : DbContext
             user.Property(row => row.ProjectLocationLatitude).HasColumnName("ProjectLocationLatitude");
             user.Property(row => row.ProjectLocationLongitude).HasColumnName("ProjectLocationLongitude");
             user.Property(row => row.MaxLogHoursPerDay).HasColumnName("MaxLogHoursPerDay");
+            user.Property(row => row.IsTimeLogDisabled).HasColumnName("IsTimeLogDisabled");
             user.Property(row => row.CountryId).HasColumnName("CountryID");
             user.Property(row => row.CountryName).HasColumnName("CountryName");
             user.Property(row => row.Address).HasColumnName("Address");
@@ -954,6 +955,7 @@ public class Context : DbContext
             details.Property(row => row.CostRate).HasColumnName("CostRate").HasColumnType("decimal(18,2)");
             details.Property(row => row.BillRate).HasColumnName("BillRate").HasColumnType("decimal(18,2)");
             details.Property(row => row.MaxLogHoursPerDay).HasColumnName("MaxLogHoursPerDay");
+            details.Property(row => row.IsTimeLogDisabled).HasColumnName("IsTimeLogDisabled");
             details.Property(row => row.ProjectLocationLatitude).HasColumnName("ProjectLocationLatitude");
             details.Property(row => row.ProjectLocationLongitude).HasColumnName("ProjectLocationLongitude");
             details.Property(row => row.TotalExpectedHours).HasColumnName("TotalExpectedHours").HasColumnType("decimal(18,2)");

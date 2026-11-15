@@ -280,6 +280,7 @@ public class TimesheetProjectRepository : ITimesheetProjectRepository
         string? projectLocationLatitude,
         string? projectLocationLongitude,
         int? maxLogHoursPerDay,
+        int? isTimeLogDisabled,
         string password,
         CancellationToken cancellationToken = default)
     {
@@ -295,11 +296,12 @@ public class TimesheetProjectRepository : ITimesheetProjectRepository
             // one; until the owner applies those, they are accepted and
             // dropped.
             //
-            // @Password is the 2026-11-15 revision and is NOT optional in the
-            // same way: a procedure that does not declare it yet rejects the
-            // whole EXEC, so this endpoint answers 500 until the owner applies
-            // it. The password is sent in plain text for the procedure to hash
-            // - it is never hashed, encoded or logged here.
+            // @Password and @IsTimeLogDisabled are the 2026-11-15 revisions and
+            // are NOT optional in the same way: a procedure that does not
+            // declare one of them yet rejects the whole EXEC, so this endpoint
+            // answers 500 until the owner applies both. The password is sent in
+            // plain text for the procedure to hash - it is never hashed,
+            // encoded or logged here.
             await _db.Database.ExecuteSqlInterpolatedAsync(
                 $@"EXEC dbo.spc_Signup_timesheet_user
                     @Fullname = {fullName},
@@ -317,7 +319,8 @@ public class TimesheetProjectRepository : ITimesheetProjectRepository
                     @Projectloclatitude = {projectLocationLatitude},
                     @Projectloclongtitude = {projectLocationLongitude},
                     @Maxloghourday = {maxLogHoursPerDay},
-                    @Password = {password}",
+                    @Password = {password},
+                    @IsTimeLogDisabled = {isTimeLogDisabled}",
                 cancellationToken);
         }
         catch
@@ -358,6 +361,20 @@ public class TimesheetProjectRepository : ITimesheetProjectRepository
                          && setup.ProjectId == projectId
                          && setup.TimesheetUserProjectSetupId != excludedTimesheetUserProjectSetupId,
                 cancellationToken);
+
+    public async Task<TimesheetUserProjectSetup?> GetUserProjectSetupAsync(
+        int userId,
+        int projectId,
+        CancellationToken cancellationToken = default) =>
+        // Untracked: this is a read, and the caller only asks questions of the
+        // row. The query filter hides deleted assignments. Lowest id first,
+        // because nothing stops the same user being assigned to one project
+        // twice, and that is the row the reminders' daily cap reads too.
+        await _db.Timesheet_Users_Project_setup
+            .AsNoTracking()
+            .Where(setup => setup.UserId == userId && setup.ProjectId == projectId)
+            .OrderBy(setup => setup.TimesheetUserProjectSetupId)
+            .FirstOrDefaultAsync(cancellationToken);
 
     public async Task<IReadOnlyList<TimesheetUserProjectSetup>> GetUserProjectSetupsForUpdateAsync(
         int userId,

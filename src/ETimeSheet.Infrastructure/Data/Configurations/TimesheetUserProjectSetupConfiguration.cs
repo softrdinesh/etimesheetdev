@@ -61,6 +61,12 @@ public class TimesheetUserProjectSetupConfiguration : IEntityTypeConfiguration<T
 
         builder.Property(setup => setup.MaxLogHoursPerDay).HasColumnName("Max_log_hour_day");
 
+        // A nullable int with a database default of 0, as IsDelete is. No
+        // HasDefaultValue here on purpose: EF would then treat 0 as "not set"
+        // and leave the column out of an INSERT, which is the same result by a
+        // less obvious route. The service always writes an explicit 0 or 1.
+        builder.Property(setup => setup.IsTimeLogDisabled).HasColumnName("IsTimeLogDisabled");
+
         // Soft delete: the procedure writes 0, the API's remove writes 1.
         builder.HasQueryFilter(setup => setup.IsDelete == null || setup.IsDelete == 0);
     }
