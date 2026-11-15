@@ -182,6 +182,7 @@ public sealed record ProjectSheetSubmissionRow(
     int ProjectId,
     int UserId,
     DateTime PeriodStartDate,
+    DateTime PeriodEndDate,
     string SheetSubmissionCode);
 
 /// <summary>

@@ -3346,3 +3346,19 @@ public class TimesheetUserLeaveApplyStatusUpdateRequest
     /// <example>3</example>
     public int AddedBy { get; set; }
 }
+
+/// <summary>
+/// One period a user already has a submission row for on a project - just the
+/// two dates, read from <c>dbo.TimesheetProjectSubmission</c>.
+/// <para>
+/// Enough to answer "has this period been accounted for?", which is all the
+/// ordering rule needs: a period counts as submitted when a stored row overlaps
+/// it, whatever that row's status and whichever rule cut it.
+/// </para>
+/// </summary>
+public class ProjectSubmittedPeriod
+{
+    public DateTime PeriodStartDate { get; set; }
+
+    public DateTime PeriodEndDate { get; set; }
+}

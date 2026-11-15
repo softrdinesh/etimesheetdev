@@ -431,6 +431,13 @@ public interface ITimesheetProjectService
     /// that period's. No submission is opened. A period that is submitted or
     /// approved is closed; a rejected one is open, and its sheet is left as it
     /// is.
+    /// <para>
+    /// A period is a <b>calendar</b> week (Monday to Sunday) or month, clipped
+    /// to the project's start and end dates and trimmed to its working days -
+    /// see <c>ProjectSubmissionPeriod</c>. Nothing can be logged on a day the
+    /// project is not worked on, because such a day belongs to no period and
+    /// its time would sit on no sheet.
+    /// </para>
     /// </summary>
     /// <returns>The entry as saved, with its code and period.</returns>
     /// <exception cref="ETimeSheet.Shared.Exceptions.ValidationException">
@@ -441,8 +448,9 @@ public interface ITimesheetProjectService
     /// An id greater than 0 that no live entry has.
     /// </exception>
     /// <exception cref="ETimeSheet.Shared.Exceptions.BusinessException">
-    /// The project has no start date, submission frequency or organisation,
-    /// the day is approved leave or a holiday, the entry belongs to another
+    /// The project has no start date, submission frequency or organisation (or
+    /// submits every 15 days, which is no longer supported), the day is a
+    /// weekend day, a holiday or approved leave, the entry belongs to another
     /// user or project, or a period involved is submitted or approved.
     /// </exception>
     Task<TimesheetProjectTimeLogResponse> SaveProjectTimeLogAsync(
@@ -486,13 +494,28 @@ public interface ITimesheetProjectService
 
     /// <summary>
     /// Submits a user's timesheet for one period of a project, named by its
-    /// code or by a day in it. The period comes from the project's start date
-    /// and frequency, and may be submitted on its last day or after, in the
-    /// user's time zone. The first submit creates the sheet's row, already
-    /// Submitted, with the period's time-log code (the next code for a blank
-    /// sheet); a rejected sheet is resubmitted in its row. Totals are taken
-    /// from the time log, and the change is recorded in
+    /// code or by a day in it. The first submit creates the sheet's row,
+    /// already Submitted, with the period's time-log code (the next code for a
+    /// blank sheet); a rejected sheet is resubmitted in its row. Totals are
+    /// taken from the time log, and the change is recorded in
     /// <c>dbo.TimesheetProjectSubmissionAuditLog</c>.
+    /// <para>
+    /// A period is a <b>calendar</b> week (Monday to Sunday) or month, clipped
+    /// to the project's start and end dates and trimmed to its working days -
+    /// see <c>ProjectSubmissionPeriod</c>. It may be submitted on its last
+    /// <b>working</b> day or any day after, in the user's time zone, and there
+    /// is no late deadline.
+    /// </para>
+    /// <para>
+    /// <b>Periods are handed in order:</b> while an earlier period of this user
+    /// on this project has never been submitted, this one cannot be. A period
+    /// with no time on it is submitted as a blank sheet.
+    /// </para>
+    /// <para>
+    /// The totals and the code cover the whole calendar block, not only its
+    /// working days, so an entry written before a day became a weekend day or a
+    /// holiday is still counted on its week's sheet.
+    /// </para>
     /// </summary>
     /// <returns>The submitted sheet.</returns>
     /// <exception cref="ETimeSheet.Shared.Exceptions.ValidationException">
@@ -502,8 +525,9 @@ public interface ITimesheetProjectService
     /// </exception>
     /// <exception cref="ETimeSheet.Shared.Exceptions.BusinessException">
     /// The coded sheet is another user's or project's; the project has no start
-    /// date, frequency or organisation; the period has not reached its last
-    /// day; or the user is not assigned to the project.
+    /// date, frequency or organisation, or submits every 15 days; the period
+    /// has not reached its last working day; an earlier period has not been
+    /// submitted; or the user is not assigned to the project.
     /// </exception>
     /// <exception cref="ETimeSheet.Shared.Exceptions.ConflictException">
     /// The period is already submitted or approved.

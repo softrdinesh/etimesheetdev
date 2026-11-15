@@ -978,18 +978,59 @@ public interface ITimesheetProjectRepository
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// The first live holiday on <paramref name="date"/> that covers this
-    /// project for this user, untracked; <see langword="null"/> when there is
-    /// none. A holiday belongs to an organisation and may be narrowed to a
-    /// country, a client or a project: it covers the day when it is of
-    /// <paramref name="organizationId"/>, and each of its country, client and
-    /// project is either empty or the one given.
+    /// Every live weekend setup of these organisations, untracked, oldest id
+    /// first - the project-level, client-level and organisation-level rows
+    /// together, because which one applies is a decision
+    /// (<c>ProjectWorkingCalendar</c>), not a query.
+    /// <para>
+    /// The table holds one row per project, client or organisation, so this is
+    /// a handful of rows however many projects are asked about. Reading them in
+    /// one go is what keeps the period calculation off a per-project query.
+    /// </para>
     /// </summary>
-    Task<TimesheetHolidaySetup?> GetHolidayForProjectOnDateAsync(
-        int organizationId,
+    Task<IReadOnlyList<TimesheetWeekendSetup>> GetWeekendSetupsForOrganizationsAsync(
+        IReadOnlyCollection<int> organizationIds,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Every live holiday of these organisations falling between
+    /// <paramref name="fromDate"/> and <paramref name="toDate"/> inclusive,
+    /// untracked. Which of them covers a given project and user is decided by
+    /// <c>ProjectWorkingCalendar</c>, not here - a holiday may be narrowed to a
+    /// country, a client or a project, and the same row applies to one user and
+    /// not another.
+    /// </summary>
+    Task<IReadOnlyList<TimesheetHolidaySetup>> GetHolidaysForOrganizationsAsync(
+        IReadOnlyCollection<int> organizationIds,
+        DateTime fromDate,
+        DateTime toDate,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The earliest day this user has live time logged on this project, or
+    /// <see langword="null"/> when they have none.
+    /// <para>
+    /// This is where a user's obligation to submit begins: periods before their
+    /// first entry are not theirs to account for, so someone added to a project
+    /// that has been running for a year does not owe a year of blank sheets.
+    /// </para>
+    /// </summary>
+    Task<DateTime?> GetProjectTimeLogEarliestDateAsync(
+        int userId,
         int projectId,
-        int clientId,
-        int? countryId,
-        DateTime date,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The periods this user already has a live submission row for on this
+    /// project, untracked - whatever each one's status.
+    /// <para>
+    /// Rows written before periods followed the calendar are included and are
+    /// not re-cut: a period is accounted for when any stored row overlaps it,
+    /// which is what lets the old anchoring and the new one sit side by side.
+    /// </para>
+    /// </summary>
+    Task<IReadOnlyList<ProjectSubmittedPeriod>> GetProjectSubmissionPeriodsAsync(
+        int userId,
+        int projectId,
         CancellationToken cancellationToken = default);
 }

@@ -239,23 +239,25 @@ public class SchedulerRepository : ISchedulerRepository
             .ToList();
     }
 
-    public async Task<IReadOnlyList<ProjectSheetSubmissionRow>> GetProjectSubmissionsAsync(
+    public async Task<IReadOnlyList<ProjectSheetSubmissionRow>> GetProjectSubmissionsEndedBeforeAsync(
         IReadOnlyCollection<int> projectIds,
         int statusId,
-        DateTime fromDate,
-        DateTime toDate,
+        DateTime beforeDate,
         CancellationToken cancellationToken = default) =>
-        // The query filter drops deleted submissions.
+        // The query filter drops deleted submissions. Filtered on the period's
+        // END, because that is what says the period is over and its sheets are
+        // the approver's to deal with - and left open at the far end, so a
+        // sheet nobody has reviewed is still found months later.
         await _db.TimesheetProjectSubmission
             .AsNoTracking()
             .Where(submission => projectIds.Contains(submission.ProjectId)
                 && submission.StatusId == statusId
-                && submission.PeriodStartDate >= fromDate.Date
-                && submission.PeriodStartDate <= toDate.Date)
+                && submission.PeriodEndDate < beforeDate.Date)
             .Select(submission => new ProjectSheetSubmissionRow(
                 submission.ProjectId,
                 submission.UserId,
                 submission.PeriodStartDate,
+                submission.PeriodEndDate,
                 submission.SheetSubmissionCode))
             .ToListAsync(cancellationToken);
 
