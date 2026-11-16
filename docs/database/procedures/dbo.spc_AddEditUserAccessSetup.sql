@@ -6,6 +6,9 @@
     Revised:   2026-10-25 - DRAFT: Mod_IsUserLeaveApply, Mod_IsLeaveSetup,
                Mod_IsLeaveAssignmentUser, Mod_IsLeaveApproveReject and
                Mod_IsReportView added (AS IsUserLeaveApply .. IsReportView).
+    Revised:   2026-11-16 - DRAFT: Mod_IsWeekendSetup and Mod_IsHolidaysetup
+               added (@PIsWeekendSetup, @PIsHolidaySetup; AS IsWeekendSetup,
+               IsHolidaySetup).
 
     Adds a user's module assignment to dbo.Timesheet_role_assignment, or edits
     one, and returns the saved row. Called by
@@ -16,7 +19,7 @@
                             edits that assignment.
       @PUserID              the user the assignment is for.
       @PIsClientSetup ..
-      @PIsReportView        1 grants that module, 0 refuses it - one per
+      @PIsHolidaySetup      1 grants that module, 0 refuses it - one per
                             Mod_ column.
       @PLoginUserID         written to CreatedBy on add, Updatedby on edit.
       @PDate                written to CreateDate on add, UpdatedDate on edit
@@ -28,7 +31,7 @@
       it; the new id is read back with SCOPE_IDENTITY().
 
     Edit (@PAssignmentID > 0):
-      Updates UserID and the fourteen module flags. CreateDate / CreatedBy are
+      Updates UserID and the sixteen module flags. CreateDate / CreatedBy are
       left as they were.
 
     One assignment per user:
@@ -70,6 +73,8 @@ CREATE OR ALTER PROCEDURE [dbo].[spc_AddEditUserAccessSetup]
     @PIsLeaveAssignmentUser BIT,
     @PIsLeaveApproveReject BIT,
     @PIsReportView        BIT,
+    @PIsWeekendSetup      BIT,
+    @PIsHolidaySetup      BIT,
     @PLoginUserID         INT,
     @PDate                DATETIME
 AS
@@ -104,6 +109,7 @@ BEGIN
              Mod_IsStatusSetup, Mod_IsRoleSetup, Mod_IsUsersetup, Mod_IsTimeLog,
              Mod_IsViewTimesheet, Mod_IsUserLeaveApply, Mod_IsLeaveSetup,
              Mod_IsLeaveAssignmentUser, Mod_IsLeaveApproveReject, Mod_IsReportView,
+             Mod_IsWeekendSetup, Mod_IsHolidaysetup,
              CreateDate, CreatedBy)
         VALUES
             (@PUserID,
@@ -111,6 +117,7 @@ BEGIN
              @PIsStatusSetup, @PIsRoleSetup, @PIsUserSetup, @PIsTimeLog,
              @PIsViewTimesheet, @PIsUserLeaveApply, @PIsLeaveSetup,
              @PIsLeaveAssignmentUser, @PIsLeaveApproveReject, @PIsReportView,
+             @PIsWeekendSetup, @PIsHolidaySetup,
              @PDate, @PLoginUserID);
 
         SET @AssignmentID = CAST(SCOPE_IDENTITY() AS INT);
@@ -133,6 +140,8 @@ BEGIN
             Mod_IsLeaveAssignmentUser = @PIsLeaveAssignmentUser,
             Mod_IsLeaveApproveReject  = @PIsLeaveApproveReject,
             Mod_IsReportView      = @PIsReportView,
+            Mod_IsWeekendSetup    = @PIsWeekendSetup,
+            Mod_IsHolidaysetup    = @PIsHolidaySetup,
             UpdatedDate           = @PDate,
             Updatedby             = @PLoginUserID
         WHERE AssignmentID = @AssignmentID;
@@ -163,6 +172,8 @@ BEGIN
         tra.Mod_IsLeaveAssignmentUser AS IsLeaveAssignmentUser,
         tra.Mod_IsLeaveApproveReject AS IsLeaveApproveReject,
         tra.Mod_IsReportView        AS IsReportView,
+        tra.Mod_IsWeekendSetup      AS IsWeekendSetup,
+        tra.Mod_IsHolidaysetup      AS IsHolidaySetup,
         tra.CreateDate              AS CreateDate,
         tra.CreatedBy               AS CreatedBy,
         tra.UpdatedDate             AS UpdatedDate,

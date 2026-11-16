@@ -6,6 +6,8 @@
     Revised:   2026-10-25 - DRAFT: Mod_IsUserLeaveApply, Mod_IsLeaveSetup,
                Mod_IsLeaveAssignmentUser, Mod_IsLeaveApproveReject and
                Mod_IsReportView added (AS IsUserLeaveApply .. IsReportView).
+    Revised:   2026-11-16 - DRAFT: Mod_IsWeekendSetup and Mod_IsHolidaysetup
+               added (AS IsWeekendSetup, IsHolidaySetup).
 
     Returns the module assignments in dbo.Timesheet_role_assignment, filtered
     by organisation, user or both, for
@@ -42,7 +44,8 @@
       OrganizationID (from dbo.Signup), IsClientSetup, IsProject,
       IsProjectBudget, IsProjectCategory, IsStatusSetup, IsRoleSetup,
       IsUserSetup, IsTimeLog, IsViewTimesheet, IsUserLeaveApply, IsLeaveSetup,
-      IsLeaveAssignmentUser, IsLeaveApproveReject, IsReportView (aliased from the Mod_
+      IsLeaveAssignmentUser, IsLeaveApproveReject, IsReportView,
+      IsWeekendSetup, IsHolidaySetup (aliased from the Mod_
       columns), CreateDate,
       CreatedBy, UpdatedDate, UpdatedBy (aliased from Updatedby). The aliases
       are what the EF Core result mapping binds to.
@@ -86,6 +89,8 @@ BEGIN
         tra.Mod_IsLeaveAssignmentUser AS IsLeaveAssignmentUser,
         tra.Mod_IsLeaveApproveReject AS IsLeaveApproveReject,
         tra.Mod_IsReportView        AS IsReportView,
+        tra.Mod_IsWeekendSetup      AS IsWeekendSetup,
+        tra.Mod_IsHolidaysetup      AS IsHolidaySetup,
         tra.CreateDate              AS CreateDate,
         tra.CreatedBy               AS CreatedBy,
         tra.UpdatedDate             AS UpdatedDate,

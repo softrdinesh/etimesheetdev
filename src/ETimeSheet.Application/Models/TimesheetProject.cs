@@ -1942,6 +1942,10 @@ public class TimesheetRoleAssignmentResponse
 
     public bool? IsReportView { get; set; }
 
+    public bool? IsWeekendSetup { get; set; }
+
+    public bool? IsHolidaySetup { get; set; }
+
     public DateTime? CreateDate { get; set; }
 
     public int? CreatedBy { get; set; }
@@ -1995,6 +1999,10 @@ public class TimesheetRoleAssignmentDetail
     public bool? IsLeaveApproveReject { get; set; }
 
     public bool? IsReportView { get; set; }
+
+    public bool? IsWeekendSetup { get; set; }
+
+    public bool? IsHolidaySetup { get; set; }
 
     public DateTime? CreateDate { get; set; }
 
@@ -2093,6 +2101,14 @@ public class TimesheetRoleAssignmentSaveRequest
     /// <example>true</example>
     public bool IsReportView { get; set; }
 
+    /// <summary>Whether the user may use the Weekend Setup module. Left out is <c>false</c>.</summary>
+    /// <example>true</example>
+    public bool IsWeekendSetup { get; set; }
+
+    /// <summary>Whether the user may use the Holiday Setup module. Left out is <c>false</c>.</summary>
+    /// <example>true</example>
+    public bool IsHolidaySetup { get; set; }
+
     /// <summary>
     /// The user performing the save, written to <c>CreatedBy</c> on add and
     /// <c>Updatedby</c> on edit. Required, greater than 0. <b>Temporary</b>:
@@ -2147,6 +2163,10 @@ public class TimesheetRoleAssignmentSaveDetail
     public bool? IsLeaveApproveReject { get; set; }
 
     public bool? IsReportView { get; set; }
+
+    public bool? IsWeekendSetup { get; set; }
+
+    public bool? IsHolidaySetup { get; set; }
 
     public DateTime? CreateDate { get; set; }
 

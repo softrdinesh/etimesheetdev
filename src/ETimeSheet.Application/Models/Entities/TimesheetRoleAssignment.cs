@@ -64,6 +64,12 @@ public class TimesheetRoleAssignment
     /// <summary>The <c>Mod_IsReportView</c> column.</summary>
     public bool? IsReportView { get; set; }
 
+    /// <summary>The <c>Mod_IsWeekendSetup</c> column.</summary>
+    public bool? IsWeekendSetup { get; set; }
+
+    /// <summary>The <c>Mod_IsHolidaysetup</c> column.</summary>
+    public bool? IsHolidaySetup { get; set; }
+
     public DateTime? CreateDate { get; set; }
 
     public int? CreatedBy { get; set; }

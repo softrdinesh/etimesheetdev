@@ -5330,6 +5330,8 @@ then `assignmentId`.
 | `isLeaveAssignmentUser` | bool \| null | `Mod_IsLeaveAssignmentUser` |
 | `isLeaveApproveReject` | bool \| null | `Mod_IsLeaveApproveReject` |
 | `isReportView` | bool \| null | `Mod_IsReportView` |
+| `isWeekendSetup` | bool \| null | `Mod_IsWeekendSetup` |
+| `isHolidaySetup` | bool \| null | `Mod_IsHolidaysetup` |
 | `createDate` | datetime \| null | |
 | `createdBy` | int \| null | |
 | `updatedDate` | datetime \| null | `null` until the first edit |
@@ -5357,16 +5359,13 @@ then `assignmentId`.
       "isUserSetup": false,
       "isTimeLog": true,
       "isViewTimesheet": true,
-  "isUserLeaveApply": false,
-  "isLeaveSetup": false,
-  "isLeaveAssignmentUser": false,
-  "isLeaveApproveReject": false,
-  "isReportView": false,
       "isUserLeaveApply": false,
       "isLeaveSetup": false,
       "isLeaveAssignmentUser": false,
       "isLeaveApproveReject": false,
       "isReportView": false,
+      "isWeekendSetup": false,
+      "isHolidaySetup": false,
       "createDate": "2026-10-18T10:41:07.233",
       "createdBy": 7,
       "updatedDate": null,
@@ -5397,7 +5396,8 @@ database yet.
 
 **Purpose** — Add the access setup of a user, or edit one — **one endpoint for
 both**. `assignmentId` `0` (or absent) adds; an existing `assignmentId` edits
-it. An edit overwrites the user and all nine module flags, so send them all.
+it. An edit overwrites the user and all sixteen module flags, so send them
+all.
 Written through `dbo.spc_AddEditUserAccessSetup`.
 
 **One user has only one setup.** Adding a second setup for a user, or editing
@@ -5412,7 +5412,7 @@ again under a lock. The table does not enforce it — see
 | `assignmentId` | int \| null | no | `0` / absent to add; `> 0` to edit |
 | `organizationId` | int | yes | `> 0`. **Not stored** — the table has no organisation column — but the user must be a live user of it |
 | `userId` | int | yes | `> 0`; a live user (`dbo.Signup.IsDelete = 0`) of `organizationId` with no other setup |
-| `isClientSetup`, `isProject`, `isProjectBudget`, `isProjectCategory`, `isStatusSetup`, `isRoleSetup`, `isUserSetup`, `isTimeLog`, `isViewTimesheet`, `isUserLeaveApply`, `isLeaveSetup`, `isLeaveAssignmentUser`, `isLeaveApproveReject`, `isReportView` | bool | no | Absent is `false` |
+| `isClientSetup`, `isProject`, `isProjectBudget`, `isProjectCategory`, `isStatusSetup`, `isRoleSetup`, `isUserSetup`, `isTimeLog`, `isViewTimesheet`, `isUserLeaveApply`, `isLeaveSetup`, `isLeaveAssignmentUser`, `isLeaveApproveReject`, `isReportView`, `isWeekendSetup`, `isHolidaySetup` | bool | no | Absent is `false` |
 | `loginUserId` | int | yes | `> 0`. The user performing the save — written to `CreatedBy` on add, `Updatedby` on edit. Temporary — from the token once authentication is on |
 
 #### Example request
@@ -5436,6 +5436,8 @@ again under a lock. The table does not enforce it — see
   "isLeaveAssignmentUser": false,
   "isLeaveApproveReject": false,
   "isReportView": false,
+  "isWeekendSetup": false,
+  "isHolidaySetup": false,
   "loginUserId": 7
 }
 ```
@@ -7729,7 +7731,11 @@ Documented so nobody has to rediscover them:
     sends and reads them through the drafts of
     `dbo.spc_AddEditUserAccessSetup` and `dbo.spc_GetUserAccessSetup` in
     `docs/database/procedures/`. Until the owner applies both, endpoints 46–47
-    answer 500.
+    answer 500. The same is true of the 2026-11-16 pair,
+    `Mod_IsWeekendSetup` and `Mod_IsHolidaysetup`: both columns are on the
+    table, and both procedure drafts were revised again for them, so the
+    owner must re-create the two procedures from
+    `docs/database/procedures/` once more.
 79. **`IsLeaveApprover` needs the approver setup procedures re-created.** The
     column is on `dbo.Timesheet_Approver_setup`, but the API sends and reads
     it through the 2026-10-25 drafts of

@@ -622,7 +622,7 @@ public class TimesheetProjectController : ControllerBase
     /// <para>
     /// Send <c>assignmentId</c> as <c>0</c> (or leave it out) to add an
     /// assignment. Send an existing assignment's <c>assignmentId</c> to edit
-    /// it. An edit overwrites the user and all nine module flags, so send
+    /// it. An edit overwrites the user and all sixteen module flags, so send
     /// them all.
     /// </para>
     /// <para>
