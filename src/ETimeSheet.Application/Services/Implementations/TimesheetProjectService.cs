@@ -78,6 +78,20 @@ public class TimesheetProjectService : ITimesheetProjectService
     /// </summary>
     private const int MaxLogHoursPerDayMaximum = 24;
 
+    /// <summary>
+    /// <c>dbo.Timesheet_Users_Project_setup.IsTimeLogDisabled</c> when the
+    /// assignment works normally. The column's default, and what null is read
+    /// as.
+    /// </summary>
+    private const int TimeLogEnabled = 0;
+
+    /// <summary>
+    /// <c>IsTimeLogDisabled</c> when an administrator has turned the
+    /// assignment's time logging off: no entry may be added, changed or
+    /// removed on it, and its sheets may not be submitted.
+    /// </summary>
+    private const int TimeLogDisabled = 1;
+
     /// <summary>The welcome email for a new account, in <c>Infrastructure/Assets/EmailTemplates/</c>.</summary>
     private const string WelcomeEmailTemplateName = "WelcomeUserTemplate.html";
 
@@ -210,7 +224,8 @@ public class TimesheetProjectService : ITimesheetProjectService
         {
             failures[nameof(TimesheetProjectSaveRequest.SubmissionFrequency)] = new[]
             {
-                "SubmissionFrequency must be 1 (weekly), 2 (every 15 days) or 3 (monthly) when sent."
+                "SubmissionFrequency must be 1 (weekly) or 3 (monthly) when sent. 2 (every 15 days) is " +
+                "not supported: submission periods follow the calendar, and no calendar block is 15 days long."
             };
         }
 
@@ -792,6 +807,16 @@ public class TimesheetProjectService : ITimesheetProjectService
                 detail.ProjectLocationLatitude,
                 detail.ProjectLocationLongitude,
                 detail.MaxLogHoursPerDay,
+
+                // Left out means the assignment works normally: the column
+                // defaults to 0, and 1 is what turns logging off.
+                detail.IsTimeLogDisabled ?? TimeLogEnabled,
+
+                // The procedure hashes this into dbo.Signup.Pwd, and only on
+                // the branch that creates the user: an existing user put on a
+                // second project keeps the password they already have. The
+                // value itself is never logged.
+                _defaultPasswordSettings.Plain,
                 cancellationToken);
         }
 
@@ -808,46 +833,12 @@ public class TimesheetProjectService : ITimesheetProjectService
             request.CreatedBy,
             existingUser is null ? "new user" : "existing user");
 
-        // Only a new account gets the default password. An existing user keeps
-        // the password they already have - an edit never touches it either, so
-        // adding someone to a second project cannot lock them out.
-        //
-        // The procedure has already written Pwd itself, as HASHBYTES('SHA2_512',
-        // @Email) converted into the nvarchar column, so this overwrites that
-        // with the configured value. It is a second statement, not part of the
-        // procedure's transaction: if it fails, the account exists with the
-        // email-derived password instead, and the failure is logged - the
-        // request is not failed, because a retry would only find the email
-        // taken and add duplicate assignments.
-        if (existingUser is null)
-        {
-            try
-            {
-                var passwordSet = await _timesheetProjectRepository.SetUserPasswordAsync(
-                    user.UserId,
-                    _defaultPasswordSettings.Encrypted,
-                    cancellationToken);
-
-                // The value itself is never logged, here or anywhere else.
-                if (passwordSet)
-                {
-                    _logger.LogInformation("New user {UserId} was given the default password.", user.UserId);
-                }
-                else
-                {
-                    _logger.LogError(
-                        "New user {UserId} could not be given the default password: the user was not found when writing it.",
-                        user.UserId);
-                }
-            }
-            catch (Exception exception)
-            {
-                _logger.LogError(
-                    exception,
-                    "New user {UserId} could not be given the default password; their dbo.Signup.Pwd is still the one spc_Signup_timesheet_user wrote.",
-                    user.UserId);
-            }
-        }
+        // The default password is the procedure's own work now - it hashes
+        // @Password into dbo.Signup.Pwd inside the same transaction as the
+        // insert, so there is nothing to write back here and no window in
+        // which an account exists with a different password. An existing user
+        // keeps the password they already have; an edit never touches it
+        // either, so adding someone to a second project cannot lock them out.
 
         // Only a new account is welcomed; an existing user was only put on
         // another project. Sent to the address as the caller typed it - the
@@ -1090,6 +1081,27 @@ public class TimesheetProjectService : ITimesheetProjectService
 
             if (requestedProjectIds.Contains(existingProjectId))
             {
+                // IsTimeLogDisabled is the ONE field an edit may change on an
+                // assignment the user already has. Every other field here
+                // describes the assignment as it was agreed - its role, its
+                // rates - and changing those is the two-call dance gap 89
+                // describes. This one is an administrator's switch: a block
+                // that could only be applied by removing the assignment and
+                // adding it back, losing the row's id and its CreateDate,
+                // would not be a usable block at all.
+                //
+                // Sent, it is applied; left out, the assignment keeps what it
+                // has - so a payload written before this field existed cannot
+                // silently unblock anyone.
+                var requested = projectDetails
+                    .First(detail => detail.ProjectId == existingProjectId)
+                    .IsTimeLogDisabled;
+
+                if (requested is { } isTimeLogDisabled)
+                {
+                    existingSetup.IsTimeLogDisabled = isTimeLogDisabled;
+                }
+
                 keptSetups.Add(existingSetup);
                 continue;
             }
@@ -1107,7 +1119,8 @@ public class TimesheetProjectService : ITimesheetProjectService
             .ToHashSet();
 
         // Added rows carry the values their own item of the payload sent; the
-        // kept rows keep their own, which is why an edit cannot change them.
+        // kept rows keep their own, apart from IsTimeLogDisabled above - which
+        // is why an edit cannot change anything else about them.
         var addedSetups = projectDetails
             .Where(detail => !keptProjectIds.Contains(detail.ProjectId))
             .Select(detail => new TimesheetUserProjectSetup
@@ -1122,6 +1135,7 @@ public class TimesheetProjectService : ITimesheetProjectService
                 ProjectLocationLatitude = detail.ProjectLocationLatitude,
                 ProjectLocationLongitude = detail.ProjectLocationLongitude,
                 MaxLogHoursPerDay = detail.MaxLogHoursPerDay,
+                IsTimeLogDisabled = detail.IsTimeLogDisabled ?? TimeLogEnabled,
                 CreateDate = now,
                 CreatedBy = request.UpdatedBy,
                 IsDelete = 0,
@@ -1177,6 +1191,7 @@ public class TimesheetProjectService : ITimesheetProjectService
             ProjectLocationLatitude = setup.ProjectLocationLatitude,
             ProjectLocationLongitude = setup.ProjectLocationLongitude,
             MaxLogHoursPerDay = setup.MaxLogHoursPerDay,
+            IsTimeLogDisabled = setup.IsTimeLogDisabled,
             IsNewAssignment = isNewAssignment,
         };
 
@@ -1340,6 +1355,21 @@ public class TimesheetProjectService : ITimesheetProjectService
                 failures,
                 $"{itemField}.{nameof(TimesheetUserProjectDetail.MaxLogHoursPerDay)}",
                 detail.MaxLogHoursPerDay);
+
+            // The column is an int, so the payload could carry any number. Only
+            // two of them mean anything, and a 7 stored here would be read as
+            // "not 1" - not blocked - by this service and as something else by
+            // the next reader.
+            if (detail.IsTimeLogDisabled is { } isTimeLogDisabled
+                && isTimeLogDisabled != TimeLogEnabled
+                && isTimeLogDisabled != TimeLogDisabled)
+            {
+                failures[$"{itemField}.{nameof(TimesheetUserProjectDetail.IsTimeLogDisabled)}"] = new[]
+                {
+                    $"{nameof(TimesheetUserProjectDetail.IsTimeLogDisabled)} must be " +
+                    $"{TimeLogEnabled} (time logging allowed) or {TimeLogDisabled} (disabled) when sent."
+                };
+            }
 
             // Trimmed on the item itself: the value validated here is the one
             // written to dbo.Timesheet_Users_Project_setup and the one the
@@ -2366,6 +2396,16 @@ public class TimesheetProjectService : ITimesheetProjectService
                 .GroupBy(submission => (submission.ProjectId, Code: submission.SheetSubmissionCode))
                 .ToDictionary(group => group.Key, group => group.First().StatusId);
 
+        // One working calendar per project, read in two queries for all of them
+        // together rather than one pair per row. Holidays are the user's, as on
+        // the save: this read is about one user.
+        var calendars = await ProjectCalendarsAsync(
+            projects.Values,
+            userId,
+            timeLogs.Count == 0 ? null : timeLogs.Min(timeLog => timeLog.LogDate.Date),
+            timeLogs.Count == 0 ? null : timeLogs.Max(timeLog => timeLog.LogDate.Date),
+            cancellationToken);
+
         return timeLogs
             .Select(timeLog =>
             {
@@ -2380,20 +2420,93 @@ public class TimesheetProjectService : ITimesheetProjectService
                     && project.StartDate is { } projectStartDate
                     && project.SubmissionFrequency is { } submissionFrequency
                     && ProjectSubmissionPeriod.Frequencies.Contains(submissionFrequency)
-                    && timeLog.LogDate.Date >= projectStartDate.Date)
-                {
-                    var (periodStartDate, periodEndDate) = ProjectSubmissionPeriod.Of(
+                    && timeLog.LogDate.Date >= projectStartDate.Date
+                    && ProjectSubmissionPeriod.Of(
                         timeLog.LogDate.Date,
                         projectStartDate.Date,
-                        submissionFrequency);
-
-                    return timeLog.ToResponse(periodStartDate, periodEndDate, statusId, statusName);
+                        project.EndDate,
+                        submissionFrequency,
+                        calendars.TryGetValue(project.ProjectId, out var calendar)
+                            ? calendar
+                            : ProjectWorkingCalendar.EveryDay) is { } period)
+                {
+                    return timeLog.ToResponse(period.Start, period.End, statusId, statusName);
                 }
 
+                // No period to show: the project has no start date or frequency,
+                // the entry predates the project, or - for an entry written
+                // before a day became a weekend day or a holiday - the block it
+                // falls in no longer has a working day in it.
                 return timeLog.ToResponse(null, null, statusId, statusName);
             })
             .ToList();
     }
+
+    /// <summary>
+    /// The working calendar of each of these projects, keyed by project id,
+    /// covering <paramref name="fromDate"/> to <paramref name="toDate"/>.
+    /// <para>
+    /// Two queries for every project together: the weekend setups of the
+    /// organisations involved, and their holidays in that span. Which row
+    /// applies to which project is then decided in memory, so a list of a
+    /// hundred entries does not become a hundred pairs of queries.
+    /// </para>
+    /// </summary>
+    /// <param name="userId">
+    /// Whose holidays to apply - a holiday may name a country, and the user's
+    /// is what decides whether it covers them.
+    /// </param>
+    private async Task<IReadOnlyDictionary<int, ProjectWorkingCalendar>> ProjectCalendarsAsync(
+        IReadOnlyCollection<TimesheetProject> projects,
+        int userId,
+        DateTime? fromDate,
+        DateTime? toDate,
+        CancellationToken cancellationToken)
+    {
+        var organizationIds = projects
+            .Where(project => project.OrganizationId is not null)
+            .Select(project => project.OrganizationId!.Value)
+            .Distinct()
+            .ToList();
+
+        if (organizationIds.Count == 0 || fromDate is not { } from || toDate is not { } to)
+        {
+            return new Dictionary<int, ProjectWorkingCalendar>();
+        }
+
+        var user = await _timesheetProjectRepository.GetUserByIdAsync(userId, cancellationToken);
+
+        var weekendSetups = await _timesheetProjectRepository.GetWeekendSetupsForOrganizationsAsync(
+            organizationIds,
+            cancellationToken);
+
+        // Widened to whole calendar blocks at both ends, because a period is
+        // trimmed from days that may lie outside the entries' own span.
+        var holidays = await _timesheetProjectRepository.GetHolidaysForOrganizationsAsync(
+            organizationIds,
+            from.AddDays(-DaysAroundForHolidays),
+            to.AddDays(DaysAroundForHolidays),
+            cancellationToken);
+
+        return projects
+            .Where(project => project.OrganizationId is not null)
+            .ToDictionary(
+                project => project.ProjectId,
+                project => ProjectWorkingCalendar.For(
+                    project.OrganizationId!.Value,
+                    project.ProjectId,
+                    project.ClientId,
+                    user?.CountryId,
+                    weekendSetups,
+                    holidays));
+    }
+
+    /// <summary>
+    /// How far either side of the days in hand holidays are read for, so that a
+    /// period trimmed outwards from its entries still sees them. A month is the
+    /// longest block there is, so 31 days covers every case.
+    /// </summary>
+    private const int DaysAroundForHolidays = 31;
 
     public async Task<TimesheetProjectTimeLogResponse> SaveProjectTimeLogAsync(
         TimesheetProjectTimeLogSaveRequest request,
@@ -2481,24 +2594,45 @@ public class TimesheetProjectService : ITimesheetProjectService
                 $"LogDate must not be after the project's end date, {projectEndDate:yyyy-MM-dd}.");
         }
 
-        if (!await _timesheetProjectRepository.UserProjectSetupExistsAsync(
+        // One read of the assignment, which answers two questions: is the user
+        // on this project at all, and has an administrator blocked their time
+        // logging on it.
+        var assignment = await _timesheetProjectRepository.GetUserProjectSetupAsync(
                 request.UserId,
                 request.ProjectId,
-                0,
-                cancellationToken))
-        {
-            throw new ValidationException(
+                cancellationToken)
+            ?? throw new ValidationException(
                 nameof(TimesheetProjectTimeLogSaveRequest.ProjectId),
                 $"User '{request.UserId}' is not assigned to project '{request.ProjectId}'.");
-        }
+
+        RequireTimeLogIsEnabled(assignment, request.UserId, request.ProjectId);
 
         // No time on a day off - whenever it is logged, before or after.
-        await RequireNotOnLeaveOrHolidayAsync(
-            request.UserId,
+        await RequireNotOnLeaveAsync(request.UserId, logDate, cancellationToken);
+
+        // The calendar of the block this day falls in - its weekend days and
+        // the holidays covering this user - which is what trims the period.
+        var user = await _timesheetProjectRepository.GetUserByIdAsync(request.UserId, cancellationToken);
+        var (blockStart, blockEnd) = ProjectSubmissionPeriod.BlockOf(logDate, submissionFrequency);
+
+        var calendar = await ProjectCalendarAsync(
             project,
             organizationId,
-            logDate,
+            user?.CountryId,
+            blockStart,
+            blockEnd,
             cancellationToken);
+
+        // A weekend day or a holiday belongs to no period, so time logged there
+        // would sit on no sheet.
+        RequireWorkingDay(calendar, logDate);
+
+        var (periodStartDate, periodEndDate) = RequirePeriod(
+            logDate,
+            projectStartDate,
+            project.EndDate,
+            submissionFrequency,
+            calendar);
 
         // A submitted or approved period is closed; a rejected one is open
         // again, and changing it leaves its sheet as it is until resubmitted.
@@ -2512,7 +2646,15 @@ public class TimesheetProjectService : ITimesheetProjectService
 
         var now = _dateTimeProvider.UtcNow;
         var isNewEntry = request.TimesheetProjectTimeLogId == 0;
-        var (periodStartDate, periodEndDate) = ProjectSubmissionPeriod.Of(logDate, projectStartDate, submissionFrequency);
+
+        // The code is shared across the whole calendar block, not just the
+        // trimmed period: an entry written before a day became a weekend day
+        // still belongs to that week's sheet and already carries its code.
+        var (blockStartDate, blockEndDate) = ProjectSubmissionPeriod.ClippedBlockOf(
+            logDate,
+            projectStartDate,
+            project.EndDate,
+            submissionFrequency);
 
         TimesheetProjectTimeLog timeLog;
 
@@ -2528,8 +2670,8 @@ public class TimesheetProjectService : ITimesheetProjectService
                     submission,
                     request.UserId,
                     request.ProjectId,
-                    periodStartDate,
-                    periodEndDate,
+                    blockStartDate,
+                    blockEndDate,
                     cancellationToken),
                 LogDate = logDate,
                 HoursLogged = request.HoursLogged,
@@ -2578,8 +2720,8 @@ public class TimesheetProjectService : ITimesheetProjectService
                     submission,
                     request.UserId,
                     request.ProjectId,
-                    periodStartDate,
-                    periodEndDate,
+                    blockStartDate,
+                    blockEndDate,
                     cancellationToken);
             }
 
@@ -2723,16 +2865,19 @@ public class TimesheetProjectService : ITimesheetProjectService
             await _timesheetProjectRepository.GetLatestProjectSheetCodeAsync(cancellationToken));
 
     /// <summary>
-    /// Refuses time on a day the user is not working: a day of their
-    /// <b>approved</b> leave, or a holiday that covers the project for them.
-    /// Submitted and rejected leave do not count. The day is refused however
-    /// early or late it is logged - on the day itself, or days after.
+    /// Refuses time on a day of the user's <b>approved</b> leave. Submitted and
+    /// rejected leave do not count. The day is refused however early or late it
+    /// is logged - on the day itself, or days after.
+    /// <para>
+    /// Leave is personal, so it is checked per user and is not part of the
+    /// project's calendar: one person's leave does not shorten anybody else's
+    /// submission period. Weekends and holidays, which do, are
+    /// <see cref="RequireWorkingDay"/>'s job.
+    /// </para>
     /// </summary>
-    /// <exception cref="BusinessException">The day is leave or a holiday.</exception>
-    private async Task RequireNotOnLeaveOrHolidayAsync(
+    /// <exception cref="BusinessException">The day is approved leave.</exception>
+    private async Task RequireNotOnLeaveAsync(
         int userId,
-        TimesheetProject project,
-        int organizationId,
         DateTime logDate,
         CancellationToken cancellationToken)
     {
@@ -2742,44 +2887,84 @@ public class TimesheetProjectService : ITimesheetProjectService
             LeaveStatusApprovedText,
             cancellationToken);
 
-        if (approvedStatus is not null)
+        if (approvedStatus is null)
         {
-            var leave = (await _timesheetProjectRepository.GetLeaveApplyOverlappingAsync(
-                    null,
-                    userId,
-                    approvedStatus.Value,
-                    logDate,
-                    logDate,
-                    cancellationToken))
-                .FirstOrDefault(application => application.StartDate?.Date <= logDate
-                                               && application.EndDate?.Date >= logDate);
-
-            if (leave is not null)
-            {
-                throw new BusinessException(
-                    $"You are on approved leave on {logDate:yyyy-MM-dd} (leave {leave.LeaveId}, " +
-                    $"{leave.StartDate:yyyy-MM-dd} to {leave.EndDate:yyyy-MM-dd}), so no time can be logged that day.");
-            }
+            return;
         }
 
-        // A holiday may be narrowed to a country - the user's - a client and a
-        // project - this one's.
-        var user = await _timesheetProjectRepository.GetUserByIdAsync(userId, cancellationToken);
+        var leave = (await _timesheetProjectRepository.GetLeaveApplyOverlappingAsync(
+                null,
+                userId,
+                approvedStatus.Value,
+                logDate,
+                logDate,
+                cancellationToken))
+            .FirstOrDefault(application => application.StartDate?.Date <= logDate
+                                           && application.EndDate?.Date >= logDate);
 
-        var holiday = await _timesheetProjectRepository.GetHolidayForProjectOnDateAsync(
-            organizationId,
-            project.ProjectId,
-            project.ClientId,
-            user?.CountryId,
-            logDate,
-            cancellationToken);
-
-        if (holiday is not null)
+        if (leave is not null)
         {
-            var name = string.IsNullOrWhiteSpace(holiday.Description) ? "a holiday" : $"a holiday ({holiday.Description.Trim()})";
-
             throw new BusinessException(
-                $"{logDate:yyyy-MM-dd} is {name}, so no time can be logged that day.");
+                $"You are on approved leave on {logDate:yyyy-MM-dd} (leave {leave.LeaveId}, " +
+                $"{leave.StartDate:yyyy-MM-dd} to {leave.EndDate:yyyy-MM-dd}), so no time can be logged that day.");
+        }
+    }
+
+    /// <summary>
+    /// Refuses anything on an assignment whose time logging an administrator
+    /// has turned off - <c>IsTimeLogDisabled</c> = 1.
+    /// <para>
+    /// It stops the sheet being submitted as well as the time being logged: a
+    /// switch that let the user hand in a period they are no longer allowed to
+    /// record would put the sheet in front of an approver as a finished
+    /// statement while the user could not finish it.
+    /// </para>
+    /// <para>
+    /// <b>Only 1 disables.</b> 0 is the column's default and null is read
+    /// exactly as 0, so an assignment written before the column existed is
+    /// left working.
+    /// </para>
+    /// </summary>
+    /// <exception cref="BusinessException">Time logging is turned off on the assignment.</exception>
+    private static void RequireTimeLogIsEnabled(
+        TimesheetUserProjectSetup assignment,
+        int userId,
+        int projectId)
+    {
+        // A business rule rather than a validation failure: the payload is
+        // perfectly well formed, and it is the assignment that says no.
+        if (assignment.IsTimeLogDisabled == TimeLogDisabled)
+        {
+            throw new BusinessException(
+                $"Time logging is disabled by an administrator on project '{projectId}' for user " +
+                $"'{userId}', so no time can be logged or changed on it and its timesheets cannot be " +
+                "submitted.");
+        }
+    }
+
+    /// <summary>
+    /// Refuses time on a day the project is not worked on - one of its weekend
+    /// days, or a holiday covering it for this user.
+    /// <para>
+    /// This is not merely a rule about tidiness: a submission period is trimmed
+    /// to working days, so a weekend day belongs to no period and time logged
+    /// there would sit on no sheet and never be submitted.
+    /// </para>
+    /// </summary>
+    /// <exception cref="BusinessException">The day is a weekend day or a holiday.</exception>
+    private static void RequireWorkingDay(ProjectWorkingCalendar calendar, DateTime logDate)
+    {
+        if (calendar.DescribeHoliday(logDate) is { } holiday)
+        {
+            throw new BusinessException(
+                $"{logDate:yyyy-MM-dd} is {holiday}, so no time can be logged that day.");
+        }
+
+        if (calendar.IsWeekend(logDate))
+        {
+            throw new BusinessException(
+                $"{logDate:yyyy-MM-dd} is a {logDate.DayOfWeek}, which is a weekend day on this project, " +
+                "so no time can be logged that day.");
         }
     }
 
@@ -2830,6 +3015,18 @@ public class TimesheetProjectService : ITimesheetProjectService
     private static (DateTime StartDate, int SubmissionFrequency, int OrganizationId) RequireSubmissionSetup(
         TimesheetProject project)
     {
+        // Called out separately from the message below, because a project set
+        // to submit every 15 days is configured - just not in a way periods can
+        // express any more - and "needs a submission frequency" would send an
+        // administrator looking for a value that is already there.
+        if (project.SubmissionFrequency == Constants.TimesheetProject.SubmissionFrequency.FifteenDays)
+        {
+            throw new BusinessException(
+                $"Project '{project.ProjectId}' is set to submit every 15 days, which is no longer supported: " +
+                "submission periods follow the calendar, and no calendar block is 15 days long. An administrator " +
+                "has to change the project to weekly or monthly before time can be logged or submitted on it.");
+        }
+
         if (project.StartDate is not { } startDate
             || project.SubmissionFrequency is not { } submissionFrequency
             || !ProjectSubmissionPeriod.Frequencies.Contains(submissionFrequency)
@@ -2842,6 +3039,194 @@ public class TimesheetProjectService : ITimesheetProjectService
 
         return (startDate.Date, submissionFrequency, organizationId);
     }
+
+    /// <summary>
+    /// The project's working calendar for one user, covering
+    /// <paramref name="fromDate"/> to <paramref name="toDate"/> - the weekend
+    /// days configured for it and the holidays that fall in that span.
+    /// <para>
+    /// Built for a span rather than a day because every caller needs more than
+    /// one day of it: a period is trimmed from both ends, and the ordering rule
+    /// walks back over earlier periods.
+    /// </para>
+    /// </summary>
+    /// <param name="countryId">
+    /// The user's country, which decides which holidays apply to them. Null on
+    /// a calendar that is about the project rather than a person.
+    /// </param>
+    private async Task<ProjectWorkingCalendar> ProjectCalendarAsync(
+        TimesheetProject project,
+        int organizationId,
+        int? countryId,
+        DateTime fromDate,
+        DateTime toDate,
+        CancellationToken cancellationToken)
+    {
+        var organizationIds = new[] { organizationId };
+
+        var weekendSetups = await _timesheetProjectRepository.GetWeekendSetupsForOrganizationsAsync(
+            organizationIds,
+            cancellationToken);
+
+        var holidays = await _timesheetProjectRepository.GetHolidaysForOrganizationsAsync(
+            organizationIds,
+            fromDate,
+            toDate,
+            cancellationToken);
+
+        return ProjectWorkingCalendar.For(
+            organizationId,
+            project.ProjectId,
+            project.ClientId,
+            countryId,
+            weekendSetups,
+            holidays);
+    }
+
+    /// <summary>
+    /// The period containing <paramref name="date"/>, or a refusal when there
+    /// is none - every day of the block is a weekend day or a holiday, so there
+    /// is no sheet for it.
+    /// </summary>
+    /// <exception cref="BusinessException">The block holds no working day.</exception>
+    private static (DateTime StartDate, DateTime EndDate) RequirePeriod(
+        DateTime date,
+        DateTime projectStartDate,
+        DateTime? projectEndDate,
+        int submissionFrequency,
+        ProjectWorkingCalendar calendar)
+    {
+        if (ProjectSubmissionPeriod.Of(date, projectStartDate, projectEndDate, submissionFrequency, calendar)
+            is not { } period)
+        {
+            var (blockStart, blockEnd) = ProjectSubmissionPeriod.BlockOf(date, submissionFrequency);
+
+            throw new BusinessException(
+                $"{blockStart:yyyy-MM-dd} to {blockEnd:yyyy-MM-dd} has no working day on this project - every " +
+                "day of it is a weekend day or a holiday - so it has no timesheet.");
+        }
+
+        return period;
+    }
+
+    /// <summary>
+    /// Refuses to touch a period while an earlier one of the same user on the
+    /// same project has never been submitted.
+    /// <para>
+    /// <b>Periods are accounted for in order.</b> A period counts as accounted
+    /// for once a submission row overlaps it, whatever that row's status: the
+    /// rule waits for the <i>submission</i>, not for the approver's decision,
+    /// so a rejected sheet being corrected does not hold up the week after it.
+    /// A period with no time at all still has to be submitted - as a blank
+    /// sheet - because "nothing to report" is itself a statement the approver
+    /// is waiting for.
+    /// </para>
+    /// <para>
+    /// The chain starts at the user's <b>first entry</b> on the project, not at
+    /// the project's start date, so someone added to a year-old project does
+    /// not owe a year of blank sheets for time that was never theirs to log.
+    /// Periods with no working day are skipped - they are not periods.
+    /// </para>
+    /// </summary>
+    /// <param name="periodStartDate">The period being logged into or submitted.</param>
+    /// <param name="action">What is being refused, for the message.</param>
+    /// <exception cref="BusinessException">An earlier period has not been submitted.</exception>
+    private static void RequireEarlierPeriodsSubmitted(
+        TimesheetProject project,
+        DateTime projectStartDate,
+        int submissionFrequency,
+        ProjectWorkingCalendar calendar,
+        DateTime periodStartDate,
+        IReadOnlyList<ProjectSubmittedPeriod> submittedPeriods,
+        DateTime? firstLoggedDate,
+        string action)
+    {
+        // Nothing logged and nothing submitted: this is the user's first period
+        // on the project, so there is nothing before it to account for.
+        if (firstLoggedDate is null && submittedPeriods.Count == 0)
+        {
+            return;
+        }
+
+        var cursor = ProjectSubmissionPeriod.BlockOf(
+            ChainStartOf(projectStartDate, firstLoggedDate, submittedPeriods, periodStartDate),
+            submissionFrequency).Start;
+
+        // Bounded so malformed dates can never spin: a weekly project would
+        // have to run for more than a century to reach this.
+        for (var step = 0; step < MaximumPeriodsWalked && cursor < periodStartDate; step++)
+        {
+            if (ProjectSubmissionPeriod.Of(
+                    cursor,
+                    projectStartDate,
+                    project.EndDate,
+                    submissionFrequency,
+                    calendar) is { } earlier
+                && earlier.Start < periodStartDate
+                && !submittedPeriods.Any(submitted => submitted.PeriodStartDate.Date <= earlier.End
+                                                      && submitted.PeriodEndDate.Date >= earlier.Start))
+            {
+                throw new BusinessException(
+                    $"The timesheet for {earlier.Start:yyyy-MM-dd} to {earlier.End:yyyy-MM-dd} has not been " +
+                    $"submitted yet, so {action}. Submit that timesheet first - a period with no time on it is " +
+                    "submitted as a blank timesheet.");
+            }
+
+            cursor = ProjectSubmissionPeriod.NextBlockStart(cursor, submissionFrequency);
+        }
+    }
+
+    /// <summary>
+    /// How many periods the ordering rule will walk before giving up. A weekly
+    /// project reaches this after more than a century, so it is a guard against
+    /// a nonsensical date rather than a real limit.
+    /// </summary>
+    private const int MaximumPeriodsWalked = 6000;
+
+    /// <summary>
+    /// The first day a user has to account for on a project: their earliest
+    /// entry, or the earliest period they already have a sheet for, whichever
+    /// comes first. Never before the project started, and never after
+    /// <paramref name="date"/> itself.
+    /// </summary>
+    private static DateTime ChainStartOf(
+        DateTime projectStartDate,
+        DateTime? firstLoggedDate,
+        IReadOnlyList<ProjectSubmittedPeriod> submittedPeriods,
+        DateTime date)
+    {
+        var chainStart = firstLoggedDate?.Date ?? date.Date;
+
+        foreach (var submitted in submittedPeriods)
+        {
+            if (submitted.PeriodStartDate.Date < chainStart)
+            {
+                chainStart = submitted.PeriodStartDate.Date;
+            }
+        }
+
+        if (chainStart < projectStartDate)
+        {
+            chainStart = projectStartDate;
+        }
+
+        return chainStart > date.Date ? date.Date : chainStart;
+    }
+
+    /// <summary>
+    /// The first day the working calendar has to cover for one save or submit:
+    /// the start of the block the user's chain of periods begins in, because
+    /// the ordering rule walks every period from there to the one in hand.
+    /// </summary>
+    private static DateTime CalendarStartFor(
+        DateTime projectStartDate,
+        DateTime? firstLoggedDate,
+        IReadOnlyList<ProjectSubmittedPeriod> submittedPeriods,
+        DateTime date,
+        int submissionFrequency) =>
+        ProjectSubmissionPeriod.BlockOf(
+            ChainStartOf(projectStartDate, firstLoggedDate, submittedPeriods, date),
+            submissionFrequency).Start;
 
     /// <summary>
     /// The code after <paramref name="latest"/>: <c>PSHT0001</c> when there is
@@ -2996,6 +3381,22 @@ public class TimesheetProjectService : ITimesheetProjectService
 
         var (projectStartDate, submissionFrequency, organizationId) = RequireSubmissionSetup(project);
 
+        // Read once, and used twice below: an administrator may have turned
+        // this assignment's time logging off, and the first submit of a period
+        // needs the user to be on the project at all.
+        var assignment = await _timesheetProjectRepository.GetUserProjectSetupAsync(
+            request.UserId,
+            request.ProjectId,
+            cancellationToken);
+
+        // Checked on EVERY submit, not only the first: a resubmit after a
+        // rejection is a submit too, and an assignment turned off between the
+        // two must not slip one through.
+        if (assignment is not null)
+        {
+            RequireTimeLogIsEnabled(assignment, request.UserId, request.ProjectId);
+        }
+
         // The period is never sent: it is the one the code belongs to - a
         // submitted sheet's, for a resubmit, or the time log's - or the one
         // containing PeriodDate. When both are sent they must agree.
@@ -3027,10 +3428,14 @@ public class TimesheetProjectService : ITimesheetProjectService
                     $"SheetSubmissionCode '{sheetSubmissionCode}' is not a timesheet of user '{request.UserId}' " +
                     $"on project '{request.ProjectId}'.");
 
+            // Compared on the calendar block the two days fall in, not on the
+            // trimmed period: trimming moves a period's ends but never moves a
+            // day into another week or month, so the blocks answer "same
+            // period?" without needing the project's working calendar.
             if (request.PeriodDate is { } periodDate
                 && (periodDate.Date < projectStartDate
-                    || ProjectSubmissionPeriod.Of(periodDate.Date, projectStartDate, submissionFrequency).Start
-                    != ProjectSubmissionPeriod.Of(dayInPeriod, projectStartDate, submissionFrequency).Start))
+                    || ProjectSubmissionPeriod.BlockOf(periodDate.Date, submissionFrequency).Start
+                    != ProjectSubmissionPeriod.BlockOf(dayInPeriod, submissionFrequency).Start))
             {
                 throw new ValidationException(
                     nameof(TimesheetProjectSheetSubmitRequest.PeriodDate),
@@ -3049,26 +3454,69 @@ public class TimesheetProjectService : ITimesheetProjectService
                 $"PeriodDate must not be before the project's start date, {projectStartDate:yyyy-MM-dd}.");
         }
 
-        var (periodStartDate, periodEndDate) = ProjectSubmissionPeriod.Of(dayInPeriod, projectStartDate, submissionFrequency);
-
-        if (project.EndDate is { } projectEndDate && periodStartDate > projectEndDate.Date)
+        if (project.EndDate is { } projectEndDate
+            && ProjectSubmissionPeriod.BlockOf(dayInPeriod, submissionFrequency).Start > projectEndDate.Date)
         {
             throw new ValidationException(
                 nameof(TimesheetProjectSheetSubmitRequest.PeriodDate),
                 $"PeriodDate must not be after the project's end date, {projectEndDate:yyyy-MM-dd}.");
         }
 
-        // A period can be submitted on its last day or any day after - judged
-        // on the user's own clock, so a user ahead of UTC is not held back.
+        // What the user has done on this project so far, and the calendar that
+        // spans every period the rules below look at - this one and each
+        // earlier one the ordering rule walks.
+        var firstLoggedDate = await _timesheetProjectRepository.GetProjectTimeLogEarliestDateAsync(
+            request.UserId,
+            request.ProjectId,
+            cancellationToken);
+
+        var submittedPeriods = await _timesheetProjectRepository.GetProjectSubmissionPeriodsAsync(
+            request.UserId,
+            request.ProjectId,
+            cancellationToken);
+
+        var user = await _timesheetProjectRepository.GetUserByIdAsync(request.UserId, cancellationToken);
+
+        var calendar = await ProjectCalendarAsync(
+            project,
+            organizationId,
+            user?.CountryId,
+            CalendarStartFor(projectStartDate, firstLoggedDate, submittedPeriods, dayInPeriod, submissionFrequency),
+            ProjectSubmissionPeriod.BlockOf(dayInPeriod, submissionFrequency).End,
+            cancellationToken);
+
+        var (periodStartDate, periodEndDate) = RequirePeriod(
+            dayInPeriod,
+            projectStartDate,
+            project.EndDate,
+            submissionFrequency,
+            calendar);
+
+        // A period can be submitted on its last WORKING day or any day after -
+        // judged on the user's own clock, so a user ahead of UTC is not held
+        // back. There is no late deadline: once the period has ended it can be
+        // submitted whenever the user gets to it.
         var clock = await ClockForUserAsync(request.UserId, cancellationToken);
 
         if (clock.Today < periodEndDate)
         {
             throw new BusinessException(
                 $"The timesheet for {periodStartDate:yyyy-MM-dd} to {periodEndDate:yyyy-MM-dd} can be submitted " +
-                $"from {periodEndDate:yyyy-MM-dd}, the period's last day. Today is {clock.Today:yyyy-MM-dd} " +
-                $"({clock.ZoneName}).");
+                $"from {periodEndDate:yyyy-MM-dd}, the period's last working day. Today is " +
+                $"{clock.Today:yyyy-MM-dd} ({clock.ZoneName}).");
         }
+
+        // Periods are handed in order: an earlier one still unsubmitted has to
+        // go first, blank if there is nothing on it.
+        RequireEarlierPeriodsSubmitted(
+            project,
+            projectStartDate,
+            submissionFrequency,
+            calendar,
+            periodStartDate,
+            submittedPeriods,
+            firstLoggedDate,
+            $"the timesheet for {periodStartDate:yyyy-MM-dd} to {periodEndDate:yyyy-MM-dd} cannot be submitted yet");
 
         // One row per user, project and period.
         submission ??= await _timesheetProjectRepository.GetProjectSubmissionForPeriodForUpdateAsync(
@@ -3089,22 +3537,33 @@ public class TimesheetProjectService : ITimesheetProjectService
 
         var now = _dateTimeProvider.UtcNow;
 
+        // Totalled over the whole calendar block the period sits in, not just
+        // its working days: an entry written before a day became a weekend day
+        // or a holiday is still that week's time, and summing only the trimmed
+        // days would leave it off the sheet for good. For time logged under
+        // these rules the two spans hold exactly the same entries, because a
+        // non-working day cannot be logged at all.
+        var (blockStartDate, blockEndDate) = ProjectSubmissionPeriod.ClippedBlockOf(
+            dayInPeriod,
+            projectStartDate,
+            project.EndDate,
+            submissionFrequency);
+
         // The totals as they stand in the time log, now. No time is a blank
         // sheet - allowed.
         var minutes = await _timesheetProjectRepository.GetProjectLoggedMinutesForPeriodAsync(
             request.UserId,
             request.ProjectId,
-            periodStartDate,
-            periodEndDate,
+            blockStartDate,
+            blockEndDate,
             cancellationToken);
 
         if (submission is null)
         {
-            if (!await _timesheetProjectRepository.UserProjectSetupExistsAsync(
-                    request.UserId,
-                    request.ProjectId,
-                    0,
-                    cancellationToken))
+            // Only the FIRST submit needs the assignment to still exist: a
+            // sheet already handed in stays the user's to resubmit even after
+            // they have been taken off the project.
+            if (assignment is null)
             {
                 throw new BusinessException(
                     $"User '{request.UserId}' is not assigned to project '{request.ProjectId}', so they have no " +
@@ -3121,8 +3580,8 @@ public class TimesheetProjectService : ITimesheetProjectService
                         null,
                         request.UserId,
                         request.ProjectId,
-                        periodStartDate,
-                        periodEndDate,
+                        blockStartDate,
+                        blockEndDate,
                         cancellationToken),
                     StatusId = Constants.TimesheetProjectSubmission.Status.Submitted,
                     UserId = request.UserId,

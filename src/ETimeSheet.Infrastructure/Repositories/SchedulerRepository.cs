@@ -239,23 +239,25 @@ public class SchedulerRepository : ISchedulerRepository
             .ToList();
     }
 
-    public async Task<IReadOnlyList<ProjectSheetSubmissionRow>> GetProjectSubmissionsAsync(
+    public async Task<IReadOnlyList<ProjectSheetSubmissionRow>> GetProjectSubmissionsEndedBeforeAsync(
         IReadOnlyCollection<int> projectIds,
         int statusId,
-        DateTime fromDate,
-        DateTime toDate,
+        DateTime beforeDate,
         CancellationToken cancellationToken = default) =>
-        // The query filter drops deleted submissions.
+        // The query filter drops deleted submissions. Filtered on the period's
+        // END, because that is what says the period is over and its sheets are
+        // the approver's to deal with - and left open at the far end, so a
+        // sheet nobody has reviewed is still found months later.
         await _db.TimesheetProjectSubmission
             .AsNoTracking()
             .Where(submission => projectIds.Contains(submission.ProjectId)
                 && submission.StatusId == statusId
-                && submission.PeriodStartDate >= fromDate.Date
-                && submission.PeriodStartDate <= toDate.Date)
+                && submission.PeriodEndDate < beforeDate.Date)
             .Select(submission => new ProjectSheetSubmissionRow(
                 submission.ProjectId,
                 submission.UserId,
                 submission.PeriodStartDate,
+                submission.PeriodEndDate,
                 submission.SheetSubmissionCode))
             .ToListAsync(cancellationToken);
 
@@ -310,30 +312,32 @@ public class SchedulerRepository : ISchedulerRepository
             .Select(user => new UserName(user.UserId, user.Name))
             .ToListAsync(cancellationToken);
 
-    public async Task<IReadOnlyList<WorkingWeekSetup>> GetWorkingWeekSetupsAsync(
+    public async Task<IReadOnlyList<ProjectDailyHourCap>> GetProjectDailyHourCapsAsync(
+        IReadOnlyCollection<int> projectIds,
         IReadOnlyCollection<int> userIds,
         CancellationToken cancellationToken = default)
     {
-        // The setup's query filter drops deleted setups. Projected, so only
-        // the columns the expected hours need are read.
-        var setups = await _db.TimesheetMasterSetup
+        // The setup's query filter drops deleted assignments. Projected, so
+        // only the columns the expected hours need are read.
+        var setups = await _db.Timesheet_Users_Project_setup
             .AsNoTracking()
-            .Where(setup => setup.UserId != null && userIds.Contains(setup.UserId.Value))
-            .Select(setup => new WorkingWeekSetup
+            .Where(setup => setup.ProjectId != null
+                            && projectIds.Contains(setup.ProjectId.Value)
+                            && userIds.Contains(setup.UserId))
+            .Select(setup => new ProjectDailyHourCap
             {
-                SetupId = setup.SetupId,
-                UserId = setup.UserId!.Value,
-                StartDay = setup.StartDay,
-                EndDay = setup.EndDay,
-                ExceptionDay = setup.ExceptionDay,
-                MaxTimeInHrs = setup.MaxTimeInHrs,
-                MaxTimInMins = setup.MaxTimInMins
+                SetupId = setup.TimesheetUserProjectSetupId,
+                UserId = setup.UserId,
+                ProjectId = setup.ProjectId!.Value,
+                MaxLogHoursPerDay = setup.MaxLogHoursPerDay
             })
             .ToListAsync(cancellationToken);
 
-        // One setup per user - the lowest SetupID, as the procedures pick.
+        // Nothing stops the same user being put on one project twice, so the
+        // lowest TimesheetUserProjectSetupID wins - the same rule the rest of
+        // the module picks a duplicate by.
         return setups
-            .GroupBy(setup => setup.UserId)
+            .GroupBy(setup => (setup.ProjectId, setup.UserId))
             .Select(group => group.OrderBy(setup => setup.SetupId).First())
             .ToList();
     }

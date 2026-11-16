@@ -47,6 +47,7 @@ docs/database/
 │   ├── dbo.EmailQueue.sql
 │   ├── dbo.EmailType.sql
 │   ├── dbo.SchedulerConfiguration.sql
+│   ├── dbo.ScheduleType_Lookup.sql
 │   ├── dbo.TimeLog.sql
 │   ├── dbo.Timesheet_Approver_setup.sql
 │   ├── dbo.Timesheet_Leave_assignment_user.sql
@@ -113,6 +114,7 @@ docs/database/
 └── data/                        one-off data scripts, run by hand, never by the tests
     ├── dbo.Country_UpdateTimeZone.sql
     ├── dbo.CountryCurrency_Lookup_Insert.sql
+    ├── dbo.ScheduleType_Lookup_Create.sql
     └── dbo.TimesheetProjectStatus_Insert.sql
 ```
 

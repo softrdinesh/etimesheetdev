@@ -142,7 +142,7 @@ public class SchedulerService : ISchedulerService
         if (digests.Count == 0)
         {
             _logger.LogDebug(
-                "Approver reminder email queue: no project has submitted timesheets in a period that ended yesterday.");
+                "Approver reminder email queue: no project has a timesheet still awaiting review for a period that has ended.");
             return 0;
         }
 
@@ -196,8 +196,8 @@ public class SchedulerService : ISchedulerService
 
                 // CreatedDate is left to the column's GETDATE() default. The
                 // SendEmail job reads the day back from it, and rebuilds the
-                // project's grid from live data for the period that ended the
-                // day before.
+                // project's grid from live data for the period the reminder is
+                // about as it stands then.
             })
             .ToList();
 
@@ -234,9 +234,9 @@ public class SchedulerService : ISchedulerService
         int HoursLogged);
 
     /// <summary>
-    /// Everything one approver reminder says: one project, the period of it
-    /// that ended the day before <see cref="RunDate"/>, and the sheets of that
-    /// period still awaiting approval.
+    /// Everything one approver reminder says: one project, its oldest period
+    /// that had ended by <see cref="RunDate"/> and still had sheets waiting,
+    /// and those sheets.
     /// </summary>
     private sealed record ApproverReminderDigest(
         int ApproverId,
@@ -254,17 +254,30 @@ public class SchedulerService : ISchedulerService
     /// to decide what is queued and, later, to build what each email says, so
     /// the email always shows live data.
     /// <para>
-    /// A project is reminded on a day when the day before it is the <b>last
-    /// day</b> of one of its submission periods
-    /// (<see cref="ProjectSubmissionPeriod"/>): weekly periods ending on day 7
-    /// are reminded on day 8, a monthly period from the 1st is reminded on the
-    /// 1st of the next month. A period starting after the project's end date
-    /// is not reminded.
+    /// <b>The reminder repeats every day until the work is done.</b> A project
+    /// is reminded on any day after one of its periods has ended while that
+    /// period still has a sheet whose status is <b>Submitted</b>; once every
+    /// one of them has been approved or rejected, the reminders stop by
+    /// themselves. This is what covers the user who submits late: their sheet
+    /// joins a period that was already being chased, and the chasing continues
+    /// until theirs is reviewed too.
     /// </para>
     /// <para>
-    /// Only sheets of that period whose status is <b>Submitted</b> are listed -
-    /// not approved, rejected, pending or never-submitted ones. A project with
-    /// none is left out entirely.
+    /// The periods are the ones <b>stored on the sheets</b>, not periods worked
+    /// out again here: a sheet records the period it was submitted for, and
+    /// that is the period the approver is being asked about. It also means a
+    /// project whose start date, frequency or weekend setup changed afterwards
+    /// is still chased for the sheets it already has.
+    /// </para>
+    /// <para>
+    /// A project with several periods waiting is reminded about its
+    /// <b>oldest</b> one, so the queue is worked through in order: when that
+    /// period is cleared, the next appears in the following day's reminder.
+    /// </para>
+    /// <para>
+    /// Only sheets whose status is <b>Submitted</b> are listed - not approved,
+    /// rejected, pending or never-submitted ones. A project with none is left
+    /// out entirely.
     /// </para>
     /// </summary>
     /// <param name="runDates">The days the reminders are for.</param>
@@ -279,30 +292,47 @@ public class SchedulerService : ISchedulerService
             .Where(project => projectIds is null || projectIds.Contains(project.ProjectId))
             .ToList();
 
-        // Every (approver, project, day) whose period ended the day before.
+        var days = runDates.Select(date => date.Date).Distinct().ToList();
+
+        if (projects.Count == 0 || days.Count == 0)
+        {
+            return new Dictionary<(int, int, DateTime), ApproverReminderDigest>();
+        }
+
+        // Every sheet still awaiting a decision whose period has ended by the
+        // latest day asked about - one read, however many days and projects.
+        var allProjectIds = projects.Select(project => project.ProjectId).Distinct().ToList();
+
+        var submissions = (await _schedulerRepository.GetProjectSubmissionsEndedBeforeAsync(
+                allProjectIds,
+                Constants.TimesheetProjectSubmission.Status.Submitted,
+                days.Max(),
+                cancellationToken))
+            .ToLookup(submission => submission.ProjectId);
+
+        if (submissions.Count == 0)
+        {
+            return new Dictionary<(int, int, DateTime), ApproverReminderDigest>();
+        }
+
+        // Per (approver, project, day): the oldest period of that project that
+        // had ended by then and still had a sheet waiting.
         var ended = new List<(ApproverReminderProject Project, DateTime RunDate, DateTime Start, DateTime End)>();
 
-        foreach (var runDate in runDates.Select(date => date.Date).Distinct())
+        foreach (var runDate in days)
         {
-            var periodEnd = runDate.AddDays(-1);
-
             foreach (var project in projects)
             {
-                var projectStartDate = project.StartDate.Date;
+                var waiting = submissions[project.ProjectId]
+                    .Where(submission => submission.PeriodEndDate.Date < runDate)
+                    .OrderBy(submission => submission.PeriodStartDate)
+                    .ThenBy(submission => submission.PeriodEndDate)
+                    .FirstOrDefault();
 
-                if (periodEnd < projectStartDate)
+                if (waiting is not null)
                 {
-                    continue;
+                    ended.Add((project, runDate, waiting.PeriodStartDate.Date, waiting.PeriodEndDate.Date));
                 }
-
-                var (start, end) = ProjectSubmissionPeriod.Of(periodEnd, projectStartDate, project.SubmissionFrequency);
-
-                if (end != periodEnd || (project.EndDate is { } projectEndDate && start > projectEndDate.Date))
-                {
-                    continue;
-                }
-
-                ended.Add((project, runDate, start, end));
             }
         }
 
@@ -315,19 +345,6 @@ public class SchedulerService : ISchedulerService
         var endedProjectIds = ended.Select(item => item.Project.ProjectId).Distinct().ToList();
         var fromDate = ended.Min(item => item.Start);
         var toDate = ended.Max(item => item.End);
-
-        var submissions = (await _schedulerRepository.GetProjectSubmissionsAsync(
-                endedProjectIds,
-                Constants.TimesheetProjectSubmission.Status.Submitted,
-                fromDate,
-                toDate,
-                cancellationToken))
-            .ToLookup(submission => submission.ProjectId);
-
-        if (submissions.Count == 0)
-        {
-            return new Dictionary<(int, int, DateTime), ApproverReminderDigest>();
-        }
 
         var loggedDays = (await _schedulerRepository.GetProjectLoggedDaysAsync(
                 endedProjectIds, fromDate, toDate, cancellationToken))
@@ -369,10 +386,13 @@ public class SchedulerService : ISchedulerService
             : (await _schedulerRepository.GetUserNamesAsync(userIds, cancellationToken))
                 .ToDictionary(user => user.UserId, user => user.Name.Trim());
 
-        var workingWeeks = userIds.Count == 0
-            ? new Dictionary<int, WorkingWeekSetup>()
-            : (await _schedulerRepository.GetWorkingWeekSetupsAsync(userIds, cancellationToken))
-                .ToDictionary(setup => setup.UserId);
+        // The daily cap is per user AND project, so it is keyed by both: one
+        // person on two projects can be expected to give each a different day.
+        var dailyHourCaps = userIds.Count == 0
+            ? new Dictionary<(int ProjectId, int UserId), ProjectDailyHourCap>()
+            : (await _schedulerRepository.GetProjectDailyHourCapsAsync(
+                    endedProjectIds, userIds, cancellationToken))
+                .ToDictionary(setup => (setup.ProjectId, setup.UserId));
 
         var digests = new Dictionary<(int, int, DateTime), ApproverReminderDigest>();
 
@@ -383,8 +403,8 @@ public class SchedulerService : ISchedulerService
                     sheet.UserId,
                     names.TryGetValue(sheet.UserId, out var name) ? name : string.Empty,
                     sheet.Code,
-                    workingWeeks.TryGetValue(sheet.UserId, out var workingWeek)
-                        ? ExpectedMinutesInPeriod(workingWeek, start, end)
+                    dailyHourCaps.TryGetValue((project.ProjectId, sheet.UserId), out var cap)
+                        ? ExpectedMinutesInPeriod(cap, start, end)
                         : null,
                     sheet.Hours))
                 .OrderBy(row => row.UserName, StringComparer.OrdinalIgnoreCase)
@@ -411,52 +431,33 @@ public class SchedulerService : ISchedulerService
     }
 
     /// <summary>
-    /// The minutes <paramref name="setup"/> expects from
+    /// The minutes <paramref name="cap"/> expects from
     /// <paramref name="periodStart"/> to <paramref name="periodEnd"/>
-    /// inclusive: its daily time - <c>MaxTimeinhrs</c> plus the minutes of
-    /// <c>MaxTiminmins</c>, as the time log reminder reads it - times its
-    /// working days in the period, which are <c>StartDay</c>..<c>EndDay</c>
-    /// and its exception day, as the time log save counts them.
+    /// inclusive: <c>Max_log_hour_day</c> on the user's
+    /// <c>dbo.Timesheet_Users_Project_setup</c> row for that project, times
+    /// the days in the period.
     /// <para>
-    /// Null when the setup has no daily time or no usable working week: an
-    /// expectation it cannot state is shown as unknown, not as zero.
-    /// Holidays are not taken off.
+    /// Null when the setup states no cap, or a cap of zero: an expectation it
+    /// cannot state is shown as unknown, not as zero. Weekends and holidays
+    /// are not taken off - see the comment in the body.
     /// </para>
     /// </summary>
-    private static int? ExpectedMinutesInPeriod(WorkingWeekSetup setup, DateTime periodStart, DateTime periodEnd)
+    private static int? ExpectedMinutesInPeriod(ProjectDailyHourCap cap, DateTime periodStart, DateTime periodEnd)
     {
-        if (setup.MaxTimeInHrs is not { } maxTimeInHrs
-            || TimesheetWeek.Parse(setup.StartDay) is not { } weekStarts
-            || TimesheetWeek.Parse(setup.EndDay) is not { } weekEnds)
+        if (cap.MaxLogHoursPerDay is not ({ } hoursPerDay and > 0))
         {
             return null;
         }
 
-        var dailyMinutes = ExpectedMinutesOf(maxTimeInHrs, setup.MaxTimInMins);
+        // Every day of the period counts. The project module states a cap per
+        // day and nothing else: which days of the week a person works is in
+        // dbo.TimesheetMasterSetup, which these reminders deliberately do not
+        // read, so there is nothing here to exclude a weekend by. A shorter
+        // week has to come from a column of the project module, not from a
+        // weekday rule invented in this file.
+        var days = (periodEnd.Date - periodStart.Date).Days + 1;
 
-        if (dailyMinutes <= 0)
-        {
-            return null;
-        }
-
-        var workingDays = TimesheetWeek.Span(weekStarts, weekEnds).ToHashSet();
-
-        if (TimesheetWeek.Parse(setup.ExceptionDay) is { } exceptionDay)
-        {
-            workingDays.Add(exceptionDay);
-        }
-
-        var days = 0;
-
-        for (var date = periodStart.Date; date <= periodEnd.Date; date = date.AddDays(1))
-        {
-            if (workingDays.Contains(date.DayOfWeek))
-            {
-                days++;
-            }
-        }
-
-        return days * dailyMinutes;
+        return days * hoursPerDay * 60;
     }
 
     /// <summary>Queues one Pending email of <paramref name="emailTypeId"/> per user, in one save.</summary>
@@ -1027,9 +1028,10 @@ public class SchedulerService : ISchedulerService
                     cancellationToken))
                 .ToLookup(span => span.UserId);
 
-        // An approver reminder is about its project's period that ended the
-        // day before it was queued - its UTC date, the date the queue job ran
-        // on - and is rebuilt here from live data.
+        // An approver reminder is about the oldest period of its project that
+        // was still waiting on the day it was queued - its UTC date, the date
+        // the queue job ran on - and is rebuilt here from live data, so a sheet
+        // reviewed in the meantime has already dropped out of it.
         var approverEmails = emails
             .Where(email => email.EmailTypeId == Constants.EmailType.Id.ApproverSubmissionReminder
                 && email.UserId is not null

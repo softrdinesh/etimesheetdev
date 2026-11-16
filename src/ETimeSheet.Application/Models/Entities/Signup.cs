@@ -71,14 +71,14 @@ public class Signup
     /// <summary>
     /// The <c>Pwd</c> column - the user's password as the login checks it.
     /// <c>nvarchar</c>; <c>spc_Signup_timesheet_user</c> fills it by letting
-    /// SQL Server convert a <c>binary(64)</c> hash into it, so a stored value
+    /// SQL Server convert a <c>binary(64)</c>
+    /// <c>HASHBYTES('SHA2_512', @Password)</c> into it, so a stored value
     /// reads as mojibake.
     /// <para>
-    /// <b>Write-only, and only in one place.</b>
-    /// <c>TimesheetProjectService.CreateTimesheetUserAsync</c> overwrites it
-    /// with <c>DefaultPassword:Encrypted</c> on a <b>new</b> account, and
-    /// nothing else in this API reads, compares, returns or logs it. It must
-    /// never reach a DTO, a response or a log line.
+    /// <b>Nothing in this API ever touches it.</b> The procedure is the only
+    /// writer - the API sends it the plain default password and never hashes,
+    /// reads, compares, returns or logs the stored value. It must never reach
+    /// a DTO, a response or a log line.
     /// </para>
     /// </summary>
     public string? Pwd { get; set; }

@@ -4,7 +4,7 @@ Every endpoint the API exposes today, with its purpose, input payload, success
 response and failure responses — each with a worked example.
 
 Generated from the code on branch `develop` (last brought up to date
-2026-11-13). If you change a
+2026-11-15). If you change a
 controller, DTO or validator, change this file with it.
 
 ---
@@ -3535,7 +3535,7 @@ then `projectId`:
 | `statusName` | string \| null | `Open` / `Closed` / `Pending`; `null` when `status` is null or unknown |
 | `clientId` | int | The client the project is for — `dbo.TimesheetClientSetup.ClientID` |
 | `clientName` | string \| null | The client's name — shown even if the client has since been removed; `null` only when the id names no client |
-| `submissionFrequency` | int \| null | How often timesheets are submitted: `1` weekly, `2` every 15 days, `3` monthly; `null` when not set |
+| `submissionFrequency` | int \| null | How often timesheets are submitted: `1` weekly, `3` monthly; `null` when not set. `2` (every 15 days) still exists on older rows but can no longer be saved or used |
 | `submissionFrequencyName` | string \| null | `submissionFrequency` as text: `Weekly`, `Every 15 Days` or `Monthly`; `null` when not set. Worked out by the procedure, not stored |
 | `autoApproveInDays` | int \| null | After how many days a submitted sheet approves itself when no approver has acted — `3` means three days after it was submitted; `null` (or `0`) when the project does not auto-approve. Acted on by the [`AutoApproveProjectSheet` job](#background-jobs) |
 
@@ -3624,7 +3624,7 @@ left as it was — send the whole project.
 | `endDate` | datetime \| null | no | not before `startDate` when both are sent | |
 | `status` | int \| null | no | `> 0` when sent | A `statusId` from [Project Status List](#27-project-status-list). **Not** checked against the organisation's statuses |
 | `clientId` | int | **yes** | `> 0`; a **live** (not deleted) client | The client the project is for, and the source of its currency. An update can change it |
-| `submissionFrequency` | int \| null | no | `1`, `2` or `3` when sent | How often timesheets are submitted: `1` weekly, `2` every 15 days, `3` monthly. Left out, it is saved as `null` — on an update too |
+| `submissionFrequency` | int \| null | no | `1` or `3` when sent | How often timesheets are submitted: `1` weekly, `3` monthly. **`2` (every 15 days) is no longer accepted** — periods follow the calendar. Left out, it is saved as `null` — on an update too |
 | `autoApproveInDays` | int \| null | no | `>= 0` when sent | After how many days a submitted sheet approves itself when no approver has acted — by the [`AutoApproveProjectSheet` job](#background-jobs), not by an endpoint. Left out or sent as `null`, it is saved as `null` — on an update too. `null` and `0` both mean the project never auto-approves, but `0` currently fails on the column's CHECK constraint with a **500** (see gap 93) |
 
 #### Example request — add
@@ -3709,7 +3709,7 @@ left as it was — send the whole project.
 | `endDate` before `startDate` | `EndDate must not be before StartDate.` |
 | `status <= 0` | `Status must be greater than 0 when sent.` |
 | `clientId <= 0` (or left out) | `ClientId is required and must be greater than 0.` |
-| `submissionFrequency` not 1, 2 or 3 | `SubmissionFrequency must be 1 (weekly), 2 (every 15 days) or 3 (monthly) when sent.` |
+| `submissionFrequency` not 1 or 3 | `SubmissionFrequency must be 1 (weekly) or 3 (monthly) when sent. 2 (every 15 days) is not supported: submission periods follow the calendar, and no calendar block is 15 days long.` |
 | `autoApproveInDays < 0` | `AutoApproveInDays must be 0 or greater when sent.` |
 
 **400** — `clientId` names no client, or a removed one (checked after the shape
@@ -4325,6 +4325,7 @@ the only place it leaves the API is the welcome email. See gap 94.
 | `projectDetails[].projectLocationLatitude` | string \| null | no | a number from -90 to 90, `<= 25` characters | Trimmed; blank is `null`. See the note below |
 | `projectDetails[].projectLocationLongitude` | string \| null | no | a number from -180 to 180, `<= 25` characters | As the latitude |
 | `projectDetails[].maxLogHoursPerDay` | int \| null | no | `0`–`24` | The most hours a day this assignment may log. [Add / Edit Project Time Log](#50-add--edit-project-time-log) enforces it; `null` caps the day at 24 |
+| `projectDetails[].isTimeLogDisabled` | int \| null | no | `0` or `1` | **Turns the assignment off, and only `1` does:** `0` (the default, and what a payload leaving it out gets) lets the user log time on the project and submit its timesheets; `1` stops both, and [Add / Edit Project Time Log](#50-add--edit-project-time-log) and [Submit Project Timesheet](#53-submit-project-timesheet) then answer 400. Any other number is a 400. Stored in `dbo.Timesheet_Users_Project_setup.IsTimeLogDisabled` |
 | `createdBy` | int | yes | `> 0` | Temporary — from the token once authentication is on |
 
 **Every term is per project.** `jobType`, `costRate`, `billRate`,
@@ -4352,6 +4353,13 @@ uses it.
 > owner applies the revised procedure, every call to this endpoint fails on
 > the unknown parameter and answers **500** — including calls that leave
 > `maxLogHoursPerDay` out.
+
+> `isTimeLogDisabled` is passed as `@IsTimeLogDisabled` (a nullable `int`), added to
+> `spc_Signup_timesheet_user` on 2026-11-15 and **still DRAFT**, for a column
+> that must be added to the table first. Run
+> `docs/database/data/dbo.Timesheet_Users_Project_setup_AddIsTimeLogDisabled.sql`
+> and then apply the revised procedure; until both are done this endpoint
+> answers **500**, as above, whether or not the field is sent.
 
 #### Example request
 
@@ -4484,6 +4492,7 @@ of projects they are on. Written through EF Core, not a procedure.
 | `fullName`, `email`, `countryId`, `address` | The user in `dbo.Signup` — **only when they change**, with `UpdatedDate` / `UpdateBy`. They change for every project the user is on |
 | `projectDetails` | The user's assignments in `dbo.Timesheet_Users_Project_setup`, **reconciled** — see below |
 | `projectDetails[].jobType`, `.costRate`, `.billRate`, `.workLocationRange`, the coordinates, `.maxLogHoursPerDay` | The assignment this call **adds** for that entry, and only that one |
+| `projectDetails[].isTimeLogDisabled` | The assignment this call adds **or keeps** for that entry — the one field an edit can change on an assignment that already exists. Left out, a kept assignment is unchanged |
 
 All of it is saved in one transaction — all or none.
 
@@ -4528,6 +4537,7 @@ response.
 | `projectDetails[].projectLocationLatitude` | string \| null | no | a number from -90 to 90, `<= 25` characters | Added assignments only |
 | `projectDetails[].projectLocationLongitude` | string \| null | no | a number from -180 to 180, `<= 25` characters | Added assignments only |
 | `projectDetails[].maxLogHoursPerDay` | int \| null | no | `0`–`24` | Stored only — [Add / Edit Project Time Log](#50-add--edit-project-time-log) enforces no daily cap. Added assignments only |
+| `projectDetails[].isTimeLogDisabled` | int \| null | no | `0` or `1` | **Turns the assignment off, and only `1` does:** `0` (the default, and what a payload leaving it out gets) lets the user log time on the project and submit its timesheets; `1` stops both, and [Add / Edit Project Time Log](#50-add--edit-project-time-log) and [Submit Project Timesheet](#53-submit-project-timesheet) then answer 400. Any other number is a 400. **The one field an edit can also change on an assignment the user already has** — sent, it is applied; left out, that assignment keeps the value it has |
 | `updatedBy` | int | yes | `> 0` | Written to `UpdateBy` on the user, `Createdby` on an added assignment and `DeletedBy` on a removed one. Temporary — from the token once authentication is on |
 
 #### Example request
@@ -4764,6 +4774,7 @@ holds the project on:
 | `projectLocationLatitude` | string \| null | Text, as stored |
 | `projectLocationLongitude` | string \| null | Text, as stored |
 | `maxLogHoursPerDay` | int \| null | The most hours a day this assignment may log; `null` when it sets no cap (the time log then caps the day at 24) |
+| `isTimeLogDisabled` | int \| null | `1` when an administrator has turned this assignment's time logging **off**; `0` or `null` when it works normally. Only `1` disables |
 
 #### Example response
 
@@ -5507,19 +5518,60 @@ point to a sheet: a sheet's time is the user's entries on the project whose
 `LogDate` falls in its period. A sheet with no time is valid: a user can
 submit a period they logged nothing in.
 
-**Periods** come from the project's `StartDate` and `SubmissionFrequency`:
+**Periods follow the calendar**, not the project's start date:
 
 | `SubmissionFrequency` | Periods | Can be submitted from |
 |---|---|---|
-| `1` Weekly | 7-day blocks counted from the project's start date | The 7th day |
-| `2` Every 15 days | 15-day blocks counted from the project's start date | The 15th day |
-| `3` Monthly | Calendar months from the start **day**: a project starting on the 10th has periods from the 10th to the 9th. Each period is counted from the start date itself, so a start on the 31st does not drift after February | The last day (the 9th, in that example) |
+| `1` Weekly | Calendar weeks, **Monday to Sunday** | Its last working day |
+| `2` Every 15 days | **No longer supported** — no calendar block is 15 days long | — |
+| `3` Monthly | Calendar months, the 1st to the last | Its last working day |
 
-Both period dates are inclusive. A period can be submitted **on its last day
-or any day after**, judged on the user's own date — the time zone of their
-`dbo.TimesheetMasterSetup` (UTC when they have none, or it is not
-recognised). A project with no `StartDate` or no `SubmissionFrequency` has no
-periods, so time can be neither logged nor submitted on it.
+Both period dates are inclusive. A period is then **clipped** to the project's
+own `StartDate` and `EndDate`, and **trimmed at both ends to the days the
+project is worked on** — see *Working days* below. So a project starting on
+Wednesday 11 November has a first week of 11–15 November, or 11–13 where
+Saturday and Sunday are weekend; the next week runs 16–22, or 16–20. A project
+starting mid-month has a first month ending on the last of that month.
+
+A period can be submitted **on its last working day or any day after**, judged
+on the user's own date — the time zone of their `dbo.TimesheetMasterSetup` (UTC
+when they have none, or it is not recognised). **There is no late deadline:**
+once a period has ended, its sheet can be submitted whenever the user gets to
+it.
+
+A project with no `StartDate` or no `SubmissionFrequency` has no periods, so
+time can be neither logged nor submitted on it. The same is true of a project
+still set to `2` (every 15 days): both the log and the submit refuse it with a
+message saying an administrator has to move the project to weekly or monthly.
+Sheets already submitted under it are untouched and can still be reviewed.
+
+#### Working days
+
+A period's two ends are trimmed inwards until both fall on a day the project is
+worked on. A day is **not** worked on when it is:
+
+| | Source |
+|---|---|
+| A weekend day | `dbo.TimeSheet_Weekend_setup` — the row for the project, else its client's, else the organisation's. **No row at all means no weekend**, so the period runs the full Monday to Sunday |
+| A holiday | `dbo.TimesheetHolidaysetup`, narrowed as the row says to a country (the user's), a client or a project |
+
+**Time cannot be logged on such a day at all** — it belongs to no period, so
+its hours would sit on no sheet. A user's approved leave also blocks the day,
+but is personal: it does not move anybody's period.
+
+Because a holiday may name a country, two users on one project can have
+different period ends in the same week. Each user's sheet records the period it
+was submitted for.
+
+> **Note.** A sheet's **totals** and its **code** cover the whole calendar week
+> or month, not only the trimmed days, so an entry logged before a day became a
+> weekend day or a holiday is still counted on its week's sheet rather than
+> being orphaned. For time logged under these rules the two spans hold exactly
+> the same entries.
+
+**An unsubmitted earlier period does not block logging.** Time can be logged in
+any open period whatever the state of the ones before it. Submitting is
+different: see [Submit Project Timesheet](#53-submit-project-timesheet).
 
 **Sheet codes** run `PSHT0001`, `PSHT0002` … in one sequence: the next code is
 the highest in `dbo.TimesheetProjectTimeLog` and
@@ -5602,8 +5654,8 @@ GET /api/v1/TimesheetProject/get-timesheet-project-time-log?userID=7&projectID=1
 | `projectId` | int | |
 | `organizationId` | int | The project's organisation |
 | `sheetSubmissionCode` | string | The code of the day's submission period, shared by every day of this user and project in it |
-| `periodStartDate` | datetime \| null | First day of that period, from the project's start date and frequency. `null` only if the project has since lost either |
-| `periodEndDate` | datetime \| null | Last day of that period, inclusive |
+| `periodStartDate` | datetime \| null | First **working** day of that period — its calendar week or month, clipped to the project and trimmed. `null` when the project has since lost its start date or frequency, when the entry predates the project, or when every day of that week or month has since become a weekend day or a holiday |
+| `periodEndDate` | datetime \| null | Last working day of that period, inclusive — the day from which its sheet can be submitted |
 | `statusId` | int | Status of the day's sheet: `0` Pending (period not submitted yet), `1` Submitted, `2` Approved, `3` Rejected |
 | `statusName` | string | `Pending`, `Submitted`, `Approved` or `Rejected` |
 | `logDate` | datetime | The day worked; time part always `00:00:00` |
@@ -5677,8 +5729,12 @@ EF Core; no stored procedure.
   `description` replace the entry's when sent, and leave them as they are when
   left out. Changing `logDate` moves the entry to that day — the period it
   leaves must be open too, and it takes the new period's sheet code.
-- Any day of the project may be logged, past days included: with monthly
-  submission, logging days 1–20 on the 20th is allowed.
+- Any **working** day of the project may be logged, past days included: with
+  monthly submission, logging days 1–20 on the 20th is allowed. A weekend day,
+  a holiday or a day of the user's approved leave is refused — see
+  [working days](#working-days).
+- An earlier period left unsubmitted **does not** block this: time can be
+  logged in any open period whatever the state of the ones before it.
 - Hours are **not capped**: neither the assignment's `Max_log_hour_day` nor
   any fixed daily maximum is enforced here.
 - No start time, end time or duration is sent.
@@ -5698,8 +5754,8 @@ EF Core; no stored procedure.
 |---|---|---|---|
 | `timesheetProjectTimeLogId` | int | no | `0` (the default) adds a new entry; `> 0` edits that entry, which must exist and belong to `userId` on `projectId` |
 | `userId` | int | yes | `> 0`. Whose time it is; must be assigned to `projectId` |
-| `projectId` | int | yes | `> 0`. Must exist and have a `StartDate`, a `SubmissionFrequency` and an organisation |
-| `logDate` | date | yes | Only the date part is used. Not before the project's `StartDate`, not after its `EndDate` (when set) |
+| `projectId` | int | yes | `> 0`. Must exist and have a `StartDate`, an organisation and a `SubmissionFrequency` of `1` or `3` |
+| `logDate` | date | yes | Only the date part is used. Not before the project's `StartDate`, not after its `EndDate` (when set), and a day the project is worked on |
 | `hoursLogged` | int | yes | `> 0`, whole hours, no upper limit. The new entry's hours on an add; the entry's hours on an edit — it replaces, it does not add |
 | `isRemoteLog` | bool \| null | no | Whether the work was remote. On a day already logged, a value sent replaces the day's; left out, the day keeps its value |
 | `description` | string \| null | no | Free text, no length limit |
@@ -5726,10 +5782,10 @@ EF Core; no stored procedure.
 same shape as [Project Time Log List](#49-project-time-log-list), with
 `"message": "Time log saved."`.
 
-**Days off.** No time can be logged on a day the user is on approved leave or
-that is a holiday for them on this project — whether it is logged on the day
-itself or any day later. Every other day is unaffected. The request and the
-response are unchanged.
+**Days off.** No time can be logged on a weekend day of the project, a holiday
+for this user on it, or a day of their approved leave — whether it is logged on
+the day itself or any day later. Every other day is unaffected. The request and
+the response are unchanged.
 
 #### Error responses
 
@@ -5743,13 +5799,17 @@ Also a 400, one at a time, after the payload passes:
 |---|---|
 | No such project | `ProjectId: Project '12' does not exist.` |
 | Project not set up | `Project '12' needs a start date, a submission frequency and an organization before time can be logged or submitted on it.` |
+| Project still set to every 15 days | `Project '12' is set to submit every 15 days, which is no longer supported: submission periods follow the calendar, and no calendar block is 15 days long. An administrator has to change the project to weekly or monthly before time can be logged or submitted on it.` |
 | Date outside the project | `LogDate: LogDate must not be before the project's start date, 2026-10-01.` (or after its end date) |
 | User not on the project | `ProjectId: User '7' is not assigned to project '12'.` |
+| **Time logging turned off on the assignment** | `Time logging is disabled by an administrator on project '12' for user '7', so no time can be logged or changed on it and its timesheets cannot be submitted.` Set by `isTimeLogDisabled` on [Create](#36-create-timesheet-user) / [Edit Timesheet User](#37-edit-timesheet-user) |
 | Editing another user's entry | `Time log '15' does not belong to user '7', so it cannot be changed as theirs.` |
 | Editing an entry of another project | `Time log '15' is on project '9', not '12', so it cannot be moved between projects.` |
 | Period submitted or approved | `Timesheet 'PSHT0004' for 2026-10-19 to 2026-10-25 is submitted, so its time can no longer be added to, changed or removed.` A rejected period is open again |
 | User on approved leave that day | `You are on approved leave on 2026-10-25 (leave 9, 2026-10-24 to 2026-10-26), so no time can be logged that day.` Only **approved** leave ([68](#68-approve--reject-user-leave-apply)) blocks the day; submitted and rejected leave do not |
 | Holiday that day | `2026-10-25 is a holiday (Diwali), so no time can be logged that day.` A holiday ([41](#41-add--edit-holiday)) of the project's organisation counts when each of its country, client and project is empty or matches — the user's country, the project's client, this project |
+| Weekend day | `2026-10-25 is a Sunday, which is a weekend day on this project, so no time can be logged that day.` From `dbo.TimeSheet_Weekend_setup`; a project with no setup there has no weekend |
+| The whole week or month is days off | `2026-10-19 to 2026-10-25 has no working day on this project - every day of it is a weekend day or a holiday - so it has no timesheet.` |
 
 **404** — `timesheetProjectTimeLogId` is greater than 0 but no live entry has
 it: `Time log '15' was not found.` A removed entry is not found either.
@@ -5846,8 +5906,8 @@ GET /api/v1/TimesheetProject/get-timesheet-project-sheet?userID=7&projectID=12
 | `projectId` | int | |
 | `projectCode` | string \| null | |
 | `projectName` | string \| null | |
-| `periodStartDate` | datetime | First day of the period |
-| `periodEndDate` | datetime | Last day of the period, inclusive |
+| `periodStartDate` | datetime | First day of the period, **as recorded when the sheet was submitted**: it is not worked out again, so a project whose dates, frequency or weekend setup changed afterwards does not move a sheet already handed in |
+| `periodEndDate` | datetime | Last day of the period, inclusive, also as recorded |
 | `timeLogCount` | int | Live time-log days in the period |
 | `totalMinutesLogged` | int | Their hours, as minutes |
 | `totalHoursLogged` | decimal | Minutes / 60, rounded to 2 places |
@@ -5925,16 +5985,25 @@ without time logged**. The period is named by its code or by a day in it:
 
 Then:
 
-1. **The period must have reached its last day** — the 7th day of a weekly
-   period, the 15th of a 15-day one, the last day of a monthly one — on the
-   user's own date (their `dbo.TimesheetMasterSetup` time zone; UTC when none).
-   Submitting on that day or any day after is allowed.
-2. **First submit:** the period's **one** row is created, directly as
+1. **The period must have reached its last working day** — the Friday of a
+   Monday-to-Friday week, not its Sunday — on the user's own date (their
+   `dbo.TimesheetMasterSetup` time zone; UTC when none). Submitting on that day
+   or **any day after** is allowed; there is no late deadline.
+2. **Every earlier period must already have been submitted.** While one has
+   not, this one cannot be: submit that one first, as a **blank sheet** if
+   nothing was logged in it. Only the submission counts, not the decision on
+   it, so a rejected sheet being corrected does not hold up the periods after
+   it. The chain starts at the user's **first entry** on the project — joining
+   a project that has been running for a year does not owe a year of blank
+   sheets.
+3. **First submit:** the period's **one** row is created, directly as
    **Submitted**, with its audit row in the same save. Its code is the one the
    period's time-log days carry; for a blank sheet, the next code.
-3. **Resubmit after rejection:** the same row goes back to Submitted.
-4. The totals are taken from the time log at that moment, with `SubmittedBy` /
-   `SubmittedDate`, and the period's time is locked until a rejection.
+4. **Resubmit after rejection:** the same row goes back to Submitted.
+5. The totals are taken from the time log at that moment, with `SubmittedBy` /
+   `SubmittedDate`, and the period's time is locked until a rejection. They
+   cover the whole calendar week or month, so nothing logged in it is left
+   off.
 
 **The project's approver is emailed.** After the submit is saved, the live
 approver of the project with `isTimesheetApprover` true (see
@@ -5949,7 +6018,7 @@ approver, no email address, or a failed send is only logged — see
 | Field | Type | Required | Rules |
 |---|---|---|---|
 | `sheetSubmissionCode` | string \| null | one of the two | The period's code |
-| `periodDate` | date \| null | one of the two | Any day in the period. Not before the project's `StartDate`; its period not after the project's `EndDate` |
+| `periodDate` | date \| null | one of the two | Any day in the period — a non-working day of it is fine, the period is worked out from the calendar week or month it falls in. Not before the project's `StartDate`; its period not after the project's `EndDate` |
 | `userId` | int | yes | `> 0`. Whose sheet it is |
 | `projectId` | int | yes | `> 0` |
 | `addedBy` | int | yes | `> 0`. Written to `SubmittedBy` and the audit log. Temporary — from the token once authentication is on |
@@ -5986,8 +6055,11 @@ of these, one at a time:
 | Code matches nothing of this user on this project | `SheetSubmissionCode: SheetSubmissionCode 'PSHT0011' is not a timesheet of user '7' on project '12'.` |
 | `periodDate` not in the code's period | `PeriodDate: PeriodDate 2026-10-12 is not in the period of timesheet 'PSHT0004'.` |
 | Date outside the project | `PeriodDate: PeriodDate must not be before the project's start date, 2026-10-01.` (or after its end date) |
-| **Period not yet at its last day** | `The timesheet for 2026-10-19 to 2026-10-25 can be submitted from 2026-10-25, the period's last day. Today is 2026-10-23 (Asia/Kolkata).` |
-| User not on the project (first submit) | `User '7' is not assigned to project '12', so they have no timesheet on it to submit.` |
+| **Period not yet at its last working day** | `The timesheet for 2026-10-19 to 2026-10-23 can be submitted from 2026-10-23, the period's last working day. Today is 2026-10-21 (Asia/Kolkata).` |
+| **An earlier period has not been submitted** | `The timesheet for 2026-10-12 to 2026-10-16 has not been submitted yet, so the timesheet for 2026-10-19 to 2026-10-23 cannot be submitted yet. Submit that timesheet first - a period with no time on it is submitted as a blank timesheet.` |
+| Project still set to every 15 days | `Project '12' is set to submit every 15 days, which is no longer supported: ...` — as on [Add / Edit Project Time Log](#50-add--edit-project-time-log) |
+| User not on the project (first submit) | `User '7' is not assigned to project '12', so they have no timesheet on it to submit.` A sheet already handed in stays the user's to resubmit even after they are taken off the project |
+| **Time logging turned off on the assignment** | `Time logging is disabled by an administrator on project '12' for user '7', so no time can be logged or changed on it and its timesheets cannot be submitted.` Checked on **every** submit, a resubmit after rejection included |
 
 **409** — the period is already submitted or approved:
 `Timesheet 'PSHT0004' is already Submitted.`
@@ -6313,7 +6385,9 @@ client's currency is not returned.
 The **current timesheet period** of each project is the submission period
 (see [periods and sheet codes](#project-timesheets-periods-and-sheet-codes))
 containing the user's **own** today, in the time zone of their
-`dbo.TimesheetMasterSetup` (UTC when they have none).
+`dbo.TimesheetMasterSetup` (UTC when they have none). The procedure works it
+out from the project's start date and frequency and has **not** been updated
+for calendar periods or working-day trimming — see [Known gaps](#known-gaps).
 
 > **The procedure is a DRAFT.** `docs/database/procedures/dbo.spc_GetTimesheetUserDetailsByUserID.sql`
 > must be created in the database first; until then this endpoint answers 500.
@@ -6363,7 +6437,7 @@ Each item of `projects`:
 | `projectStatus` | int \| null | `dbo.TimesheetProject.Status` |
 | `projectStartDate` | datetime \| null | |
 | `projectEndDate` | datetime \| null | |
-| `submissionFrequency` | int \| null | 1 weekly, 2 every 15 days, 3 monthly |
+| `submissionFrequency` | int \| null | 1 weekly, 3 monthly (2, every 15 days, only on older rows) |
 | `projectCurrencyId` | int \| null | **The project's** currency — `dbo.TimesheetProject.CurrencyCode`, a `dbo.CountryCurrency_Lookup.CurrencyID`; `null` when the project has none |
 | `projectCurrencyName` | string \| null | |
 | `projectCurrencySymbol` | string \| null | Not unique — show it beside `projectCurrencyName` |
@@ -6375,6 +6449,7 @@ Each item of `projects`:
 | `costRate` | decimal \| null | |
 | `billRate` | decimal \| null | |
 | `maxLogHoursPerDay` | int \| null | Stored only — no endpoint enforces it |
+| `isTimeLogDisabled` | int \| null | `1` when time logging on this project is turned **off** for this user; `0` or `null` when it works normally |
 | `totalExpectedHours` | decimal \| null | The project's budgeted `Totalhours` — the same for every user on it |
 | `totalLoggedHours` | int | The user's live hours on the project, all time |
 | `currentPeriodStartDate` | datetime \| null | First day of the current period. `null` when the project has no start date or frequency, has not started, or has ended |
@@ -7166,7 +7241,7 @@ not scheduled; changes take effect on the next restart.
 | 1 | `SendEmail` | Sends every queued email in `dbo.EmailQueue` that is still due an attempt | Nothing an endpoint returns. Every email in this reference — welcome, submission, leave apply, reminders — is sent by this job |
 | 2 | `TimeLogReminderEmailQueue` | Queues a time-log reminder for every user due one, from their `needToSendReminder` / `reminderTimeBeforeCutoff` setup | Nothing an endpoint returns |
 | 3 | `TimesheetReminderEmailQueue` | Queues a timesheet submission reminder for every user due one | Nothing an endpoint returns |
-| 4 | `ApproverReminderEmailQueue` | Once a day, queues one reminder per project whose submission period ended yesterday with sheets still Submitted, to that project's timesheet approver | Nothing an endpoint returns |
+| 4 | `ApproverReminderEmailQueue` | Once a day, queues one reminder per project that still has a Submitted sheet for a period that has ended, to that project's timesheet approver. **It repeats daily until every one of that period's sheets is approved or rejected**, so a sheet submitted late is chased too; a project with several periods waiting is reminded about its oldest | Nothing an endpoint returns |
 | 5 | `AutoApproveProjectSheet` | Once a day, approves every project sheet that has sat `Submitted` longer than its project's `autoApproveInDays`, counting whole days from `submittedDate` | **A sheet's `statusId` becomes `2` (Approved) with no call to [Approve / Reject Project Timesheet](#54-approve--reject-project-timesheet).** `approvedBy` is the configured `AutoApprove:ApprovedByUserId`, and `isAutoApprove` is `1` — the only way to tell it apart from a human approval. An audit row is written as for any approval |
 
 A project with `autoApproveInDays` `null` **or** `0` is never picked up: the
@@ -7471,11 +7546,12 @@ Documented so nobody has to rediscover them:
     `spc_AddEditTimesheetApproverSetup` are
     recorded in `docs/database/procedures/` and must be created by hand; each
     matching endpoint answers 500 until its procedure exists in its latest
-    version. `spc_Signup_timesheet_user` exists in the database but two of
+    version. `spc_Signup_timesheet_user` exists in the database but three of
     its recorded revisions do not: the 2026-10-18 one - the
-    `@Maxloghourday` parameter - so
+    `@Maxloghourday` parameter - and the 2026-11-15 one - the
+    `@IsTimeLogDisabled` parameter - so
     [Create Timesheet User](#36-create-timesheet-user) answers 500 until
-    the owner applies it, and the 2026-10-27 one, which makes the
+    the owner applies both, and the 2026-10-27 one, which makes the
     existing-user branch store the project coordinates (see 90).
 33. **Project removes are hard deletes.** Neither `dbo.TimesheetProject` nor
     `dbo.TimesheetProjectBudget` has a soft-delete or audit column, so a removed
@@ -7631,9 +7707,9 @@ Documented so nobody has to rediscover them:
 74. **The day's entry can only grow.** Logging adds hours; there is no way to
     lower a day's total except to remove the entry and log the day again.
 75. **The submit window follows the user's time zone, the sheet's dates do
-    not.** "The period's last day has come" is judged on the user's date in
-    their `dbo.TimesheetMasterSetup` zone; `submittedDate`, `approvedDate` and
-    `rejectedDate` are stored in UTC.
+    not.** "The period's last working day has come" is judged on the user's
+    date in their `dbo.TimesheetMasterSetup` zone; `submittedDate`,
+    `approvedDate` and `rejectedDate` are stored in UTC.
 76. **Timesheet User Details cannot say *why* it found nothing.** Since
     2026-10-24 it reads from `dbo.Timesheet_Users_Project_setup`, so a user
     who does not exist, a deleted user, and a live user on no project are one
@@ -7704,7 +7780,7 @@ Documented so nobody has to rediscover them:
     `projectDetails` keeps a project in both the payload and the database
     exactly as it is, so an entry's `projectRoleId`, `jobType`, `costRate`,
     `billRate`, `workLocationRange`, coordinates and `maxLogHoursPerDay` reach
-    **added** assignments only - sending new values for a project the user is
+    **added** assignments only (`isTimeLogDisabled` is the exception - see 103) - sending new values for a project the user is
     already on is accepted and then ignored. Changing them on an existing one
     needs two calls: one that leaves the project out (soft-deleting the row)
     and one that adds it back with the new values - which loses the old row's
@@ -7765,3 +7841,58 @@ Documented so nobody has to rediscover them:
     email will still have told the user a different password. The failure is
     logged; the request answers `200`. Closing this needs the owner to add a
     `@Pwd` parameter to the procedure.
+97. **Sheets submitted before calendar periods are not re-cut.** Periods used
+    to be counted from the project's start date; a sheet already in
+    `dbo.TimesheetProjectSubmission` keeps the `PeriodStartDate` /
+    `PeriodEndDate` it was submitted with, deliberately. A submit matches an
+    existing sheet on its exact period start, so for the one period in flight
+    at the changeover an old-style row and a new-style one can both exist and
+    overlap by a few days. The ordering rule treats any overlapping row as
+    "that period was submitted", so it does not ask for the same days twice.
+98. **`spc_GetTimesheetUserDetailsByUserID` still computes periods the old
+    way.** The current-period dates on
+    [Timesheet User Details](#58-timesheet-user-details) come
+    from the procedure, which counts blocks from the project's start date and
+    knows nothing of calendar weeks, weekend setups or holidays. Every
+    endpoint the API computes itself uses the new rule, so the two disagree
+    until the owner revises the procedure.
+99. **A project set to every 15 days is stuck until an administrator moves
+    it.** `SubmissionFrequency = 2` can no longer be saved, logged on or
+    submitted - no calendar block is 15 days long - but the column's CHECK
+    constraint still allows it and existing rows keep the value. Such a
+    project answers 400 on both writes with a message naming the fix; sheets
+    already submitted under it can still be reviewed, and its approver still
+    gets reminders about them.
+100. **A holiday narrowed to a country gives two users different period
+    ends.** The trimming is per user, because a holiday may name a country and
+    `dbo.Signup.CountryID` decides whether it covers them. Two people on one
+    project can therefore have sheets for the same week with different end
+    dates. The approver reminder is per project, so it ignores
+    country-specific holidays.
+101. **`IsTimeLogDisabled` has three stored values for two meanings.** The
+    column is a nullable `int`, like `IsDelete` on the same table, so `0`,
+    `NULL` and `1` are all possible. Only `1` disables; `NULL` is read exactly
+    as `0`, which is what leaves assignments written before the column existed
+    working. A payload may send only `0` or `1`; anything else is a 400. The name is the
+    database owner's; the API follows it exactly rather than publishing a
+    second spelling of one column, and says which way round it runs wherever
+    it is documented. Renaming it later would be a schema change, a procedure
+    change and a breaking change to three payloads at once.
+102. **Turning time logging off is not retrospective, and it strands
+    unsubmitted time.** Setting `isTimeLogDisabled` to `1` stops new entries,
+    edits and submissions from that moment; time already logged stays exactly
+    as it is, and nothing removes or flags it. A period the user had logged
+    but not yet submitted can no longer be submitted at all while the switch
+    is on, so its approver keeps being reminded about the periods around it -
+    turning the switch back off is the only way to let that sheet through. A
+    sheet already submitted is unaffected and can still be approved or
+    rejected.
+103. **`isTimeLogDisabled` is the one exception to 89.** Every other
+    assignment field an edit sends reaches **added** assignments only, but a
+    block that could be applied only by removing an assignment and adding it
+    back - losing the row's id and its `CreateDate` - would not be usable, so
+    this field is applied to kept assignments too when it is sent. Left out,
+    a kept assignment keeps the value it has, so a payload written before the
+    field existed cannot silently unblock anyone. The asymmetry is
+    deliberate; the other fields describe what was agreed, this one is an
+    administrator's switch.

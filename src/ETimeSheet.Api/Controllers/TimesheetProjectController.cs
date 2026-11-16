@@ -725,8 +725,7 @@ public class TimesheetProjectController : ControllerBase
     /// capped. Any day of the project may be logged, past days included.
     /// </para>
     /// <para>
-    /// The day gets the <c>sheetSubmissionCode</c> of its submission period -
-    /// worked out from the project's start date and submission frequency, and
+    /// The day gets the <c>sheetSubmissionCode</c> of its submission period,
     /// returned with <c>periodStartDate</c> and <c>periodEndDate</c>. Every day
     /// of the user on the project in one period shares one code: the first day
     /// logged in it takes the next <c>PSHT</c> code, whichever day that is.
@@ -734,11 +733,25 @@ public class TimesheetProjectController : ControllerBase
     /// and the period it leaves must be open as well.
     /// </para>
     /// <para>
-    /// Logging time does not open a timesheet submission.
+    /// <b>A period is a calendar week (Monday to Sunday) or a calendar month</b>,
+    /// by the project's <c>submissionFrequency</c>, clipped to the project's own
+    /// start and end dates and trimmed to the days it is worked on. A project
+    /// starting on Wednesday 11 November has a first week of 11-15 November, or
+    /// 11-13 where Saturday and Sunday are weekend; the next runs 16-20. Every
+    /// 15 days is no longer supported.
+    /// </para>
+    /// <para>
+    /// <b>No time on a day the project is not worked on</b> - a weekend day in
+    /// <c>dbo.TimeSheet_Weekend_setup</c>, a holiday, or a day of the user's
+    /// approved leave. A project with no weekend setup has no weekend at all.
+    /// </para>
+    /// <para>
+    /// Logging time does not open a timesheet submission, and an unsubmitted
+    /// earlier period does not stop a later one being logged in.
     /// </para>
     /// </summary>
     /// <response code="200">The entry as saved.</response>
-    /// <response code="400">The payload failed validation, the user is not on the project, the date is outside the project's dates, the project has no start date, submission frequency or organization, the day is leave or a holiday, the entry belongs to another user or project, or the period is submitted or approved.</response>
+    /// <response code="400">The payload failed validation, the user is not on the project, the date is outside the project's dates, the project has no start date, submission frequency or organization (or submits every 15 days), the day is a weekend day, a holiday or leave, the entry belongs to another user or project, or the period is submitted or approved.</response>
     /// <response code="404">No live entry has that <c>timesheetProjectTimeLogId</c>.</response>
     [HttpPost("add-edit-timesheet-project-time-log")]
     [ProducesResponseType(typeof(ApiResponse<TimesheetProjectTimeLogResponse>), StatusCodes.Status200OK)]
@@ -821,12 +834,24 @@ public class TimesheetProjectController : ControllerBase
     /// <c>periodDate</c> - any day in it. A period with no time logged has no
     /// code, so its blank sheet is submitted by <c>periodDate</c>.
     /// <para>
-    /// The period comes from the project's start date and submission
-    /// frequency, and can be submitted on its <b>last day or any day after</b>
-    /// - the 7th day of a weekly period, the 15th of a 15-day one, the day
-    /// before the next month's start day for a monthly one - judged in the
-    /// user's time zone (<c>dbo.TimesheetMasterSetup.TimeZone</c>; UTC when
-    /// they have none).
+    /// <b>A period is a calendar week (Monday to Sunday) or a calendar month</b>,
+    /// by the project's <c>submissionFrequency</c>, clipped to the project's own
+    /// start and end dates and trimmed to the days it is worked on - its
+    /// weekend days and holidays are not part of it. Every 15 days is no longer
+    /// supported.
+    /// </para>
+    /// <para>
+    /// A sheet can be submitted on the period's <b>last working day or any day
+    /// after</b> - the Friday of a Monday-to-Friday week - judged in the user's
+    /// time zone (<c>dbo.TimesheetMasterSetup.TimeZone</c>; UTC when they have
+    /// none). <b>There is no late deadline</b>: once the period has ended the
+    /// sheet can be handed in whenever the user gets to it.
+    /// </para>
+    /// <para>
+    /// <b>Periods are handed in order.</b> While an earlier period of this user
+    /// on this project has never been submitted, this one cannot be - submit
+    /// that one first, as a blank sheet if there is nothing on it. The rule
+    /// waits for the submission, not for the approver's decision.
     /// </para>
     /// <para>
     /// The first submit creates the period's one row, already Submitted, with
@@ -838,7 +863,7 @@ public class TimesheetProjectController : ControllerBase
     /// </para>
     /// </summary>
     /// <response code="200">The submitted sheet.</response>
-    /// <response code="400">A field is missing; the code is not this user's on this project; the date is outside the project or not in the code's period; the project is not set up for submission; the period has not reached its last day; or the user is not on the project.</response>
+    /// <response code="400">A field is missing; the code is not this user's on this project; the date is outside the project or not in the code's period; the project is not set up for submission (or submits every 15 days); the period has not reached its last working day; an earlier period has not been submitted; or the user is not on the project.</response>
     /// <response code="409">The period is already submitted or approved.</response>
     [HttpPost("submit-timesheet-project-sheet")]
     [ProducesResponseType(typeof(ApiResponse<TimesheetProjectSheetResponse>), StatusCodes.Status200OK)]

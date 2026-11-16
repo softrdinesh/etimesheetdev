@@ -9,6 +9,11 @@
                CurrencySymbol added as the last columns. The API reads them,
                so get-timesheet-user-by-orgID fails until this is applied.
     Revised:   2026-10-25 - reads dbo.CountryCurrency_Lookup (table renamed from dbo.CountryCurrency).
+    Revised:   2026-11-15 - DRAFT, to be applied by the owner: IsTimeLogDisabled
+               added as the last column, for the assignment column added the
+               same day. 0 or NULL means the assignment works normally, 1
+               means an administrator has turned its time logging off. The API reads it, so
+               get-timesheet-user-by-orgID fails until this is applied.
 
     Returns the timesheet users of one organisation - every live project
     assignment in dbo.Timesheet_Users_Project_setup of every live user of the
@@ -38,7 +43,9 @@
       WorklocationRange), ProjectLocationLatitude (aliased from
       ProjectlocLatitude), ProjectLocationLongitude (aliased from
       ProjectlocLongtitude - the database's spelling), MaxLogHoursPerDay
-      (aliased from Max_log_hour_day), CountryID (dbo.Signup.CountryID),
+      (aliased from Max_log_hour_day), IsTimeLogDisabled (1 = time logging is
+      turned off on the assignment; 0 or NULL = allowed), CountryID
+      (dbo.Signup.CountryID),
       CountryName (dbo.Country.Name), Address (dbo.Signup.Address),
       CurrencyID, CurrencyName and CurrencySymbol (dbo.CountryCurrency_Lookup). The
       aliases are what the EF Core result mapping binds to.
@@ -102,6 +109,7 @@ BEGIN
         tups.ProjectlocLatitude             AS ProjectLocationLatitude,
         tups.ProjectlocLongtitude           AS ProjectLocationLongitude,
         tups.Max_log_hour_day               AS MaxLogHoursPerDay,
+        tups.IsTimeLogDisabled               AS IsTimeLogDisabled,
         s.CountryID                         AS CountryID,
         c.Name                              AS CountryName,
         s.Address                           AS Address,

@@ -27,6 +27,11 @@
                ProjectLocationLongitude added - the ASSIGNMENT's
                ProjectlocLatitude and ProjectlocLongtitude, so each project
                carries the location recorded for this user on it.
+    Revised:   2026-11-15 - DRAFT: IsTimeLogDisabled added to the assignment
+               columns, for the column added to
+               dbo.Timesheet_Users_Project_setup the same day. 0 means time MAY
+               be logged on the assignment, 1 means an administrator has
+               turned its time logging off. NULL is read exactly as 0.
 
     Returns one timesheet user - their basic details, and every live project
     assignment with the project, its client and the hours logged on it - for
@@ -81,8 +86,12 @@
         ProjectStatus, ProjectStartDate, ProjectEndDate, SubmissionFrequency,
         ProjectCurrencyID, ProjectCurrencyName, ProjectCurrencySymbol,
         ProjectCountryID, ProjectCountryName, ProjectRoleID, ProjectRoleName,
-        JobType, CostRate, BillRate, MaxLogHoursPerDay,
+        JobType, CostRate, BillRate, MaxLogHoursPerDay, IsTimeLogDisabled,
         ProjectLocationLatitude, ProjectLocationLongitude.
+
+        IsTimeLogDisabled is the assignment's switch: 0 or NULL means it
+        works normally, 1 means an administrator has turned its time logging
+        off.
 
         The two locations are the ASSIGNMENT's ProjectlocLatitude and
         ProjectlocLongtitude ("Longtitude" - the database's spelling), nvarchar
@@ -196,6 +205,7 @@ BEGIN
         tups.Cost_rate_per_hour             AS CostRate,
         tups.Billable_rate_per_hour         AS BillRate,
         tups.Max_log_hour_day               AS MaxLogHoursPerDay,
+        tups.IsTimeLogDisabled               AS IsTimeLogDisabled,
         tups.ProjectlocLatitude             AS ProjectLocationLatitude,
         tups.ProjectlocLongtitude           AS ProjectLocationLongitude,
 

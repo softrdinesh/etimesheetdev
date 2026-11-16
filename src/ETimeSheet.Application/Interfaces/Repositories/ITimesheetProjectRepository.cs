@@ -233,6 +233,12 @@ public interface ITimesheetProjectRepository
     /// <param name="fullName">Already trimmed and validated.</param>
     /// <param name="email">Already trimmed and validated.</param>
     /// <param name="address">Already trimmed; null when blank.</param>
+    /// <param name="password">
+    /// The default password in plain text, sent as <c>@Password</c> for the
+    /// procedure to hash into <c>dbo.Signup.Pwd</c>. Only the new-user branch
+    /// stores it; a later call for the same email ignores it. Never hashed,
+    /// encoded or logged on this side.
+    /// </param>
     Task CreateTimesheetUserAsync(
         string fullName,
         string email,
@@ -249,6 +255,8 @@ public interface ITimesheetProjectRepository
         string? projectLocationLatitude,
         string? projectLocationLongitude,
         int? maxLogHoursPerDay,
+        int? isTimeLogDisabled,
+        string password,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -261,20 +269,18 @@ public interface ITimesheetProjectRepository
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Writes <paramref name="password"/> to the user's <c>dbo.Signup.Pwd</c>
-    /// and saves, touching no other column.
+    /// The user's live assignment to this project - the lowest
+    /// <c>TimesheetUserProjectSetupID</c> when they are on it more than once -
+    /// untracked, or <see langword="null"/> when they are not on it at all.
+    /// <para>
+    /// This is both the assignment check and the row that says whether the
+    /// assignment may log time (<c>IsTimeLogDisabled</c>), so the write path
+    /// asks for it once rather than asking twice about the same row.
+    /// </para>
     /// </summary>
-    /// <param name="password">
-    /// Stored exactly as given - this API never hashes, encrypts or encodes a
-    /// password, and never reads one back.
-    /// </param>
-    /// <returns>
-    /// <see langword="false"/> when no user has that id, so the caller can
-    /// report it rather than fail silently.
-    /// </returns>
-    Task<bool> SetUserPasswordAsync(
+    Task<TimesheetUserProjectSetup?> GetUserProjectSetupAsync(
         int userId,
-        string password,
+        int projectId,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -988,18 +994,59 @@ public interface ITimesheetProjectRepository
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// The first live holiday on <paramref name="date"/> that covers this
-    /// project for this user, untracked; <see langword="null"/> when there is
-    /// none. A holiday belongs to an organisation and may be narrowed to a
-    /// country, a client or a project: it covers the day when it is of
-    /// <paramref name="organizationId"/>, and each of its country, client and
-    /// project is either empty or the one given.
+    /// Every live weekend setup of these organisations, untracked, oldest id
+    /// first - the project-level, client-level and organisation-level rows
+    /// together, because which one applies is a decision
+    /// (<c>ProjectWorkingCalendar</c>), not a query.
+    /// <para>
+    /// The table holds one row per project, client or organisation, so this is
+    /// a handful of rows however many projects are asked about. Reading them in
+    /// one go is what keeps the period calculation off a per-project query.
+    /// </para>
     /// </summary>
-    Task<TimesheetHolidaySetup?> GetHolidayForProjectOnDateAsync(
-        int organizationId,
+    Task<IReadOnlyList<TimesheetWeekendSetup>> GetWeekendSetupsForOrganizationsAsync(
+        IReadOnlyCollection<int> organizationIds,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Every live holiday of these organisations falling between
+    /// <paramref name="fromDate"/> and <paramref name="toDate"/> inclusive,
+    /// untracked. Which of them covers a given project and user is decided by
+    /// <c>ProjectWorkingCalendar</c>, not here - a holiday may be narrowed to a
+    /// country, a client or a project, and the same row applies to one user and
+    /// not another.
+    /// </summary>
+    Task<IReadOnlyList<TimesheetHolidaySetup>> GetHolidaysForOrganizationsAsync(
+        IReadOnlyCollection<int> organizationIds,
+        DateTime fromDate,
+        DateTime toDate,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The earliest day this user has live time logged on this project, or
+    /// <see langword="null"/> when they have none.
+    /// <para>
+    /// This is where a user's obligation to submit begins: periods before their
+    /// first entry are not theirs to account for, so someone added to a project
+    /// that has been running for a year does not owe a year of blank sheets.
+    /// </para>
+    /// </summary>
+    Task<DateTime?> GetProjectTimeLogEarliestDateAsync(
+        int userId,
         int projectId,
-        int clientId,
-        int? countryId,
-        DateTime date,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The periods this user already has a live submission row for on this
+    /// project, untracked - whatever each one's status.
+    /// <para>
+    /// Rows written before periods followed the calendar are included and are
+    /// not re-cut: a period is accounted for when any stored row overlaps it,
+    /// which is what lets the old anchoring and the new one sit side by side.
+    /// </para>
+    /// </summary>
+    Task<IReadOnlyList<ProjectSubmittedPeriod>> GetProjectSubmissionPeriodsAsync(
+        int userId,
+        int projectId,
         CancellationToken cancellationToken = default);
 }

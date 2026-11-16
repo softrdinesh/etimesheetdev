@@ -280,6 +280,8 @@ public class TimesheetProjectRepository : ITimesheetProjectRepository
         string? projectLocationLatitude,
         string? projectLocationLongitude,
         int? maxLogHoursPerDay,
+        int? isTimeLogDisabled,
+        string password,
         CancellationToken cancellationToken = default)
     {
         // Opened here so the EXEC and the clean-up below share one connection.
@@ -293,6 +295,13 @@ public class TimesheetProjectRepository : ITimesheetProjectRepository
             // writes neither in the existing-user branch before its 2026-10-27
             // one; until the owner applies those, they are accepted and
             // dropped.
+            //
+            // @Password and @IsTimeLogDisabled are the 2026-11-15 revisions and
+            // are NOT optional in the same way: a procedure that does not
+            // declare one of them yet rejects the whole EXEC, so this endpoint
+            // answers 500 until the owner applies both. The password is sent in
+            // plain text for the procedure to hash - it is never hashed,
+            // encoded or logged here.
             await _db.Database.ExecuteSqlInterpolatedAsync(
                 $@"EXEC dbo.spc_Signup_timesheet_user
                     @Fullname = {fullName},
@@ -309,7 +318,9 @@ public class TimesheetProjectRepository : ITimesheetProjectRepository
                     @projectID = {projectId},
                     @Projectloclatitude = {projectLocationLatitude},
                     @Projectloclongtitude = {projectLocationLongitude},
-                    @Maxloghourday = {maxLogHoursPerDay}",
+                    @Maxloghourday = {maxLogHoursPerDay},
+                    @Password = {password},
+                    @IsTimeLogDisabled = {isTimeLogDisabled}",
                 cancellationToken);
         }
         catch
@@ -337,26 +348,6 @@ public class TimesheetProjectRepository : ITimesheetProjectRepository
         await _db.Signup
             .FirstOrDefaultAsync(user => user.UserId == userId, cancellationToken);
 
-    public async Task<bool> SetUserPasswordAsync(
-        int userId,
-        string password,
-        CancellationToken cancellationToken = default)
-    {
-        // Only the one column is sent: the row is loaded tracked and nothing
-        // else on it is touched, so an account another application changed
-        // between the procedure's insert and this update keeps those changes.
-        var user = await _db.Signup.FirstOrDefaultAsync(row => row.UserId == userId, cancellationToken);
-
-        if (user is null)
-        {
-            return false;
-        }
-
-        user.Pwd = password;
-        await _db.SaveChangesAsync(cancellationToken);
-        return true;
-    }
-
     public async Task<bool> UserProjectSetupExistsAsync(
         int userId,
         int projectId,
@@ -370,6 +361,20 @@ public class TimesheetProjectRepository : ITimesheetProjectRepository
                          && setup.ProjectId == projectId
                          && setup.TimesheetUserProjectSetupId != excludedTimesheetUserProjectSetupId,
                 cancellationToken);
+
+    public async Task<TimesheetUserProjectSetup?> GetUserProjectSetupAsync(
+        int userId,
+        int projectId,
+        CancellationToken cancellationToken = default) =>
+        // Untracked: this is a read, and the caller only asks questions of the
+        // row. The query filter hides deleted assignments. Lowest id first,
+        // because nothing stops the same user being assigned to one project
+        // twice, and that is the row the reminders' daily cap reads too.
+        await _db.Timesheet_Users_Project_setup
+            .AsNoTracking()
+            .Where(setup => setup.UserId == userId && setup.ProjectId == projectId)
+            .OrderBy(setup => setup.TimesheetUserProjectSetupId)
+            .FirstOrDefaultAsync(cancellationToken);
 
     public async Task<IReadOnlyList<TimesheetUserProjectSetup>> GetUserProjectSetupsForUpdateAsync(
         int userId,
@@ -1331,22 +1336,65 @@ public class TimesheetProjectRepository : ITimesheetProjectRepository
             .ToDictionary(group => group.Key, group => group.First().TimeZone);
     }
 
-    public async Task<TimesheetHolidaySetup?> GetHolidayForProjectOnDateAsync(
-        int organizationId,
-        int projectId,
-        int clientId,
-        int? countryId,
-        DateTime date,
+    public async Task<IReadOnlyList<TimesheetWeekendSetup>> GetWeekendSetupsForOrganizationsAsync(
+        IReadOnlyCollection<int> organizationIds,
         CancellationToken cancellationToken = default) =>
-        // The query filter hides deleted holidays. HolidayDate is a date
-        // column, so the day compares exactly.
-        await _db.TimesheetHolidaysetup
+        organizationIds.Count == 0
+            ? Array.Empty<TimesheetWeekendSetup>()
+            // The query filter hides deleted setups. Ordered by id so the
+            // caller's "lowest id wins" tie-break needs no second sort.
+            : await _db.TimeSheet_Weekend_setup
+                .AsNoTracking()
+                .Where(setup => organizationIds.Contains(setup.OrganizationId))
+                .OrderBy(setup => setup.TimeSheetWeekendSetupId)
+                .ToListAsync(cancellationToken);
+
+    public async Task<IReadOnlyList<TimesheetHolidaySetup>> GetHolidaysForOrganizationsAsync(
+        IReadOnlyCollection<int> organizationIds,
+        DateTime fromDate,
+        DateTime toDate,
+        CancellationToken cancellationToken = default) =>
+        organizationIds.Count == 0
+            ? Array.Empty<TimesheetHolidaySetup>()
+            // The query filter hides deleted holidays. HolidayDate is a date
+            // column, so both bounds compare exactly.
+            : await _db.TimesheetHolidaysetup
+                .AsNoTracking()
+                .Where(holiday => holiday.OrganizationId != null
+                                  && organizationIds.Contains(holiday.OrganizationId.Value)
+                                  && holiday.HolidayDate != null
+                                  && holiday.HolidayDate >= fromDate.Date
+                                  && holiday.HolidayDate <= toDate.Date)
+                .OrderBy(holiday => holiday.TimesheetHolidaySetupId)
+                .ToListAsync(cancellationToken);
+
+    public async Task<DateTime?> GetProjectTimeLogEarliestDateAsync(
+        int userId,
+        int projectId,
+        CancellationToken cancellationToken = default) =>
+        // MIN in the database, not a row fetched and read in memory. The query
+        // filter drops deleted entries, so a user whose every entry was removed
+        // starts again from nothing.
+        await _db.TimesheetProjectTimeLog
             .AsNoTracking()
-            .Where(holiday => holiday.HolidayDate == date.Date
-                              && holiday.OrganizationId == organizationId
-                              && (holiday.CountryId == null || holiday.CountryId == countryId)
-                              && (holiday.ClientId == null || holiday.ClientId == clientId)
-                              && (holiday.ProjectId == null || holiday.ProjectId == projectId))
-            .OrderBy(holiday => holiday.TimesheetHolidaySetupId)
-            .FirstOrDefaultAsync(cancellationToken);
+            .Where(timeLog => timeLog.UserId == userId && timeLog.ProjectId == projectId)
+            .MinAsync(timeLog => (DateTime?)timeLog.LogDate, cancellationToken);
+
+    public async Task<IReadOnlyList<ProjectSubmittedPeriod>> GetProjectSubmissionPeriodsAsync(
+        int userId,
+        int projectId,
+        CancellationToken cancellationToken = default) =>
+        // Two columns, projected in SQL: the status is deliberately not read,
+        // because a period is accounted for once a row exists for it, whatever
+        // that row says. The query filter drops deleted rows.
+        await _db.TimesheetProjectSubmission
+            .AsNoTracking()
+            .Where(submission => submission.UserId == userId && submission.ProjectId == projectId)
+            .OrderBy(submission => submission.PeriodStartDate)
+            .Select(submission => new ProjectSubmittedPeriod
+            {
+                PeriodStartDate = submission.PeriodStartDate,
+                PeriodEndDate = submission.PeriodEndDate
+            })
+            .ToListAsync(cancellationToken);
 }

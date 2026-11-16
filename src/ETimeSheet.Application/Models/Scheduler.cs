@@ -182,6 +182,7 @@ public sealed record ProjectSheetSubmissionRow(
     int ProjectId,
     int UserId,
     DateTime PeriodStartDate,
+    DateTime PeriodEndDate,
     string SheetSubmissionCode);
 
 /// <summary>
@@ -206,26 +207,29 @@ public sealed record AutoApproveCandidate(
 public sealed record UserName(int UserId, string Name);
 
 /// <summary>
-/// A user's working week and daily time, from their live
-/// <c>dbo.TimesheetMasterSetup</c> (the lowest <c>SetupID</c>) - what the
-/// approver reminder's expected hours are worked out from.
+/// One user's daily hour cap on one project, from their live
+/// <c>dbo.Timesheet_Users_Project_setup</c> row (the lowest
+/// <c>TimesheetUserProjectSetupID</c> when a user is on a project twice) -
+/// what the approver reminder's expected hours are worked out from.
+/// <para>
+/// The cap is per user <b>and</b> project, so the same person can be expected
+/// to give a different number of hours to each project they are on.
+/// <c>dbo.TimesheetMasterSetup</c> is deliberately not used: it belongs to the
+/// timesheet module, not the project module, and these reminders are about a
+/// project.
+/// </para>
 /// </summary>
-public class WorkingWeekSetup
+public class ProjectDailyHourCap
 {
     public int SetupId { get; set; }
 
     public int UserId { get; set; }
 
-    /// <summary>First working day, a <c>dbo.DayMaster_Lookup.DayID</c>.</summary>
-    public int? StartDay { get; set; }
+    public int ProjectId { get; set; }
 
-    /// <summary>Last working day, a <c>dbo.DayMaster_Lookup.DayID</c>.</summary>
-    public int? EndDay { get; set; }
-
-    /// <summary>An extra working day outside <see cref="StartDay"/>..<see cref="EndDay"/>.</summary>
-    public int? ExceptionDay { get; set; }
-
-    public TimeSpan? MaxTimeInHrs { get; set; }
-
-    public TimeSpan? MaxTimInMins { get; set; }
+    /// <summary>
+    /// <c>Max_log_hour_day</c> - whole hours a day. Null when the setup states
+    /// no cap, and the expectation is then shown as unknown rather than zero.
+    /// </summary>
+    public int? MaxLogHoursPerDay { get; set; }
 }

@@ -88,14 +88,17 @@ public interface ISchedulerRepository
     /// <summary>
     /// Returns the live <c>dbo.TimesheetProjectSubmission</c> rows of
     /// <paramref name="projectIds"/> with status <paramref name="statusId"/>
-    /// whose period starts <paramref name="fromDate"/> to
-    /// <paramref name="toDate"/> inclusive. Untracked.
+    /// whose period ended before <paramref name="beforeDate"/>. Untracked.
+    /// <para>
+    /// There is no earliest bound: a sheet that has sat Submitted since last
+    /// year is still waiting for its approver, and the reminder is supposed to
+    /// keep saying so.
+    /// </para>
     /// </summary>
-    Task<IReadOnlyList<ProjectSheetSubmissionRow>> GetProjectSubmissionsAsync(
+    Task<IReadOnlyList<ProjectSheetSubmissionRow>> GetProjectSubmissionsEndedBeforeAsync(
         IReadOnlyCollection<int> projectIds,
         int statusId,
-        DateTime fromDate,
-        DateTime toDate,
+        DateTime beforeDate,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -136,12 +139,14 @@ public interface ISchedulerRepository
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Returns the working week and daily time of each of
-    /// <paramref name="userIds"/>: their live <c>dbo.TimesheetMasterSetup</c>,
-    /// the lowest <c>SetupID</c> when there are several. A user with no live
-    /// setup is absent. Untracked.
+    /// Returns the daily hour cap of each of <paramref name="userIds"/> on each
+    /// of <paramref name="projectIds"/>: their live
+    /// <c>dbo.Timesheet_Users_Project_setup</c> row, the lowest
+    /// <c>TimesheetUserProjectSetupID</c> when a user is on one project twice.
+    /// A user with no live row on a project is absent. Untracked.
     /// </summary>
-    Task<IReadOnlyList<WorkingWeekSetup>> GetWorkingWeekSetupsAsync(
+    Task<IReadOnlyList<ProjectDailyHourCap>> GetProjectDailyHourCapsAsync(
+        IReadOnlyCollection<int> projectIds,
         IReadOnlyCollection<int> userIds,
         CancellationToken cancellationToken = default);
 }
