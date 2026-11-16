@@ -2282,6 +2282,8 @@ public class TimesheetProjectService : ITimesheetProjectService
                 request.IsLeaveAssignmentUser,
                 request.IsLeaveApproveReject,
                 request.IsReportView,
+                request.IsWeekendSetup,
+                request.IsHolidaySetup,
                 request.LoginUserId,
                 _dateTimeProvider.UtcNow,
                 cancellationToken)

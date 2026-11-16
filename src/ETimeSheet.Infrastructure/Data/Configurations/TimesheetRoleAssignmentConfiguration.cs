@@ -55,6 +55,10 @@ public class TimesheetRoleAssignmentConfiguration : IEntityTypeConfiguration<Tim
 
         builder.Property(assignment => assignment.IsReportView).HasColumnName("Mod_IsReportView");
 
+        builder.Property(assignment => assignment.IsWeekendSetup).HasColumnName("Mod_IsWeekendSetup");
+
+        builder.Property(assignment => assignment.IsHolidaySetup).HasColumnName("Mod_IsHolidaysetup");
+
         builder.Property(assignment => assignment.CreateDate)
             .HasColumnName("CreateDate")
             .HasColumnType("datetime");

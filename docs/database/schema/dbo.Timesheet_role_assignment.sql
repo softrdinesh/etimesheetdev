@@ -9,6 +9,8 @@
               Mod_IsLeaveAssignmentUser, Mod_IsLeaveApproveReject and
               Mod_IsReportView, all bit NULL, added after Mod_IsViewTimesheet
               by the database owner)
+    Revised:  2026-11-16 (Mod_IsWeekendSetup and Mod_IsHolidaysetup, both bit
+              NULL, added as the last two columns by the database owner)
 
     Which modules of the application a user may use - one bit per module -
     with audit columns.
@@ -49,6 +51,8 @@
           Mod_IsLeaveAssignmentUser
           Mod_IsLeaveApproveReject
           Mod_IsReportView
+          Mod_IsWeekendSetup     (added 2026-11-16, with the one below)
+          Mod_IsHolidaysetup     (lower-case "setup")
         Map each one by its exact name. 1 presumably grants the module; all
         are nullable, so a module may be neither granted nor refused.
       - Audit columns are irregularly cased too: Updatedby (lower-case "by"),
@@ -94,6 +98,8 @@ CREATE TABLE dbo.Timesheet_role_assignment
     Mod_IsLeaveSetup            bit     NULL,
     Mod_IsLeaveAssignmentUser   bit     NULL,
     Mod_IsLeaveApproveReject    bit     NULL,
-    Mod_IsReportView            bit     NULL
+    Mod_IsReportView            bit     NULL,
+    Mod_IsWeekendSetup          bit     NULL,
+    Mod_IsHolidaysetup          bit     NULL
 );
 GO

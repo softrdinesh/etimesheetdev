@@ -488,6 +488,8 @@ public interface ITimesheetProjectRepository
         bool isLeaveAssignmentUser,
         bool isLeaveApproveReject,
         bool isReportView,
+        bool isWeekendSetup,
+        bool isHolidaySetup,
         int loginUserId,
         DateTime now,
         CancellationToken cancellationToken = default);

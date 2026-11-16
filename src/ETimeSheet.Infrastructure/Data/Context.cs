@@ -1076,7 +1076,7 @@ public class Context : DbContext
             assignment.ToView(null);
 
             // Aliased by the procedure: Signup.Name AS UserName, the Mod_
-            // columns AS IsClientSetup .. IsReportView, Updatedby AS UpdatedBy.
+            // columns AS IsClientSetup .. IsHolidaySetup, Updatedby AS UpdatedBy.
             assignment.Property(row => row.AssignmentId).HasColumnName("AssignmentID");
             assignment.Property(row => row.UserId).HasColumnName("UserID");
             assignment.Property(row => row.UserName).HasColumnName("UserName");
@@ -1096,6 +1096,8 @@ public class Context : DbContext
             assignment.Property(row => row.IsLeaveAssignmentUser).HasColumnName("IsLeaveAssignmentUser");
             assignment.Property(row => row.IsLeaveApproveReject).HasColumnName("IsLeaveApproveReject");
             assignment.Property(row => row.IsReportView).HasColumnName("IsReportView");
+            assignment.Property(row => row.IsWeekendSetup).HasColumnName("IsWeekendSetup");
+            assignment.Property(row => row.IsHolidaySetup).HasColumnName("IsHolidaySetup");
             assignment.Property(row => row.CreateDate).HasColumnName("CreateDate").HasColumnType("datetime");
             assignment.Property(row => row.CreatedBy).HasColumnName("CreatedBy");
             assignment.Property(row => row.UpdatedDate).HasColumnName("UpdatedDate").HasColumnType("datetime");
@@ -1127,6 +1129,8 @@ public class Context : DbContext
             assignment.Property(row => row.IsLeaveAssignmentUser).HasColumnName("IsLeaveAssignmentUser");
             assignment.Property(row => row.IsLeaveApproveReject).HasColumnName("IsLeaveApproveReject");
             assignment.Property(row => row.IsReportView).HasColumnName("IsReportView");
+            assignment.Property(row => row.IsWeekendSetup).HasColumnName("IsWeekendSetup");
+            assignment.Property(row => row.IsHolidaySetup).HasColumnName("IsHolidaySetup");
             assignment.Property(row => row.CreateDate).HasColumnName("CreateDate").HasColumnType("datetime");
             assignment.Property(row => row.CreatedBy).HasColumnName("CreatedBy");
             assignment.Property(row => row.UpdatedDate).HasColumnName("UpdatedDate").HasColumnType("datetime");

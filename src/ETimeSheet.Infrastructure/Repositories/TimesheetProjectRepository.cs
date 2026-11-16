@@ -592,6 +592,8 @@ public class TimesheetProjectRepository : ITimesheetProjectRepository
         bool isLeaveAssignmentUser,
         bool isLeaveApproveReject,
         bool isReportView,
+        bool isWeekendSetup,
+        bool isHolidaySetup,
         int loginUserId,
         DateTime now,
         CancellationToken cancellationToken = default)
@@ -617,6 +619,8 @@ public class TimesheetProjectRepository : ITimesheetProjectRepository
                 @PIsLeaveAssignmentUser = {isLeaveAssignmentUser},
                 @PIsLeaveApproveReject = {isLeaveApproveReject},
                 @PIsReportView = {isReportView},
+                @PIsWeekendSetup = {isWeekendSetup},
+                @PIsHolidaySetup = {isHolidaySetup},
                 @PLoginUserID = {loginUserId},
                 @PDate = {now}")
             .ToListAsync(cancellationToken);
