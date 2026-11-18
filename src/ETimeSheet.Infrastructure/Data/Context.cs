@@ -209,6 +209,12 @@ public class Context : DbContext
     /// </summary>
     public DbSet<TimesheetProjectSubmissionAuditLog> TimesheetProjectSubmissionAuditLog { get; set; } = null!;
 
+    /// <summary>
+    /// The <c>dbo.TimesheetUserSelfieAttendance</c> table - one row per
+    /// selfie check-in / check-out session. No soft delete, so no query filter.
+    /// </summary>
+    public DbSet<TimesheetUserSelfieAttendance> TimesheetUserSelfieAttendance { get; set; } = null!;
+
     // =====================================================================
     // STORED PROCEDURES  -  property name == procedure name
     //

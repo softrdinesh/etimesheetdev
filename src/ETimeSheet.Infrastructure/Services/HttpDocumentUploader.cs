@@ -135,6 +135,98 @@ public class HttpDocumentUploader : IDocumentUploader
         return answer.Path.Trim();
     }
 
+    public async Task<string> UploadUserPictureAsync(
+        int projectId,
+        Stream content,
+        string fileName,
+        string? contentType,
+        CancellationToken cancellationToken = default)
+    {
+        using var form = new MultipartFormDataContent();
+        using var file = new StreamContent(content);
+
+        if (!string.IsNullOrWhiteSpace(contentType)
+            && MediaTypeHeaderValue.TryParse(contentType, out var mediaType))
+        {
+            file.Headers.ContentType = mediaType;
+        }
+
+        form.Add(file, FilePartName, fileName);
+
+        string body;
+
+        try
+        {
+            using var response = await _httpClient.PostAsync(
+                ExternalServiceEndpoints.Upload.UploadUserPictureFor(projectId),
+                form,
+                cancellationToken);
+
+            body = await response.Content.ReadAsStringAsync(cancellationToken);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                // The body goes to the log, not to the caller: it is the
+                // service's, and may describe its internals.
+                _logger.LogWarning(
+                    "User picture upload for project {ProjectId} failed: {StatusCode} {Reason}. Body: {Body}",
+                    projectId,
+                    (int)response.StatusCode,
+                    response.ReasonPhrase,
+                    body);
+
+                throw new ExternalServiceException(
+                    $"The document service refused the picture ({(int)response.StatusCode} {response.ReasonPhrase}).");
+            }
+        }
+        catch (HttpRequestException exception)
+        {
+            throw new ExternalServiceException("The document service could not be reached.", exception);
+        }
+        catch (TaskCanceledException exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            // HttpClient reports its own timeout as a cancellation; only a
+            // cancellation the caller asked for is allowed to propagate.
+            throw new ExternalServiceException(
+                $"The document service did not answer within {_settings.TimeoutSeconds} seconds.",
+                exception);
+        }
+
+        UploadResponse? answer;
+
+        try
+        {
+            answer = JsonSerializer.Deserialize<UploadResponse>(body, ResponseOptions);
+        }
+        catch (JsonException exception)
+        {
+            // The body is not logged here: a successful answer carries a
+            // pre-signed URL, which grants access to the file until it expires.
+            _logger.LogWarning(
+                "User picture upload for project {ProjectId} answered with a body that is not JSON ({Length} characters).",
+                projectId,
+                body.Length);
+
+            throw new ExternalServiceException("The document service answered in a format this API does not understand.", exception);
+        }
+
+        // A 200 that says success: false, or that carries no path, is still a
+        // failed upload - there is nothing to store.
+        if (answer is not { Success: true } || string.IsNullOrWhiteSpace(answer.Path))
+        {
+            _logger.LogWarning(
+                "User picture upload for project {ProjectId} did not succeed: success {Success}, message {Message}.",
+                projectId,
+                answer?.Success,
+                answer?.Message);
+
+            throw new ExternalServiceException(
+                "The document service did not accept the picture, or did not say where it was stored.");
+        }
+
+        return answer.Path.Trim();
+    }
+
     /// <summary>The service's answer to an upload.</summary>
     private sealed class UploadResponse
     {

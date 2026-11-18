@@ -62,4 +62,18 @@ public class TimesheetProjectTimeLog
     /// log never said.
     /// </summary>
     public bool? IsRemoteLog { get; set; }
+
+    /// <summary>
+    /// The <c>IsLoggedFromMobile</c> column - an <c>int</c>, NULL allowed:
+    /// 1 = logged from the mobile app, 0 = not. Written as 1 by the selfie
+    /// check-out only; no endpoint returns it.
+    /// </summary>
+    public int? IsLoggedFromMobile { get; set; }
+
+    /// <summary>
+    /// The <c>AttendanceID</c> column - an <c>int</c>, NULL allowed: the
+    /// <c>dbo.TimesheetUserSelfieAttendance</c> session this time was logged against.
+    /// No foreign key. Written by the selfie check-out only; no endpoint returns it.
+    /// </summary>
+    public int? AttendanceId { get; set; }
 }

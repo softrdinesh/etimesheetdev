@@ -19,6 +19,8 @@
     client receives. Reordering is a contract change, not a tidy-up.
 */
 
+using Microsoft.AspNetCore.Http;
+
 namespace ETimeSheet.Application.Models;
 
 /// <summary>
@@ -3426,4 +3428,128 @@ public class ProjectSubmittedPeriod
     public DateTime PeriodStartDate { get; set; }
 
     public DateTime PeriodEndDate { get; set; }
+}
+
+/// <summary>
+/// Body of <c>time-sheet-project-check-in-by-selfie</c>, sent as
+/// <c>multipart/form-data</c>: the selfie that opens a user's session on a
+/// project. The time is the server's clock when the selfie arrives. Validated
+/// by <c>TimesheetProjectService</c>.
+/// </summary>
+public class TimesheetProjectSelfieCheckInRequest
+{
+    /// <summary>
+    /// The user taking the selfie. Required, greater than 0. Also written to
+    /// <c>CreatedBy</c> / <c>UpdatedBy</c>. <b>Temporary</b>: it comes from the
+    /// token once authentication is on.
+    /// </summary>
+    /// <example>7</example>
+    public int UserId { get; set; }
+
+    /// <summary>A project the user is assigned to. Required, greater than 0.</summary>
+    /// <example>12</example>
+    public int ProjectId { get; set; }
+
+    /// <summary>The selfie, an image file. Required and not empty.</summary>
+    public IFormFile? Selfie { get; set; }
+
+    /// <summary>Where the device is, as text. Optional, at most 500 characters.</summary>
+    /// <example>23.022505</example>
+    public string? Latitude { get; set; }
+
+    /// <summary>Where the device is, as text. Optional, at most 500 characters.</summary>
+    /// <example>72.571365</example>
+    public string? Longitude { get; set; }
+}
+
+/// <summary>
+/// Body of <c>time-sheet-project-check-out-by-selfie</c>, sent as
+/// <c>multipart/form-data</c>: the selfie that closes the session the user
+/// checked in today, and logs its time. The time is the server's clock when
+/// the selfie arrives. Validated by <c>TimesheetProjectService</c>.
+/// </summary>
+public class TimesheetProjectSelfieCheckOutRequest
+{
+    /// <summary>
+    /// The user taking the selfie. Required, greater than 0. Also written to
+    /// <c>CreatedBy</c> / <c>UpdatedBy</c>. <b>Temporary</b>: it comes from the
+    /// token once authentication is on.
+    /// </summary>
+    /// <example>7</example>
+    public int UserId { get; set; }
+
+    /// <summary>The project of today's check-in. Required, greater than 0.</summary>
+    /// <example>12</example>
+    public int ProjectId { get; set; }
+
+    /// <summary>The selfie, an image file. Required and not empty.</summary>
+    public IFormFile? Selfie { get; set; }
+
+    /// <summary>Where the device is, as text. Optional, at most 500 characters.</summary>
+    /// <example>23.022505</example>
+    public string? Latitude { get; set; }
+
+    /// <summary>Where the device is, as text. Optional, at most 500 characters.</summary>
+    /// <example>72.571365</example>
+    public string? Longitude { get; set; }
+
+    /// <summary>What was done. Optional: it becomes the description of the time log entry.</summary>
+    /// <example>Site visit</example>
+    public string? Description { get; set; }
+}
+
+/// <summary>
+/// The attendance session after a selfie check-in or check-out, and on a
+/// check-out the time log entry it wrote.
+/// </summary>
+public class TimesheetProjectTimeBySelfieResponse
+{
+    /// <summary>The session, <c>dbo.TimesheetUserSelfieAttendance.AttendanceID</c>.</summary>
+    /// <example>1001</example>
+    public long AttendanceId { get; set; }
+
+    /// <summary><c>CheckIn</c> when this selfie opened the session, <c>CheckOut</c> when it closed it.</summary>
+    /// <example>CheckOut</example>
+    public string Action { get; set; } = string.Empty;
+
+    /// <example>7</example>
+    public int UserId { get; set; }
+
+    /// <example>12</example>
+    public int ProjectId { get; set; }
+
+    /// <example>3</example>
+    public int OrganizationId { get; set; }
+
+    /// <summary>When the session was checked in, in UTC.</summary>
+    public DateTime CheckInDateTimeUtc { get; set; }
+
+    /// <summary>Where the check-in selfie is stored.</summary>
+    public string CheckInSelfiePath { get; set; } = string.Empty;
+
+    public string? CheckInLatitude { get; set; }
+
+    public string? CheckInLongitude { get; set; }
+
+    /// <summary>When the session was checked out, in UTC. Null after a check-in.</summary>
+    public DateTime? CheckOutDateTimeUtc { get; set; }
+
+    /// <summary>Where the check-out selfie is stored. Null after a check-in.</summary>
+    public string? CheckOutSelfiePath { get; set; }
+
+    public string? CheckOutLatitude { get; set; }
+
+    public string? CheckOutLongitude { get; set; }
+
+    /// <summary>The session's length in whole minutes. Null after a check-in.</summary>
+    /// <example>485</example>
+    public int? LoggedMinutes { get; set; }
+
+    /// <summary>
+    /// The time log entry the check-out wrote, exactly as
+    /// <c>add-edit-timesheet-project-time-log</c> returns one. Null after a
+    /// check-in, and after a check-out under 30 minutes, which rounds to no
+    /// whole hour.
+    /// </summary>
+    public TimesheetProjectTimeLogResponse? TimeLog { get; set; }
 }

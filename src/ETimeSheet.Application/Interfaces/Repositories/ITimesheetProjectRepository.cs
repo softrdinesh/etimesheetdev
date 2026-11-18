@@ -1051,4 +1051,24 @@ public interface ITimesheetProjectRepository
         int userId,
         int projectId,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The user's open selfie attendance session - checked in, not yet checked
+    /// out - <b>tracked</b>, so a check-out can be saved onto it. The newest
+    /// when, against the rules, there is more than one. Null when none is open.
+    /// </summary>
+    Task<TimesheetUserSelfieAttendance?> GetOpenSelfieAttendanceForUpdateAsync(
+        int userId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Saves a selfie attendance session - adding it when it is new - and, on
+    /// a check-out, adds <paramref name="timeLog"/> with it, in one save: the
+    /// session is never closed without its time log, nor the time logged
+    /// without the session closed.
+    /// </summary>
+    Task<TimesheetUserSelfieAttendance> SaveSelfieAttendanceAsync(
+        TimesheetUserSelfieAttendance attendance,
+        TimesheetProjectTimeLog? timeLog,
+        CancellationToken cancellationToken = default);
 }

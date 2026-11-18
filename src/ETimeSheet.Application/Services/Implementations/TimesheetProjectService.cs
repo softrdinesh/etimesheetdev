@@ -9,8 +9,10 @@ using ETimeSheet.Application.Models;
 using ETimeSheet.Application.Models.Entities;
 using ETimeSheet.Application.Services.Interfaces;
 using ETimeSheet.Shared.Configuration;
+using ETimeSheet.Shared.Constants;
 using ETimeSheet.Shared.Exceptions;
 using ETimeSheet.Shared.Utilities;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -92,6 +94,17 @@ public class TimesheetProjectService : ITimesheetProjectService
     /// </summary>
     private const int TimeLogDisabled = 1;
 
+    // dbo.TimesheetUserSelfieAttendance: the selfie paths and the coordinates
+    // are all nvarchar(500).
+    private const int SelfieAttendanceTextMaximumLength = 500;
+
+    // dbo.TimesheetProjectTimeLog.IsLoggedFromMobile: 1 = logged from the app.
+    private const int LoggedFromMobile = 1;
+
+    private const string SelfieCheckIn = "CheckIn";
+
+    private const string SelfieCheckOut = "CheckOut";
+
     /// <summary>The welcome email for a new account, in <c>Infrastructure/Assets/EmailTemplates/</c>.</summary>
     private const string WelcomeEmailTemplateName = "WelcomeUserTemplate.html";
 
@@ -109,6 +122,7 @@ public class TimesheetProjectService : ITimesheetProjectService
     private readonly IDateTimeProvider _dateTimeProvider;
     private readonly IEmailSender _emailSender;
     private readonly IEmailTemplateStore _emailTemplateStore;
+    private readonly IDocumentUploader _documentUploader;
     private readonly WelcomeEmailSettings _welcomeEmailSettings;
     private readonly DefaultPasswordSettings _defaultPasswordSettings;
     private readonly ILogger<TimesheetProjectService> _logger;
@@ -118,6 +132,7 @@ public class TimesheetProjectService : ITimesheetProjectService
         IDateTimeProvider dateTimeProvider,
         IEmailSender emailSender,
         IEmailTemplateStore emailTemplateStore,
+        IDocumentUploader documentUploader,
         IOptions<WelcomeEmailSettings> welcomeEmailSettings,
         IOptions<DefaultPasswordSettings> defaultPasswordSettings,
         ILogger<TimesheetProjectService> logger)
@@ -126,6 +141,7 @@ public class TimesheetProjectService : ITimesheetProjectService
         _dateTimeProvider = dateTimeProvider;
         _emailSender = emailSender;
         _emailTemplateStore = emailTemplateStore;
+        _documentUploader = documentUploader;
         _welcomeEmailSettings = welcomeEmailSettings.Value;
         _defaultPasswordSettings = defaultPasswordSettings.Value;
         _logger = logger;
@@ -2769,6 +2785,134 @@ public class TimesheetProjectService : ITimesheetProjectService
             ProjectSheetStatus.NameOf(savedStatusId));
     }
 
+    /// <summary>
+    /// Everything about one user's day on one project that decides whether
+    /// time may be logged there, and where it goes: the project's
+    /// organisation, the submission period the day is in, that period's sheet
+    /// if it has one, and the calendar block whose sheet code it shares.
+    /// </summary>
+    private sealed record ProjectTimeLogDay(
+        int OrganizationId,
+        DateTime PeriodStartDate,
+        DateTime PeriodEndDate,
+        TimesheetProjectSubmission? Submission,
+        DateTime BlockStartDate,
+        DateTime BlockEndDate);
+
+    /// <summary>
+    /// The rules that decide whether <paramref name="userId"/> may log time on
+    /// <paramref name="projectId"/> on <paramref name="logDate"/>, for the
+    /// selfie check-in and check-out: the same checks, in the same order, as
+    /// <see cref="SaveProjectTimeLogAsync"/> makes inline, so time logged by
+    /// selfie is held to the same rules as time logged on the web.
+    /// </summary>
+    /// <param name="logDateField">The request field a date failure is reported against.</param>
+    /// <exception cref="ValidationException">
+    /// No such project, the user is not on it, or the day is outside its dates.
+    /// </exception>
+    /// <exception cref="BusinessException">
+    /// The project has no submission setup, time logging is disabled, the day
+    /// is leave, a weekend day or a holiday, or its period is submitted or
+    /// approved.
+    /// </exception>
+    private async Task<ProjectTimeLogDay> RequireProjectTimeLogDayAsync(
+        int userId,
+        int projectId,
+        DateTime logDate,
+        string logDateField,
+        CancellationToken cancellationToken)
+    {
+        var project = await _timesheetProjectRepository.GetByIdAsync(projectId, cancellationToken)
+            ?? throw new ValidationException(
+                nameof(TimesheetProjectTimeLogSaveRequest.ProjectId),
+                $"Project '{projectId}' does not exist.");
+
+        // The start date and frequency give the submission period the day is
+        // in, and so its sheet code; OrganizationID is NOT NULL on the time log.
+        var (projectStartDate, submissionFrequency, organizationId) = RequireSubmissionSetup(project);
+
+        if (logDate < projectStartDate)
+        {
+            throw new ValidationException(
+                logDateField,
+                $"LogDate must not be before the project's start date, {projectStartDate:yyyy-MM-dd}.");
+        }
+
+        if (project.EndDate is { } projectEndDate && logDate > projectEndDate.Date)
+        {
+            throw new ValidationException(
+                logDateField,
+                $"LogDate must not be after the project's end date, {projectEndDate:yyyy-MM-dd}.");
+        }
+
+        // One read of the assignment, which answers two questions: is the user
+        // on this project at all, and has an administrator blocked their time
+        // logging on it.
+        var assignment = await _timesheetProjectRepository.GetUserProjectSetupAsync(
+                userId,
+                projectId,
+                cancellationToken)
+            ?? throw new ValidationException(
+                nameof(TimesheetProjectTimeLogSaveRequest.ProjectId),
+                $"User '{userId}' is not assigned to project '{projectId}'.");
+
+        RequireTimeLogIsEnabled(assignment, userId, projectId);
+
+        // No time on a day off - whenever it is logged, before or after.
+        await RequireNotOnLeaveAsync(userId, logDate, cancellationToken);
+
+        // The calendar of the block this day falls in - its weekend days and
+        // the holidays covering this user - which is what trims the period.
+        var user = await _timesheetProjectRepository.GetUserByIdAsync(userId, cancellationToken);
+        var (blockStart, blockEnd) = ProjectSubmissionPeriod.BlockOf(logDate, submissionFrequency);
+
+        var calendar = await ProjectCalendarAsync(
+            project,
+            organizationId,
+            user?.CountryId,
+            blockStart,
+            blockEnd,
+            cancellationToken);
+
+        // A weekend day or a holiday belongs to no period, so time logged there
+        // would sit on no sheet.
+        RequireWorkingDay(calendar, logDate);
+
+        var (periodStartDate, periodEndDate) = RequirePeriod(
+            logDate,
+            projectStartDate,
+            project.EndDate,
+            submissionFrequency,
+            calendar);
+
+        // A submitted or approved period is closed; a rejected one is open
+        // again, and changing it leaves its sheet as it is until resubmitted.
+        var submission = await _timesheetProjectRepository.GetProjectSubmissionForDateAsync(
+            userId,
+            projectId,
+            logDate,
+            cancellationToken);
+
+        RequireProjectSheetIsOpen(submission);
+
+        // The code is shared across the whole calendar block, not just the
+        // trimmed period: an entry written before a day became a weekend day
+        // still belongs to that week's sheet and already carries its code.
+        var (blockStartDate, blockEndDate) = ProjectSubmissionPeriod.ClippedBlockOf(
+            logDate,
+            projectStartDate,
+            project.EndDate,
+            submissionFrequency);
+
+        return new ProjectTimeLogDay(
+            organizationId,
+            periodStartDate,
+            periodEndDate,
+            submission,
+            blockStartDate,
+            blockEndDate);
+    }
+
     public async Task DeleteProjectTimeLogAsync(
         TimesheetProjectTimeLogDeleteRequest request,
         CancellationToken cancellationToken = default)
@@ -3006,6 +3150,28 @@ public class TimesheetProjectService : ITimesheetProjectService
         }
 
         return EmployeeClock.At(_dateTimeProvider.UtcNow, zone);
+    }
+
+    /// <summary>
+    /// The time zone of the user's timesheet setup, or <see langword="null"/>
+    /// for UTC - the zone <see cref="ClockForUserAsync"/> reads, for the
+    /// selfie flow, which needs it for a past instant as well as for now.
+    /// </summary>
+    private async Task<TimeZoneInfo?> TimeZoneForUserAsync(int userId, CancellationToken cancellationToken)
+    {
+        var timeZone = await _timesheetProjectRepository.GetUserTimeZoneAsync(userId, cancellationToken);
+        var zone = EmployeeClock.FindZone(timeZone);
+
+        if (zone is null && !string.IsNullOrWhiteSpace(timeZone))
+        {
+            _logger.LogWarning(
+                "Timesheet setup of user {UserId} names time zone {TimeZone}, which this system does not " +
+                "recognise. Project timesheet periods are judged on UTC.",
+                userId,
+                timeZone);
+        }
+
+        return zone;
     }
 
     /// <summary>
@@ -5150,4 +5316,319 @@ public class TimesheetProjectService : ITimesheetProjectService
     }
 
     #endregion
+
+    public async Task<TimesheetProjectTimeBySelfieResponse> CheckInProjectTimeBySelfieAsync(
+        TimesheetProjectSelfieCheckInRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var (latitude, longitude) = RequireValidSelfiePayload(
+            request.UserId,
+            request.ProjectId,
+            request.Selfie,
+            request.Latitude,
+            request.Longitude);
+
+        var now = _dateTimeProvider.UtcNow;
+        var zone = await TimeZoneForUserAsync(request.UserId, cancellationToken);
+        var today = EmployeeClock.At(now, zone).Today;
+
+        // One open session a day: a second check-in before checking out would
+        // leave two sessions racing for the same check-out. A session left open
+        // on an earlier day does not block today's check-in - it can no
+        // longer be checked out, since check-out is same-day only.
+        var openSession = await _timesheetProjectRepository.GetOpenSelfieAttendanceForUpdateAsync(
+            request.UserId,
+            cancellationToken);
+
+        if (openSession is not null && EmployeeClock.At(openSession.CheckInDateTimeUtc, zone).Today == today)
+        {
+            throw new BusinessException(
+                $"You are already checked in on project '{openSession.ProjectId}' since " +
+                $"{openSession.CheckInDateTimeUtc:yyyy-MM-dd HH:mm} UTC. Check out before checking in again.");
+        }
+
+        // The day is held to the time log's rules now, so the user learns at
+        // check-in - not after a day's work - that the time could not be
+        // logged. Checked before the upload, so a refused check-in leaves no
+        // file behind. Nothing is written to the time log here.
+        var day = await RequireProjectTimeLogDayAsync(
+            request.UserId,
+            request.ProjectId,
+            today,
+            nameof(TimesheetProjectTimeLogSaveRequest.LogDate),
+            cancellationToken);
+
+        var selfiePath = await UploadSelfieAsync(request.Selfie!, request.UserId, request.ProjectId, cancellationToken);
+
+        var attendance = new TimesheetUserSelfieAttendance
+        {
+            UserId = request.UserId,
+            ProjectId = request.ProjectId,
+            OrganizationId = day.OrganizationId,
+            CheckInDateTimeUtc = now,
+            CheckInSelfiePath = selfiePath,
+            CheckInLatitude = latitude,
+            CheckInLongitude = longitude,
+            CreateDate = now,
+            CreatedBy = request.UserId,
+        };
+
+        var saved = await _timesheetProjectRepository.SaveSelfieAttendanceAsync(attendance, null, cancellationToken);
+
+        _logger.LogInformation(
+            "Selfie attendance {AttendanceId} checked in for user {UserId} on project {ProjectId}.",
+            saved.AttendanceId,
+            saved.UserId,
+            saved.ProjectId);
+
+        return saved.ToTimeBySelfieResponse(SelfieCheckIn, null);
+    }
+
+    public async Task<TimesheetProjectTimeBySelfieResponse> CheckOutProjectTimeBySelfieAsync(
+        TimesheetProjectSelfieCheckOutRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var (latitude, longitude) = RequireValidSelfiePayload(
+            request.UserId,
+            request.ProjectId,
+            request.Selfie,
+            request.Latitude,
+            request.Longitude);
+
+        var now = _dateTimeProvider.UtcNow;
+        var zone = await TimeZoneForUserAsync(request.UserId, cancellationToken);
+        var today = EmployeeClock.At(now, zone).Today;
+
+        // Only a session checked in today, in the user's time zone, can be
+        // checked out - so the time always lands on the day it was worked.
+        var attendance = await _timesheetProjectRepository.GetOpenSelfieAttendanceForUpdateAsync(
+            request.UserId,
+            cancellationToken);
+
+        if (attendance is null || EmployeeClock.At(attendance.CheckInDateTimeUtc, zone).Today != today)
+        {
+            throw new BusinessException(
+                $"You have not checked in today ({today:yyyy-MM-dd}), so you cannot check out. Check in first.");
+        }
+
+        if (attendance.ProjectId != request.ProjectId)
+        {
+            throw new BusinessException(
+                $"You are checked in on project '{attendance.ProjectId}', not '{request.ProjectId}'. Check out " +
+                "on the project you checked in on.");
+        }
+
+        // Whole minutes; a clock that went backwards is never a negative session.
+        var loggedMinutes = Math.Max(0, (int)Math.Floor((now - attendance.CheckInDateTimeUtc).TotalMinutes));
+        var hoursLogged = (int)Math.Round(loggedMinutes / 60m, MidpointRounding.AwayFromZero);
+        var logDate = today;
+
+        TimesheetProjectTimeLog? timeLog = null;
+        ProjectTimeLogDay? day = null;
+
+        // Less than half an hour rounds to no hours: the session closes, and
+        // nothing is logged, since the time log holds whole hours above 0.
+        if (hoursLogged > 0)
+        {
+            // dbo.TimesheetProjectTimeLog.AttendanceID is int, the session id bigint.
+            if (attendance.AttendanceId > int.MaxValue)
+            {
+                throw new BusinessException(
+                    $"Attendance '{attendance.AttendanceId}' is too large for the time log's AttendanceID column, " +
+                    "so its time cannot be logged.");
+            }
+
+            // The web's rules, re-checked now: the period may have been
+            // submitted, or time logging disabled, since check-in. Checked
+            // before the upload, so a refused check-out leaves no file behind.
+            day = await RequireProjectTimeLogDayAsync(
+                attendance.UserId,
+                attendance.ProjectId,
+                logDate,
+                nameof(TimesheetProjectTimeLogSaveRequest.LogDate),
+                cancellationToken);
+
+            // A new entry, built as add-edit-timesheet-project-time-log builds
+            // one with an id of 0, and with the same sheet code.
+            timeLog = new TimesheetProjectTimeLog
+            {
+                UserId = attendance.UserId,
+                ProjectId = attendance.ProjectId,
+                OrganizationId = day.OrganizationId,
+                SheetSubmissionCode = await ProjectTimeLogSheetCodeAsync(
+                    day.Submission,
+                    attendance.UserId,
+                    attendance.ProjectId,
+                    day.BlockStartDate,
+                    day.BlockEndDate,
+                    cancellationToken),
+                LogDate = logDate,
+                HoursLogged = hoursLogged,
+                Description = string.IsNullOrWhiteSpace(request.Description) ? null : request.Description.Trim(),
+                IsDelete = 0,
+                CreateDate = now,
+                CreatedBy = request.UserId,
+                IsLoggedFromMobile = LoggedFromMobile,
+                AttendanceId = (int)attendance.AttendanceId,
+            };
+        }
+
+        var selfiePath = await UploadSelfieAsync(request.Selfie!, request.UserId, request.ProjectId, cancellationToken);
+
+        attendance.CheckOutDateTimeUtc = now;
+        attendance.CheckOutSelfiePath = selfiePath;
+        attendance.CheckOutLatitude = latitude;
+        attendance.CheckOutLongitude = longitude;
+        attendance.LoggedMinutes = loggedMinutes;
+        attendance.UpdateDate = now;
+        attendance.UpdatedBy = request.UserId;
+
+        // The session and its time log are saved together: both or neither.
+        var saved = await _timesheetProjectRepository.SaveSelfieAttendanceAsync(attendance, timeLog, cancellationToken);
+
+        _logger.LogInformation(
+            "Selfie attendance {AttendanceId} checked out for user {UserId} on project {ProjectId}: " +
+            "{LoggedMinutes} minutes, {HoursLogged} hours logged on {LogDate:yyyy-MM-dd} as time log " +
+            "{TimesheetProjectTimeLogId}.",
+            saved.AttendanceId,
+            saved.UserId,
+            saved.ProjectId,
+            loggedMinutes,
+            hoursLogged,
+            logDate,
+            timeLog?.TimesheetProjectTimeLogId);
+
+        TimesheetProjectTimeLogResponse? timeLogResponse = null;
+
+        if (timeLog is not null && day is not null)
+        {
+            // The period was checked open: no sheet yet (Pending) or Rejected.
+            var statusId = day.Submission?.StatusId ?? Constants.TimesheetProjectSubmission.Status.Pending;
+
+            timeLogResponse = timeLog.ToResponse(
+                day.PeriodStartDate,
+                day.PeriodEndDate,
+                statusId,
+                ProjectSheetStatus.NameOf(statusId));
+        }
+
+        return saved.ToTimeBySelfieResponse(SelfieCheckOut, timeLogResponse);
+    }
+
+    /// <summary>
+    /// The payload rules shared by the selfie check-in and check-out, every
+    /// failure reported together. Returns the coordinates trimmed, blank as
+    /// <see langword="null"/>.
+    /// </summary>
+    /// <exception cref="ValidationException">Any field fails its rule.</exception>
+    private static (string? Latitude, string? Longitude) RequireValidSelfiePayload(
+        int userId,
+        int projectId,
+        IFormFile? selfie,
+        string? latitude,
+        string? longitude)
+    {
+        var failures = new Dictionary<string, string[]>();
+
+        if (userId <= 0)
+        {
+            failures[nameof(TimesheetProjectSelfieCheckInRequest.UserId)] = new[]
+            {
+                "UserId is required and must be greater than 0."
+            };
+        }
+
+        if (projectId <= 0)
+        {
+            failures[nameof(TimesheetProjectSelfieCheckInRequest.ProjectId)] = new[]
+            {
+                "ProjectId is required and must be greater than 0."
+            };
+        }
+
+        if (selfie is null || selfie.Length == 0)
+        {
+            failures[nameof(TimesheetProjectSelfieCheckInRequest.Selfie)] = new[]
+            {
+                "Selfie is required and must not be an empty file."
+            };
+        }
+        else if (selfie.ContentType is not { } contentType
+                 || !contentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
+        {
+            failures[nameof(TimesheetProjectSelfieCheckInRequest.Selfie)] = new[]
+            {
+                "Selfie must be an image."
+            };
+        }
+
+        latitude = string.IsNullOrWhiteSpace(latitude) ? null : latitude.Trim();
+        longitude = string.IsNullOrWhiteSpace(longitude) ? null : longitude.Trim();
+
+        if (latitude?.Length > SelfieAttendanceTextMaximumLength)
+        {
+            failures[nameof(TimesheetProjectSelfieCheckInRequest.Latitude)] = new[]
+            {
+                $"Latitude must be at most {SelfieAttendanceTextMaximumLength} characters."
+            };
+        }
+
+        if (longitude?.Length > SelfieAttendanceTextMaximumLength)
+        {
+            failures[nameof(TimesheetProjectSelfieCheckInRequest.Longitude)] = new[]
+            {
+                $"Longitude must be at most {SelfieAttendanceTextMaximumLength} characters."
+            };
+        }
+
+        if (failures.Count > 0)
+        {
+            throw new ValidationException(failures);
+        }
+
+        return (latitude, longitude);
+    }
+
+    /// <summary>
+    /// Uploads a selfie to the document service's <c>Uploaduserpic</c>
+    /// endpoint, filed under <paramref name="projectId"/>, and returns the
+    /// <c>path</c> it answers with - a pre-signed URL - to store.
+    /// </summary>
+    /// <exception cref="ExternalServiceException">
+    /// The upload failed, or the path it returned does not fit the column.
+    /// </exception>
+    private async Task<string> UploadSelfieAsync(
+        IFormFile selfie,
+        int userId,
+        int projectId,
+        CancellationToken cancellationToken)
+    {
+        await using var content = selfie.OpenReadStream();
+
+        var path = await _documentUploader.UploadUserPictureAsync(
+            projectId,
+            content,
+            selfie.FileName,
+            selfie.ContentType,
+            cancellationToken);
+
+        // Truncating it would store a reference to a file that does not exist.
+        if (path.Length > SelfieAttendanceTextMaximumLength)
+        {
+            throw new ExternalServiceException(
+                $"The selfie was uploaded, but its path is {path.Length} characters long and the attendance " +
+                $"columns hold at most {SelfieAttendanceTextMaximumLength}. Nothing was saved.");
+        }
+
+        // The path itself is not logged: it is a pre-signed URL, and anyone
+        // holding it can open the photo until it expires.
+        _logger.LogInformation(
+            "Selfie {FileName} ({Length} bytes) of user {UserId} on project {ProjectId} uploaded.",
+            selfie.FileName,
+            selfie.Length,
+            userId,
+            projectId);
+
+        return path;
+    }
 }
