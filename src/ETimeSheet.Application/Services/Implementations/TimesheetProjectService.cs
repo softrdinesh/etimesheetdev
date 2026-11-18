@@ -277,7 +277,7 @@ public class TimesheetProjectService : ITimesheetProjectService
         var currencyCode = await _timesheetProjectRepository.GetClientCurrencyCodeAsync(request.ClientId, cancellationToken)
             ?? throw new ValidationException(
                 nameof(TimesheetProjectSaveRequest.ClientId),
-                $"Client '{request.ClientId}' does not exist or has been removed.");
+                "The selected client does not exist or has been removed.");
 
         // Null and 0 both mean "add" - a negative id was refused above.
         var projectId = request.ProjectId is > 0 ? request.ProjectId : null;
@@ -345,7 +345,7 @@ public class TimesheetProjectService : ITimesheetProjectService
                 request.OrganizationId,
                 cancellationToken)
             ?? throw new NotFoundException(
-                $"Project '{request.ProjectId}' was not found in organization '{request.OrganizationId}'.");
+                "The project was not found. It may have been removed - please refresh and try again.");
 
         // The project's budget goes with it - every row, duplicates included -
         // so no budget is left pointing at a project that no longer exists.
@@ -455,7 +455,7 @@ public class TimesheetProjectService : ITimesheetProjectService
         {
             throw new ValidationException(
                 nameof(TimesheetProjectBudgetSaveRequest.ProjectCategoryId),
-                $"Project category '{projectCategoryId}' is not a category of this project's organization.");
+                "The selected project category does not belong to this project's organization.");
         }
 
         // Worked out, never sent: the amount is the hours at the rate, rounded
@@ -740,7 +740,7 @@ public class TimesheetProjectService : ITimesheetProjectService
         {
             failures[nameof(TimesheetUserCreateRequest.OrganizationId)] = new[]
             {
-                $"Organization '{request.OrganizationId}' does not exist."
+                "The selected organization does not exist."
             };
         }
 
@@ -749,7 +749,7 @@ public class TimesheetProjectService : ITimesheetProjectService
         {
             failures[nameof(TimesheetUserCreateRequest.CountryId)] = new[]
             {
-                $"Country '{countryId}' does not exist."
+                "The selected country does not exist."
             };
         }
 
@@ -1003,7 +1003,7 @@ public class TimesheetProjectService : ITimesheetProjectService
         {
             failures[nameof(TimesheetUserUpdateRequest.CountryId)] = new[]
             {
-                $"Country '{countryId}' does not exist."
+                "The selected country does not exist."
             };
         }
 
@@ -1259,7 +1259,7 @@ public class TimesheetProjectService : ITimesheetProjectService
         if (setups.Count == 0)
         {
             throw new NotFoundException(
-                $"User '{request.UserId}' is not on project '{request.ProjectId}'.");
+                "This user is not assigned to the selected project.");
         }
 
         // A soft delete, never a DELETE statement: the rows stay, and the
@@ -1466,7 +1466,7 @@ public class TimesheetProjectService : ITimesheetProjectService
             {
                 failures[$"{field}[{index}].{nameof(TimesheetUserProjectDetail.ProjectId)}"] = new[]
                 {
-                    $"Project '{detail.ProjectId}' does not exist in organization '{organizationId}'."
+                    "The selected project does not exist in your organization."
                 };
             }
 
@@ -1475,7 +1475,7 @@ public class TimesheetProjectService : ITimesheetProjectService
             {
                 failures[$"{field}[{index}].{nameof(TimesheetUserProjectDetail.ProjectRoleId)}"] = new[]
                 {
-                    $"Role '{projectRoleId}' does not exist in organization '{organizationId}' or has been removed."
+                    "The selected role does not exist in your organization or has been removed."
                 };
             }
         }
@@ -1848,7 +1848,7 @@ public class TimesheetProjectService : ITimesheetProjectService
         {
             failures[nameof(TimesheetHolidaySetupSaveRequest.CountryId)] = new[]
             {
-                $"Country '{countryId}' does not exist."
+                "The selected country does not exist."
             };
         }
 
@@ -1857,7 +1857,7 @@ public class TimesheetProjectService : ITimesheetProjectService
         {
             failures[nameof(TimesheetHolidaySetupSaveRequest.ClientId)] = new[]
             {
-                $"Client '{clientId}' does not exist in organization '{request.OrganizationId}' or has been removed."
+                "The selected client does not exist in your organization or has been removed."
             };
         }
 
@@ -1869,7 +1869,7 @@ public class TimesheetProjectService : ITimesheetProjectService
             {
                 failures[nameof(TimesheetHolidaySetupSaveRequest.ProjectId)] = new[]
                 {
-                    $"Project '{projectId}' does not exist in organization '{request.OrganizationId}'."
+                    "The selected project does not exist in your organization."
                 };
             }
         }
@@ -2056,7 +2056,7 @@ public class TimesheetProjectService : ITimesheetProjectService
         {
             failures[nameof(TimesheetWeekendSetupSaveRequest.ClientId)] = new[]
             {
-                $"Client '{clientId}' does not exist in organization '{request.OrganizationId}' or has been removed."
+                "The selected client does not exist in your organization or has been removed."
             };
         }
 
@@ -2066,7 +2066,7 @@ public class TimesheetProjectService : ITimesheetProjectService
         {
             failures[nameof(TimesheetWeekendSetupSaveRequest.ProjectId)] = new[]
             {
-                $"Project '{request.ProjectId}' does not exist in organization '{request.OrganizationId}'."
+                "The selected project does not exist in your organization."
             };
         }
 
@@ -2087,7 +2087,7 @@ public class TimesheetProjectService : ITimesheetProjectService
                 cancellationToken))
         {
             throw new ConflictException(
-                $"Project '{request.ProjectId}' already has a weekend setup. Edit that one instead.");
+                "This project already has a weekend setup. Please edit the existing one instead.");
         }
 
         // Only an edit can come back empty: the setup it names does not
@@ -2261,7 +2261,7 @@ public class TimesheetProjectService : ITimesheetProjectService
         {
             throw new ValidationException(
                 nameof(TimesheetRoleAssignmentSaveRequest.UserId),
-                $"User '{request.UserId}' is not a live user of organization '{request.OrganizationId}'.");
+                "The selected user is not an active user of your organization.");
         }
 
         // Null and 0 both mean "add" - a negative id was refused above.
@@ -2276,7 +2276,7 @@ public class TimesheetProjectService : ITimesheetProjectService
                 cancellationToken))
         {
             throw new ConflictException(
-                $"User '{request.UserId}' already has a user access setup. Edit that one instead.");
+                "This user already has a user access setup. Please edit the existing one instead.");
         }
 
         // Only an edit can come back empty: the assignment it names does not
@@ -2592,7 +2592,7 @@ public class TimesheetProjectService : ITimesheetProjectService
         var project = await _timesheetProjectRepository.GetByIdAsync(request.ProjectId, cancellationToken)
             ?? throw new ValidationException(
                 nameof(TimesheetProjectTimeLogSaveRequest.ProjectId),
-                $"Project '{request.ProjectId}' does not exist.");
+                "The selected project does not exist.");
 
         // The start date and frequency give the submission period the day is
         // in, and so its sheet code; OrganizationID is NOT NULL on the time log.
@@ -2621,7 +2621,7 @@ public class TimesheetProjectService : ITimesheetProjectService
                 cancellationToken)
             ?? throw new ValidationException(
                 nameof(TimesheetProjectTimeLogSaveRequest.ProjectId),
-                $"User '{request.UserId}' is not assigned to project '{request.ProjectId}'.");
+                "This user is not assigned to the selected project.");
 
         RequireTimeLogIsEnabled(assignment, request.UserId, request.ProjectId);
 
@@ -2712,15 +2712,14 @@ public class TimesheetProjectService : ITimesheetProjectService
             if (timeLog.UserId != request.UserId)
             {
                 throw new BusinessException(
-                    $"Time log '{timeLog.TimesheetProjectTimeLogId}' does not belong to user " +
-                    $"'{request.UserId}', so it cannot be changed as theirs.");
+                    "This time entry belongs to another user, so it cannot be changed.");
             }
 
             if (timeLog.ProjectId != request.ProjectId)
             {
                 throw new BusinessException(
-                    $"Time log '{timeLog.TimesheetProjectTimeLogId}' is on project " +
-                    $"'{timeLog.ProjectId}', not '{request.ProjectId}', so it cannot be moved between projects.");
+                    "This time entry is on a different project, and a time entry cannot be moved from one project " +
+                    "to another.");
             }
 
             // Moving an entry to another day: the period it leaves must be
@@ -2825,7 +2824,7 @@ public class TimesheetProjectService : ITimesheetProjectService
         var project = await _timesheetProjectRepository.GetByIdAsync(projectId, cancellationToken)
             ?? throw new ValidationException(
                 nameof(TimesheetProjectTimeLogSaveRequest.ProjectId),
-                $"Project '{projectId}' does not exist.");
+                "The selected project does not exist.");
 
         // The start date and frequency give the submission period the day is
         // in, and so its sheet code; OrganizationID is NOT NULL on the time log.
@@ -2854,7 +2853,7 @@ public class TimesheetProjectService : ITimesheetProjectService
                 cancellationToken)
             ?? throw new ValidationException(
                 nameof(TimesheetProjectTimeLogSaveRequest.ProjectId),
-                $"User '{userId}' is not assigned to project '{projectId}'.");
+                "This user is not assigned to the selected project.");
 
         RequireTimeLogIsEnabled(assignment, userId, projectId);
 
@@ -2958,8 +2957,7 @@ public class TimesheetProjectService : ITimesheetProjectService
         if (timeLog.UserId != request.UserId)
         {
             throw new BusinessException(
-                $"Time log '{timeLog.TimesheetProjectTimeLogId}' does not belong to user '{request.UserId}', so it " +
-                "cannot be removed as theirs.");
+                "This time entry belongs to another user, so it cannot be removed.");
         }
 
         RequireProjectSheetIsOpen(await _timesheetProjectRepository.GetProjectSubmissionForDateAsync(
@@ -3051,8 +3049,8 @@ public class TimesheetProjectService : ITimesheetProjectService
         if (leave is not null)
         {
             throw new BusinessException(
-                $"You are on approved leave on {logDate:yyyy-MM-dd} (leave {leave.LeaveId}, " +
-                $"{leave.StartDate:yyyy-MM-dd} to {leave.EndDate:yyyy-MM-dd}), so no time can be logged that day.");
+                $"You are on approved leave on {logDate:yyyy-MM-dd} (leave from {leave.StartDate:yyyy-MM-dd} to " +
+                $"{leave.EndDate:yyyy-MM-dd}), so no time can be logged that day.");
         }
     }
 
@@ -3082,9 +3080,8 @@ public class TimesheetProjectService : ITimesheetProjectService
         if (assignment.IsTimeLogDisabled == TimeLogDisabled)
         {
             throw new BusinessException(
-                $"Time logging is disabled by an administrator on project '{projectId}' for user " +
-                $"'{userId}', so no time can be logged or changed on it and its timesheets cannot be " +
-                "submitted.");
+                "Time logging has been disabled by an administrator for this user on this project, so time " +
+                "cannot be logged or changed and timesheets cannot be submitted.");
         }
     }
 
@@ -3124,9 +3121,10 @@ public class TimesheetProjectService : ITimesheetProjectService
             or Constants.TimesheetProjectSubmission.Status.Approved)
         {
             throw new BusinessException(
-                $"Timesheet '{submission.SheetSubmissionCode}' for {submission.PeriodStartDate:yyyy-MM-dd} to " +
-                $"{submission.PeriodEndDate:yyyy-MM-dd} is {ProjectSheetStatus.NameOf(submission.StatusId).ToLowerInvariant()}, " +
-                "so its time can no longer be added to, changed or removed.");
+                $"The timesheet for {submission.PeriodStartDate:yyyy-MM-dd} to " +
+                $"{submission.PeriodEndDate:yyyy-MM-dd} is " +
+                $"{ProjectSheetStatus.NameOf(submission.StatusId).ToLowerInvariant()}, so its time can no longer " +
+                "be added, changed or removed.");
         }
     }
 
@@ -3190,9 +3188,8 @@ public class TimesheetProjectService : ITimesheetProjectService
         if (project.SubmissionFrequency == Constants.TimesheetProject.SubmissionFrequency.FifteenDays)
         {
             throw new BusinessException(
-                $"Project '{project.ProjectId}' is set to submit every 15 days, which is no longer supported: " +
-                "submission periods follow the calendar, and no calendar block is 15 days long. An administrator " +
-                "has to change the project to weekly or monthly before time can be logged or submitted on it.");
+                "This project is set to submit timesheets every 15 days, which is no longer supported. Please " +
+                "ask an administrator to change it to weekly or monthly before time can be logged or submitted.");
         }
 
         if (project.StartDate is not { } startDate
@@ -3201,8 +3198,8 @@ public class TimesheetProjectService : ITimesheetProjectService
             || project.OrganizationId is not { } organizationId)
         {
             throw new BusinessException(
-                $"Project '{project.ProjectId}' needs a start date, a submission frequency and an organization " +
-                "before time can be logged or submitted on it.");
+                "This project is missing a start date, a submission frequency or an organization. Please ask an " +
+                "administrator to complete the project setup before time can be logged or submitted.");
         }
 
         return (startDate.Date, submissionFrequency, organizationId);
@@ -3422,8 +3419,7 @@ public class TimesheetProjectService : ITimesheetProjectService
         if (code.Length > ProjectSheetCodeMaximumLength)
         {
             throw new BusinessException(
-                $"The project sheet code sequence has run out of room: '{code}' is longer than the " +
-                $"{ProjectSheetCodeMaximumLength} characters SheetSubmissionCode can hold.");
+                "A new timesheet number could not be generated. Please contact support.");
         }
 
         return code;
@@ -3545,7 +3541,7 @@ public class TimesheetProjectService : ITimesheetProjectService
         var project = await _timesheetProjectRepository.GetByIdAsync(request.ProjectId, cancellationToken)
             ?? throw new ValidationException(
                 nameof(TimesheetProjectSheetSubmitRequest.ProjectId),
-                $"Project '{request.ProjectId}' does not exist.");
+                "The selected project does not exist.");
 
         var (projectStartDate, submissionFrequency, organizationId) = RequireSubmissionSetup(project);
 
@@ -3581,8 +3577,7 @@ public class TimesheetProjectService : ITimesheetProjectService
                 && (submission.UserId != request.UserId || submission.ProjectId != request.ProjectId))
             {
                 throw new BusinessException(
-                    $"Timesheet '{submission.SheetSubmissionCode}' is not user '{request.UserId}''s timesheet for " +
-                    $"project '{request.ProjectId}', so it cannot be submitted as theirs.");
+                    "This timesheet belongs to another user or project, so it cannot be submitted.");
             }
 
             dayInPeriod = submission?.PeriodStartDate.Date
@@ -3593,8 +3588,7 @@ public class TimesheetProjectService : ITimesheetProjectService
                     cancellationToken)
                 ?? throw new ValidationException(
                     nameof(TimesheetProjectSheetSubmitRequest.SheetSubmissionCode),
-                    $"SheetSubmissionCode '{sheetSubmissionCode}' is not a timesheet of user '{request.UserId}' " +
-                    $"on project '{request.ProjectId}'.");
+                    "The selected timesheet was not found for this user and project.");
 
             // Compared on the calendar block the two days fall in, not on the
             // trimmed period: trimming moves a period's ends but never moves a
@@ -3607,7 +3601,7 @@ public class TimesheetProjectService : ITimesheetProjectService
             {
                 throw new ValidationException(
                     nameof(TimesheetProjectSheetSubmitRequest.PeriodDate),
-                    $"PeriodDate {periodDate:yyyy-MM-dd} is not in the period of timesheet '{sheetSubmissionCode}'.");
+                    $"{periodDate:yyyy-MM-dd} is not within the period of the selected timesheet.");
             }
         }
         else
@@ -3700,7 +3694,7 @@ public class TimesheetProjectService : ITimesheetProjectService
                 or Constants.TimesheetProjectSubmission.Status.Rejected))
         {
             throw new ConflictException(
-                $"Timesheet '{submission.SheetSubmissionCode}' is already {ProjectSheetStatus.NameOf(submission.StatusId)}.");
+                $"This timesheet is already {ProjectSheetStatus.NameOf(submission.StatusId).ToLowerInvariant()}.");
         }
 
         var now = _dateTimeProvider.UtcNow;
@@ -3734,8 +3728,7 @@ public class TimesheetProjectService : ITimesheetProjectService
             if (assignment is null)
             {
                 throw new BusinessException(
-                    $"User '{request.UserId}' is not assigned to project '{request.ProjectId}', so they have no " +
-                    "timesheet on it to submit.");
+                    "This user is not assigned to the selected project, so there is no timesheet to submit.");
             }
 
             // The first submit of the period is what creates its row - already
@@ -3873,8 +3866,8 @@ public class TimesheetProjectService : ITimesheetProjectService
                 cancellationToken))
         {
             throw new ForbiddenException(
-                $"User '{request.AddedBy}' is not the timesheet approver of project '{submission.ProjectId}', " +
-                "so cannot approve or reject its timesheets.");
+                "You are not the timesheet approver for this project, so you cannot approve or reject its " +
+                "timesheets.");
         }
 
         // Only a submitted sheet is waiting for a decision. An approved one is
@@ -3882,8 +3875,8 @@ public class TimesheetProjectService : ITimesheetProjectService
         if (submission.StatusId != Constants.TimesheetProjectSubmission.Status.Submitted)
         {
             throw new ConflictException(
-                $"Timesheet '{submission.SheetSubmissionCode}' is {ProjectSheetStatus.NameOf(submission.StatusId)}, so it " +
-                "cannot be approved or rejected; only a submitted timesheet can.");
+                $"This timesheet is {ProjectSheetStatus.NameOf(submission.StatusId).ToLowerInvariant()}, so it " +
+                "cannot be approved or rejected. Only a submitted timesheet can be.");
         }
 
         var now = _dateTimeProvider.UtcNow;
@@ -4160,7 +4153,7 @@ public class TimesheetProjectService : ITimesheetProjectService
             {
                 failures[nameof(TimesheetApproverSetupSaveRequest.ProjectId)] = new[]
                 {
-                    $"Project '{projectId}' does not exist in organization '{request.OrganizationId}'."
+                    "The selected project does not exist in your organization."
                 };
             }
         }
@@ -4169,7 +4162,7 @@ public class TimesheetProjectService : ITimesheetProjectService
         {
             failures[nameof(TimesheetApproverSetupSaveRequest.ApproverId)] = new[]
             {
-                $"User '{request.ApproverId}' is not a live user of organization '{request.OrganizationId}'."
+                "The selected approver is not an active user of your organization."
             };
         }
 
@@ -4196,7 +4189,7 @@ public class TimesheetProjectService : ITimesheetProjectService
                 timesheetApproverSetupId ?? 0,
                 cancellationToken))
         {
-            takenAreas.Add($"Project '{projectId}' already has a timesheet approver.");
+            takenAreas.Add("The selected project already has a timesheet approver.");
         }
 
         if (request.IsLeaveApprover
@@ -4205,7 +4198,7 @@ public class TimesheetProjectService : ITimesheetProjectService
                 timesheetApproverSetupId ?? 0,
                 cancellationToken))
         {
-            takenAreas.Add($"Organization '{request.OrganizationId}' already has a leave approver.");
+            takenAreas.Add("Your organization already has a leave approver.");
         }
 
         if (takenAreas.Count > 0)
@@ -4529,7 +4522,7 @@ public class TimesheetProjectService : ITimesheetProjectService
                 _dateTimeProvider.UtcNow,
                 cancellationToken)
             ?? throw new ConflictException(
-                $"The leave assignment of user '{request.UserId}' was saved, but the user is no longer in organization '{request.OrganizationId}'.");
+                "The leave assignment was saved, but this user is no longer part of your organization.");
 
         _logger.LogInformation(
             "Leave assignment {TimesheetLeaveAssignmentUserId} added: leave type {LeaveTypeId} for user {UserId} by user {LoginUserId}.",
@@ -4660,7 +4653,7 @@ public class TimesheetProjectService : ITimesheetProjectService
         {
             failures[nameof(TimesheetUserLeaveAssignmentAddRequest.UserId)] = new[]
             {
-                $"User '{userId}' is not a live user of organization '{organizationId}'."
+                "The selected user is not an active user of your organization."
             };
         }
 
@@ -4668,7 +4661,7 @@ public class TimesheetProjectService : ITimesheetProjectService
         {
             failures[nameof(TimesheetUserLeaveAssignmentAddRequest.LeaveTypeId)] = new[]
             {
-                $"Leave type '{leaveTypeId}' is not a live leave type of organization '{organizationId}'."
+                "The selected leave type is not active in your organization."
             };
         }
 
@@ -4688,7 +4681,8 @@ public class TimesheetProjectService : ITimesheetProjectService
                 cancellationToken))
         {
             throw new ConflictException(
-                $"User '{userId}' already has leave type '{leaveTypeId}' assigned. Edit that assignment instead.");
+                "This user already has the selected leave type assigned. Please edit the existing assignment " +
+                "instead.");
         }
     }
 
@@ -4880,7 +4874,7 @@ public class TimesheetProjectService : ITimesheetProjectService
         {
             failures[nameof(TimesheetUserLeaveApplySaveRequest.UserId)] = new[]
             {
-                $"User '{request.UserId}' is not a live user of organization '{request.OrganizationId}'."
+                "The selected user is not an active user of your organization."
             };
         }
 
@@ -4888,7 +4882,7 @@ public class TimesheetProjectService : ITimesheetProjectService
         {
             failures[nameof(TimesheetUserLeaveApplySaveRequest.LeaveTypeId)] = new[]
             {
-                $"Leave type '{request.LeaveTypeId}' is not a live leave type of organization '{request.OrganizationId}'."
+                "The selected leave type is not active in your organization."
             };
         }
         // Leave is taken from a balance, so the user must hold the leave type.
@@ -4900,7 +4894,7 @@ public class TimesheetProjectService : ITimesheetProjectService
         {
             failures[nameof(TimesheetUserLeaveApplySaveRequest.LeaveTypeId)] = new[]
             {
-                $"User '{request.UserId}' is not assigned leave type '{request.LeaveTypeId}'."
+                "The selected leave type is not assigned to this user."
             };
         }
 
@@ -4934,7 +4928,7 @@ public class TimesheetProjectService : ITimesheetProjectService
             if (approvedStatus is not null && existing.LeaveStatus == approvedStatus)
             {
                 throw new BusinessException(
-                    $"Leave application '{existing.LeaveId}' is approved, so it can no longer be changed.");
+                    "This leave application has already been approved, so it can no longer be changed.");
             }
         }
 
@@ -5136,8 +5130,8 @@ public class TimesheetProjectService : ITimesheetProjectService
                 if (restoredBalance > NoOfLeaveAllocatedMaximum)
                 {
                     throw new BusinessException(
-                        $"Giving back {application.NoOfDays.Value} day(s) would take the balance of leave type " +
-                        $"'{leaveTypeId}' to {restoredBalance}, past the {NoOfLeaveAllocatedMaximum} the balance can hold.");
+                        $"Removing this leave would give back {application.NoOfDays.Value} day(s) and take the leave " +
+                        $"balance to {restoredBalance}, which is more than the maximum of {NoOfLeaveAllocatedMaximum}.");
                 }
 
                 // Written by the same SaveChanges as the delete: both or neither.
@@ -5227,7 +5221,7 @@ public class TimesheetProjectService : ITimesheetProjectService
                 cancellationToken))
         {
             throw new ForbiddenException(
-                $"User '{request.AddedBy}' is not a leave approver of organization '{request.OrganizationId}'.");
+                "You are not a leave approver of your organization, so you cannot approve or reject leave.");
         }
 
         var application = await _timesheetProjectRepository.GetUserLeaveApplyForUpdateAsync(
@@ -5244,7 +5238,7 @@ public class TimesheetProjectService : ITimesheetProjectService
         if (submittedStatus is null || application.LeaveStatus != submittedStatus)
         {
             throw new ConflictException(
-                $"Leave application '{application.LeaveId}' is not submitted, so it cannot be approved or rejected.");
+                "This leave application is not in submitted status, so it cannot be approved or rejected.");
         }
 
         var now = _dateTimeProvider.UtcNow;
@@ -5262,7 +5256,8 @@ public class TimesheetProjectService : ITimesheetProjectService
             if (assignment is null)
             {
                 throw new BusinessException(
-                    $"Leave application '{application.LeaveId}' cannot be approved: the user is no longer assigned leave type '{application.LeaveTypeId}'.");
+                    "This leave application cannot be approved because the user is no longer assigned this leave " +
+                    "type.");
             }
 
             var balance = assignment.BalanceLeave ?? 0m;
@@ -5270,7 +5265,8 @@ public class TimesheetProjectService : ITimesheetProjectService
             if (noOfDays > balance)
             {
                 throw new BusinessException(
-                    $"Leave application '{application.LeaveId}' is for {noOfDays} day(s), but the user's balance is {balance}.");
+                    $"This leave application is for {noOfDays} day(s), but the user's leave balance is only " +
+                    $"{balance}.");
             }
 
             assignment.BalanceLeave = balance - noOfDays;
@@ -5343,8 +5339,8 @@ public class TimesheetProjectService : ITimesheetProjectService
         if (openSession is not null && EmployeeClock.At(openSession.CheckInDateTimeUtc, zone).Today == today)
         {
             throw new BusinessException(
-                $"You are already checked in on project '{openSession.ProjectId}' since " +
-                $"{openSession.CheckInDateTimeUtc:yyyy-MM-dd HH:mm} UTC. Check out before checking in again.");
+                $"You checked in today at {EmployeeClock.At(openSession.CheckInDateTimeUtc, zone).Now:HH:mm} and " +
+                "have not checked out yet. Please check out before checking in again.");
         }
 
         // The day is held to the time log's rules now, so the user learns at
@@ -5414,8 +5410,7 @@ public class TimesheetProjectService : ITimesheetProjectService
         if (attendance.ProjectId != request.ProjectId)
         {
             throw new BusinessException(
-                $"You are checked in on project '{attendance.ProjectId}', not '{request.ProjectId}'. Check out " +
-                "on the project you checked in on.");
+                "You checked in on a different project. Please check out on the same project you checked in on.");
         }
 
         // Whole minutes; a clock that went backwards is never a negative session.
@@ -5434,8 +5429,7 @@ public class TimesheetProjectService : ITimesheetProjectService
             if (attendance.AttendanceId > int.MaxValue)
             {
                 throw new BusinessException(
-                    $"Attendance '{attendance.AttendanceId}' is too large for the time log's AttendanceID column, " +
-                    "so its time cannot be logged.");
+                    "Your time could not be logged because of a system limit. Please contact support.");
             }
 
             // The web's rules, re-checked now: the period may have been

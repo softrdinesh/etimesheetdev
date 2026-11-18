@@ -74,7 +74,8 @@ public class MasterAdminService : IMasterAdminService
         {
             throw new ValidationException(
                 nameof(ClientSaveRequest.CountryId),
-                $"Country '{countryId}' has no currency set up, so a client cannot be saved against it.");
+                "The selected country has no currency set up, so the client cannot be saved. Please choose " +
+                "another country or ask an administrator to add its currency.");
         }
 
         // An edit of a client that is missing or deleted is refused BEFORE the
