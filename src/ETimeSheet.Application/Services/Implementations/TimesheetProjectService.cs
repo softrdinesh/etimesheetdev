@@ -1434,7 +1434,7 @@ public class TimesheetProjectService : ITimesheetProjectService
         {
             failures[field] = new[]
             {
-                $"{field} names project(s) {string.Join(", ", duplicateProjectIds)} more than once; each project may appear only once."
+                "The same project has been selected more than once. Each project may appear only once."
             };
 
             return new List<TimesheetUserProjectDetail>();
