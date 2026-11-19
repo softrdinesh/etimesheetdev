@@ -96,6 +96,7 @@ controller, DTO or validator, change this file with it.
   - [Time logged by selfie](#time-logged-by-selfie)
   - [Check In by Selfie](#69-check-in-by-selfie)
   - [Check Out by Selfie](#70-check-out-by-selfie)
+  - [User Project Details (Mobile)](#71-user-project-details-mobile)
 - [Health endpoints](#health-endpoints)
 - [Background jobs](#background-jobs)
 - [Enumerations](#enumerations)
@@ -7681,6 +7682,150 @@ any positive number is stored.
 Persisted in the JWT `RoleId` claim. Not reachable through any endpoint today —
 authentication is off.
 
+### 71. User Project Details (Mobile)
+
+`GET /api/v1/TimesheetProject/Timesheet-Get-user-timelog-mobile?userID={userID}&orgID={orgID}&projectID={projectID}&fromDate={fromDate}&toDate={toDate}`
+
+**Purpose** — For the mobile app: one user, and for each of their projects in
+an organisation, **one entry per day** with that day's latest selfie check-in /
+check-out (photo links included) and the hours logged on it. Read through
+`dbo.spc_GetTimesheetUserProjectDetailsMobile`.
+
+**Only `userID` and `orgID` are required.** Every other filter may be left
+out, and one left out is not applied — so with none of them **every day** the
+user has activity on is returned.
+
+#### Query parameters
+
+| Name | Type | Rules |
+|---|---|---|
+| `userID` | int | **Required**, `> 0` |
+| `orgID` | int | **Required**, `> 0`. Only projects of this organisation (`dbo.TimesheetProject.OrganizationID`) |
+| `projectID` | int \| absent | `>= 0`. Absent or `0` = every project |
+| `fromDate` | date \| absent | First day to include |
+| `toDate` | date \| absent | Last day to include, inclusive; not before `fromDate` |
+
+The dates are **the user's own days**, in the time zone of their timesheet
+setup (UTC when they have none) — the same days check-in and check-out use.
+A check-in at 23:30 in Kolkata is on that Kolkata date, not the next UTC one.
+
+#### Example requests
+
+```
+GET /api/v1/TimesheetProject/Timesheet-Get-user-timelog-mobile?userID=7&orgID=3
+GET /api/v1/TimesheetProject/Timesheet-Get-user-timelog-mobile?userID=7&orgID=3&projectID=12&fromDate=2026-11-18&toDate=2026-11-19
+```
+
+#### Success response — `200 OK`
+
+`data` is a `TimesheetUserProjectDetailsMobileResponse`:
+
+| Field | Type | Notes |
+|---|---|---|
+| `userId` | int | |
+| `name` | string \| null | From `dbo.Signup` |
+| `email` | string \| null | As stored: upper case |
+| `organizationId` | int \| null | The organisation asked for |
+| `organizationName` | string \| null | From `dbo.Organization` |
+| `projects` | array | See below. Never `null` |
+
+Each entry of `projects` is a `TimesheetUserProjectMobileResponse` — **one per
+project per day** on which the user checked in or logged hours, ordered by
+project name, then **newest day first**:
+
+| Field | Type | Notes |
+|---|---|---|
+| `projectId` | int \| null | |
+| `projectName` | string \| null | |
+| `checkInDateTimeUtc` | datetime \| null | The day's **latest** check-in on the project, in **UTC** (no `Z` suffix — see gap 110). `null` when the user did not check in that day |
+| `checkInSelfiePath` | string \| null | The check-in selfie's link — a pre-signed URL |
+| `checkOutDateTimeUtc` | datetime \| null | That session's check-out, in UTC. `null` while it is still open, or with no check-in |
+| `checkOutSelfiePath` | string \| null | The check-out selfie's link. `null` until checked out |
+| `timeLogDate` | datetime \| null | The day; time part always `00:00:00`. `null` only on a project with no activity in the range (below) |
+| `timeLogHours` | int | Whole hours logged on the project that day — the **sum of every entry**, selfie or typed. `0` when none |
+
+A day can have hours and no check-in (time typed through
+[50](#50-add--edit-project-time-log)), or a check-in and `0` hours (a session
+still open, or one closed under 30 minutes). When there were several sessions
+on one day, only the latest is shown; `timeLogHours` still counts them all.
+
+**A project with no activity in the range is still listed — once**, with every
+check-in / check-out field `null`, `timeLogDate` `null` and `timeLogHours` `0`.
+So every live project of the user in the organisation always appears at least
+once.
+
+#### Example response
+
+```json
+{
+  "success": true,
+  "message": "",
+  "data": {
+    "userId": 7,
+    "name": "Vrushang Solanki",
+    "email": "VRUSHANG@EXAMPLE.COM",
+    "organizationId": 3,
+    "organizationName": "Athlete One",
+    "projects": [
+      {
+        "projectId": 12,
+        "projectName": "Mobile App",
+        "checkInDateTimeUtc": "2026-11-19T03:35:12",
+        "checkInSelfiePath": "https://ppmdocs.s3.ap-south-1.amazonaws.com/12/9768ed70-…_selfie.jpg?X-Amz-Expires=172800&…",
+        "checkOutDateTimeUtc": null,
+        "checkOutSelfiePath": null,
+        "timeLogDate": "2026-11-19T00:00:00",
+        "timeLogHours": 0
+      },
+      {
+        "projectId": 12,
+        "projectName": "Mobile App",
+        "checkInDateTimeUtc": "2026-11-18T03:30:05",
+        "checkInSelfiePath": "https://ppmdocs.s3.ap-south-1.amazonaws.com/12/1b2c…_selfie.jpg?X-Amz-Expires=172800&…",
+        "checkOutDateTimeUtc": "2026-11-18T11:36:40",
+        "checkOutSelfiePath": "https://ppmdocs.s3.ap-south-1.amazonaws.com/12/0c1f…_selfie.jpg?X-Amz-Expires=172800&…",
+        "timeLogDate": "2026-11-18T00:00:00",
+        "timeLogHours": 8
+      },
+      {
+        "projectId": 15,
+        "projectName": "Website Revamp",
+        "checkInDateTimeUtc": null,
+        "checkInSelfiePath": null,
+        "checkOutDateTimeUtc": null,
+        "checkOutSelfiePath": null,
+        "timeLogDate": null,
+        "timeLogHours": 0
+      }
+    ]
+  },
+  "errors": []
+}
+```
+
+Project 12 has a session still open today and a full day yesterday; project
+15 has no activity in the range.
+
+#### Error responses
+
+**400** — every failure reported together:
+
+| Field | Message |
+|---|---|
+| `userID` | `userID is required and must be greater than 0.` |
+| `orgID` | `orgID is required and must be greater than 0.` |
+| `projectID` | `projectID must be greater than 0, or left out.` |
+| `toDate` | `toDate must not be before fromDate.` |
+
+**404** — the user has no live assignment on a project of `orgID` (and of
+`projectID`, when sent). That includes a user id that does not exist, a
+deleted user, a user of another organisation, and a `projectID` the user is
+not on:
+`The timesheet user was not found. It may have been removed - please refresh and try again.`
+
+**500** — the procedure has not been created in the database yet (gap 111),
+or an unhandled defect.
+
 ---
 
 ## Endpoint summary table
@@ -7758,6 +7903,7 @@ authentication is off.
 | 68 | Approve / Reject User Leave Apply | POST | `/api/v1/TimesheetProject/update-timesheet-user-leave-apply-status` | Approve (takes the days from the balance) or reject a submitted application; leave approvers of the organisation only | `TimesheetUserLeaveApplyStatusUpdateRequest` | `TimesheetUserLeaveApplyResponse` | 400, 403, 404, 409, 500 |
 | 69 | Check In by Selfie | POST | `/api/v1/TimesheetProject/time-sheet-project-check-in-by-selfie` | Upload a selfie and open today's attendance session on a project; nothing is logged yet | `TimesheetProjectSelfieCheckInRequest` (form) | `TimesheetProjectTimeBySelfieResponse` | 400, 415, 500, 502 |
 | 70 | Check Out by Selfie | POST | `/api/v1/TimesheetProject/time-sheet-project-check-out-by-selfie` | Upload a selfie, close today's session and log its time to the project time log | `TimesheetProjectSelfieCheckOutRequest` (form) | `TimesheetProjectTimeBySelfieResponse` | 400, 415, 500, 502 |
+| 71 | User Project Details (Mobile) | GET | `/api/v1/TimesheetProject/Timesheet-Get-user-timelog-mobile?userID=&orgID=&projectID=&fromDate=&toDate=` | A user's projects in an organisation, one entry per day with the latest selfie check-in / check-out and the hours logged; with no optional filter, every day. **Procedure not yet applied — 500 until it is** | query params (`userID`, `orgID` required) | `TimesheetUserProjectDetailsMobileResponse` | 400, 404, 500 |
 | — | Health | GET | `/health`, `/health/live`, `/health/ready` | Liveness / readiness | — | *(unenveloped)* | 503 |
 
 ---
@@ -8284,3 +8430,13 @@ Documented so nobody has to rediscover them:
     back from the database (`checkInDateTimeUtc` on a check-out) has neither,
     because the `datetime2(0)` columns keep whole seconds and no zone. Treat
     every one of them as UTC.
+111. **`spc_GetTimesheetUserProjectDetailsMobile` is not applied yet.** It is
+    recorded in `docs/database/procedures/`, but until the database owner
+    creates it, [71](#71-user-project-details-mobile) answers 500.
+112. **Old selfie links in [71](#71-user-project-details-mobile) may no longer
+    open.** `checkInSelfiePath` / `checkOutSelfiePath` are the pre-signed URLs
+    stored at upload, and they expire (`X-Amz-Expires=172800` — two days).
+    A wide date range returns links the app can no longer load; nothing
+    re-signs them.
+113. **With no date filter, [71](#71-user-project-details-mobile) returns the
+    user's whole history**, unpaged. Send `fromDate` / `toDate` from the app.

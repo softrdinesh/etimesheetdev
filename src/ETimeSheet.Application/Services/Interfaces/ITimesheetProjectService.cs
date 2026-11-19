@@ -854,4 +854,32 @@ public interface ITimesheetProjectService
     Task<TimesheetProjectTimeBySelfieResponse> CheckOutProjectTimeBySelfieAsync(
         TimesheetProjectSelfieCheckOutRequest request,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns one timesheet user for the mobile app via
+    /// <c>spc_GetTimesheetUserProjectDetailsMobile</c>: their name, email and
+    /// organisation, and for every live project assignment in
+    /// <paramref name="organizationId"/> one entry per day with activity - the
+    /// day's latest selfie check-in / check-out and its logged hours. Days are
+    /// the user's own, in the time zone of their timesheet setup.
+    /// <paramref name="projectId"/>, <paramref name="fromDate"/> and
+    /// <paramref name="toDate"/> are optional; null (or a 0 project) is not
+    /// applied.
+    /// </summary>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.ValidationException">
+    /// <paramref name="userId"/> or <paramref name="organizationId"/> is not
+    /// greater than 0, <paramref name="projectId"/> is negative, or
+    /// <paramref name="toDate"/> is before <paramref name="fromDate"/>.
+    /// </exception>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.NotFoundException">
+    /// The user has no live assignment on a project of the organisation (and
+    /// project, when given), or does not exist.
+    /// </exception>
+    Task<TimesheetUserProjectDetailsMobileResponse> GetTimesheetUserProjectDetailsMobileAsync(
+        int userId,
+        int organizationId,
+        int? projectId,
+        DateTime? fromDate,
+        DateTime? toDate,
+        CancellationToken cancellationToken = default);
 }

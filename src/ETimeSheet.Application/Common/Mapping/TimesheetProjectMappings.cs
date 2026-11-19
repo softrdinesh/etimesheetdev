@@ -612,4 +612,41 @@ internal static class TimesheetProjectMappings
         LoggedMinutes = attendance.LoggedMinutes,
         TimeLog = timeLog,
     };
+
+    /// <summary>
+    /// Projects the user's columns of a <c>spc_GetTimesheetUserProjectDetailsMobile</c>
+    /// row to the mobile user details response, with its projects.
+    /// </summary>
+    internal static TimesheetUserProjectDetailsMobileResponse ToUserProjectDetailsMobileResponse(
+        this TimesheetUserProjectDetailsMobileDetail user,
+        List<TimesheetUserProjectMobileResponse> projects) => new()
+    {
+        UserId = user.UserId,
+        Name = user.Name,
+        Email = user.Email,
+        OrganizationId = user.OrganizationId,
+        OrganizationName = user.OrganizationName,
+        Projects = projects,
+    };
+
+    /// <summary>
+    /// Projects an <c>Assignment</c> row of <c>spc_GetTimesheetUserProjectDetailsMobile</c>,
+    /// with one day's latest <c>Attendance</c> row and logged hours, to a
+    /// project-day of the mobile user details response.
+    /// </summary>
+    internal static TimesheetUserProjectMobileResponse ToUserProjectMobileResponse(
+        this TimesheetUserProjectDetailsMobileDetail assignment,
+        DateTime? day,
+        TimesheetUserProjectDetailsMobileDetail? session,
+        int hours) => new()
+    {
+        ProjectId = assignment.ProjectId,
+        ProjectName = assignment.ProjectName,
+        CheckInDateTimeUtc = session?.CheckInDateTimeUtc,
+        CheckInSelfiePath = session?.CheckInSelfiePath,
+        CheckOutDateTimeUtc = session?.CheckOutDateTimeUtc,
+        CheckOutSelfiePath = session?.CheckOutSelfiePath,
+        TimeLogDate = day,
+        TimeLogHours = hours,
+    };
 }

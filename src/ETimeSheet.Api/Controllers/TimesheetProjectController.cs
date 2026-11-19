@@ -1431,4 +1431,64 @@ public class TimesheetProjectController : ControllerBase
     }
 
     #endregion
+
+    #region User Project Details Mobile
+
+    /// <summary>
+    /// Returns one timesheet user for the mobile app, through
+    /// <c>dbo.spc_GetTimesheetUserProjectDetailsMobile</c>: their
+    /// <c>userId</c>, <c>name</c>, <c>email</c>, <c>organizationId</c> and
+    /// <c>organizationName</c>, and a <c>projects</c> list.
+    /// <para>
+    /// <c>projects</c> has one entry per live project assignment in
+    /// <c>orgID</c> <b>per day</b> with a selfie check-in or logged hours, by
+    /// project name then newest day first. Each carries <c>projectId</c>,
+    /// <c>projectName</c>, the day's latest selfie session -
+    /// <c>checkInDateTimeUtc</c>, <c>checkInSelfiePath</c>,
+    /// <c>checkOutDateTimeUtc</c>, <c>checkOutSelfiePath</c>, null when there
+    /// was no check-in that day - and <c>timeLogDate</c> /
+    /// <c>timeLogHours</c>, the whole hours logged that day (0 when none).
+    /// A project with no activity in the range is listed once, with a null
+    /// <c>timeLogDate</c>. Days are the user's own, in the time zone of their
+    /// timesheet setup.
+    /// </para>
+    /// <para>
+    /// <c>userID</c> and <c>orgID</c> are required. <c>projectID</c>,
+    /// <c>fromDate</c> and <c>toDate</c> narrow the list; one left out (or
+    /// <c>projectID</c> sent as <c>0</c>) is not applied, so with none of them
+    /// every day is returned. The dates are inclusive.
+    /// </para>
+    /// </summary>
+    /// <param name="userID">The user. Required, greater than 0.</param>
+    /// <param name="orgID">The organisation. Required, greater than 0.</param>
+    /// <param name="projectID">The project to narrow to. Optional.</param>
+    /// <param name="fromDate">The first day to include. Optional.</param>
+    /// <param name="toDate">The last day to include. Optional.</param>
+    /// <response code="200">The user and their project-days.</response>
+    /// <response code="400">No <c>userID</c> or <c>orgID</c>, a negative <c>projectID</c>, or <c>toDate</c> before <c>fromDate</c>.</response>
+    /// <response code="404">The user has no live assignment on a project of the organisation (and project, when given), or does not exist.</response>
+    [HttpGet("Timesheet-Get-user-timelog-mobile")]
+    [ProducesResponseType(typeof(ApiResponse<TimesheetUserProjectDetailsMobileResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetUserProjectDetailsMobile(
+        // Query string rather than route segments: all but userID and orgID may be left out.
+        [FromQuery] int userID,
+        [FromQuery] int orgID,
+        [FromQuery] int? projectID,
+        [FromQuery] DateTime? fromDate,
+        [FromQuery] DateTime? toDate,
+        CancellationToken cancellationToken)
+    {
+        var result = await _timesheetProjectService.GetTimesheetUserProjectDetailsMobileAsync(
+            userID,
+            orgID,
+            projectID,
+            fromDate,
+            toDate,
+            cancellationToken);
+        return Ok(ApiResponse.Ok(result));
+    }
+
+    #endregion
 }

@@ -5625,4 +5625,148 @@ public class TimesheetProjectService : ITimesheetProjectService
 
         return path;
     }
+
+    public async Task<TimesheetUserProjectDetailsMobileResponse> GetTimesheetUserProjectDetailsMobileAsync(
+        int userId,
+        int organizationId,
+        int? projectId,
+        DateTime? fromDate,
+        DateTime? toDate,
+        CancellationToken cancellationToken = default)
+    {
+        var failures = new Dictionary<string, string[]>();
+
+        if (userId <= 0)
+        {
+            failures["userID"] = new[] { "userID is required and must be greater than 0." };
+        }
+
+        if (organizationId <= 0)
+        {
+            failures["orgID"] = new[] { "orgID is required and must be greater than 0." };
+        }
+
+        if (projectId < 0)
+        {
+            failures["projectID"] = new[] { "projectID must be greater than 0, or left out." };
+        }
+
+        if (fromDate is not null && toDate is not null && toDate.Value.Date < fromDate.Value.Date)
+        {
+            failures["toDate"] = new[] { "toDate must not be before fromDate." };
+        }
+
+        if (failures.Count > 0)
+        {
+            throw new ValidationException(failures);
+        }
+
+        // Days are the user's own, as the selfie check-in and check-out judge
+        // them. The attendance columns are UTC, so the date range becomes a
+        // UTC window and the procedure needs no time zone of its own.
+        var zone = await TimeZoneForUserAsync(userId, cancellationToken);
+        DateTime? fromUtc = fromDate is { } from ? LocalMidnightToUtc(from.Date, zone) : null;
+        DateTime? toUtc = toDate is { } to ? LocalMidnightToUtc(to.Date.AddDays(1), zone) : null;
+
+        // Null and 0 both mean "every project".
+        var rows = await _timesheetProjectRepository.GetTimesheetUserProjectDetailsMobileAsync(
+            userId,
+            organizationId,
+            projectId is > 0 ? projectId : null,
+            fromDate?.Date,
+            toDate?.Date,
+            fromUtc,
+            toUtc,
+            cancellationToken);
+
+        // Every live assignment has its Assignment row, so no rows means no
+        // live assignment on a project of the organisation - or no such user.
+        if (rows.Count == 0)
+        {
+            throw NotFoundException.For("Timesheet user", userId);
+        }
+
+        var projects = new List<TimesheetUserProjectMobileResponse>();
+
+        // The procedure orders by project name; the assignments keep that order.
+        foreach (var assignment in rows.Where(row => row.RowType == UserProjectMobileRowType.Assignment))
+        {
+            var setupId = assignment.TimesheetUserProjectSetupId;
+
+            // Each session on the user's own date of its check-in; the latest
+            // of each date is the one shown.
+            var sessionsByDay = rows
+                .Where(row => row.RowType == UserProjectMobileRowType.Attendance
+                              && row.TimesheetUserProjectSetupId == setupId
+                              && row.CheckInDateTimeUtc is not null)
+                .GroupBy(row => EmployeeClock.At(row.CheckInDateTimeUtc!.Value, zone).Today)
+                .ToDictionary(
+                    day => day.Key,
+                    day => day
+                        .OrderByDescending(row => row.CheckInDateTimeUtc)
+                        .ThenByDescending(row => row.AttendanceId)
+                        .First());
+
+            var hoursByDay = rows
+                .Where(row => row.RowType == UserProjectMobileRowType.TimeLog
+                              && row.TimesheetUserProjectSetupId == setupId
+                              && row.TimeLogDate is not null)
+                .GroupBy(row => row.TimeLogDate!.Value.Date)
+                .ToDictionary(day => day.Key, day => day.Sum(row => row.TimeLogHours ?? 0));
+
+            var days = sessionsByDay.Keys
+                .Union(hoursByDay.Keys)
+                .OrderByDescending(day => day)
+                .ToList();
+
+            // A project with no activity in the range is still listed, once.
+            if (days.Count == 0)
+            {
+                projects.Add(assignment.ToUserProjectMobileResponse(null, null, 0));
+                continue;
+            }
+
+            foreach (var day in days)
+            {
+                projects.Add(assignment.ToUserProjectMobileResponse(
+                    day,
+                    sessionsByDay.GetValueOrDefault(day),
+                    hoursByDay.GetValueOrDefault(day)));
+            }
+        }
+
+        return rows[0].ToUserProjectDetailsMobileResponse(projects);
+    }
+
+    /// <summary>
+    /// The <c>RowType</c> values of <c>dbo.spc_GetTimesheetUserProjectDetailsMobile</c>.
+    /// </summary>
+    private static class UserProjectMobileRowType
+    {
+        internal const string Assignment = "Assignment";
+        internal const string Attendance = "Attendance";
+        internal const string TimeLog = "TimeLog";
+    }
+
+    /// <summary>
+    /// The UTC instant of <paramref name="localDate"/>'s midnight in
+    /// <paramref name="zone"/> (UTC when null). In a zone whose clocks skip
+    /// midnight, the day starts at the first hour that exists.
+    /// </summary>
+    private static DateTime LocalMidnightToUtc(DateTime localDate, TimeZoneInfo? zone)
+    {
+        var midnight = DateTime.SpecifyKind(localDate.Date, DateTimeKind.Unspecified);
+
+        if (zone is null)
+        {
+            return midnight;
+        }
+
+        if (zone.IsInvalidTime(midnight))
+        {
+            midnight = midnight.AddHours(1);
+        }
+
+        return DateTime.SpecifyKind(TimeZoneInfo.ConvertTimeToUtc(midnight, zone), DateTimeKind.Unspecified);
+    }
 }

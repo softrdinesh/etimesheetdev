@@ -1431,4 +1431,20 @@ public class TimesheetProjectRepository : ITimesheetProjectRepository
 
         return attendance;
     }
+
+    public async Task<IReadOnlyList<TimesheetUserProjectDetailsMobileDetail>> GetTimesheetUserProjectDetailsMobileAsync(
+        int userId,
+        int organizationId,
+        int? projectId,
+        DateTime? fromDate,
+        DateTime? toDate,
+        DateTime? fromUtc,
+        DateTime? toUtc,
+        CancellationToken cancellationToken = default) =>
+        // The procedure does the joins, the filters and the ordering; no LINQ
+        // is composed on top, because SQL Server cannot wrap an EXEC. A null
+        // filter goes as NULL, which the procedure reads as "not applied".
+        await _db.spc_GetTimesheetUserProjectDetailsMobile
+            .FromSqlInterpolated($"EXEC dbo.spc_GetTimesheetUserProjectDetailsMobile @PUserID = {userId}, @POrgID = {organizationId}, @PProjectID = {projectId}, @PFromDate = {fromDate?.Date}, @PToDate = {toDate?.Date}, @PFromUtc = {fromUtc}, @PToUtc = {toUtc}")
+            .ToListAsync(cancellationToken);
 }
