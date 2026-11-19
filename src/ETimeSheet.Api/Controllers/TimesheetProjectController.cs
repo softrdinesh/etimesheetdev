@@ -1467,7 +1467,7 @@ public class TimesheetProjectController : ControllerBase
     /// <response code="200">The user and their project-days.</response>
     /// <response code="400">No <c>userID</c> or <c>orgID</c>, a negative <c>projectID</c>, or <c>toDate</c> before <c>fromDate</c>.</response>
     /// <response code="404">The user has no live assignment on a project of the organisation (and project, when given), or does not exist.</response>
-    [HttpGet("get-user-project-details-mobile")]
+    [HttpGet("Timesheet-Get-user-timelog-mobile")]
     [ProducesResponseType(typeof(ApiResponse<TimesheetUserProjectDetailsMobileResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]

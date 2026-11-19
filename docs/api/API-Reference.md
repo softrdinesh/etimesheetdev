@@ -7684,7 +7684,7 @@ authentication is off.
 
 ### 71. User Project Details (Mobile)
 
-`GET /api/v1/TimesheetProject/get-user-project-details-mobile?userID={userID}&orgID={orgID}&projectID={projectID}&fromDate={fromDate}&toDate={toDate}`
+`GET /api/v1/TimesheetProject/Timesheet-Get-user-timelog-mobile?userID={userID}&orgID={orgID}&projectID={projectID}&fromDate={fromDate}&toDate={toDate}`
 
 **Purpose** — For the mobile app: one user, and for each of their projects in
 an organisation, **one entry per day** with that day's latest selfie check-in /
@@ -7712,8 +7712,8 @@ A check-in at 23:30 in Kolkata is on that Kolkata date, not the next UTC one.
 #### Example requests
 
 ```
-GET /api/v1/TimesheetProject/get-user-project-details-mobile?userID=7&orgID=3
-GET /api/v1/TimesheetProject/get-user-project-details-mobile?userID=7&orgID=3&projectID=12&fromDate=2026-11-18&toDate=2026-11-19
+GET /api/v1/TimesheetProject/Timesheet-Get-user-timelog-mobile?userID=7&orgID=3
+GET /api/v1/TimesheetProject/Timesheet-Get-user-timelog-mobile?userID=7&orgID=3&projectID=12&fromDate=2026-11-18&toDate=2026-11-19
 ```
 
 #### Success response — `200 OK`
@@ -7903,7 +7903,7 @@ or an unhandled defect.
 | 68 | Approve / Reject User Leave Apply | POST | `/api/v1/TimesheetProject/update-timesheet-user-leave-apply-status` | Approve (takes the days from the balance) or reject a submitted application; leave approvers of the organisation only | `TimesheetUserLeaveApplyStatusUpdateRequest` | `TimesheetUserLeaveApplyResponse` | 400, 403, 404, 409, 500 |
 | 69 | Check In by Selfie | POST | `/api/v1/TimesheetProject/time-sheet-project-check-in-by-selfie` | Upload a selfie and open today's attendance session on a project; nothing is logged yet | `TimesheetProjectSelfieCheckInRequest` (form) | `TimesheetProjectTimeBySelfieResponse` | 400, 415, 500, 502 |
 | 70 | Check Out by Selfie | POST | `/api/v1/TimesheetProject/time-sheet-project-check-out-by-selfie` | Upload a selfie, close today's session and log its time to the project time log | `TimesheetProjectSelfieCheckOutRequest` (form) | `TimesheetProjectTimeBySelfieResponse` | 400, 415, 500, 502 |
-| 71 | User Project Details (Mobile) | GET | `/api/v1/TimesheetProject/get-user-project-details-mobile?userID=&orgID=&projectID=&fromDate=&toDate=` | A user's projects in an organisation, one entry per day with the latest selfie check-in / check-out and the hours logged; with no optional filter, every day. **Procedure not yet applied — 500 until it is** | query params (`userID`, `orgID` required) | `TimesheetUserProjectDetailsMobileResponse` | 400, 404, 500 |
+| 71 | User Project Details (Mobile) | GET | `/api/v1/TimesheetProject/Timesheet-Get-user-timelog-mobile?userID=&orgID=&projectID=&fromDate=&toDate=` | A user's projects in an organisation, one entry per day with the latest selfie check-in / check-out and the hours logged; with no optional filter, every day. **Procedure not yet applied — 500 until it is** | query params (`userID`, `orgID` required) | `TimesheetUserProjectDetailsMobileResponse` | 400, 404, 500 |
 | — | Health | GET | `/health`, `/health/live`, `/health/ready` | Liveness / readiness | — | *(unenveloped)* | 503 |
 
 ---

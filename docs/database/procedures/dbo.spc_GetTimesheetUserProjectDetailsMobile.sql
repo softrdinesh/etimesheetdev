@@ -14,7 +14,7 @@
     Returns one timesheet user's project assignments in one organisation,
     with their selfie check-ins / check-outs and logged hours - for the mobile
     app, through
-    GET api/v1/TimesheetProject/get-user-project-details-mobile.
+    GET api/v1/TimesheetProject/Timesheet-Get-user-timelog-mobile.
 
     Parameters:
       @PUserID     REQUIRED. The user (dbo.Signup.UserID).

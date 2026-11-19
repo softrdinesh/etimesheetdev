@@ -3556,7 +3556,7 @@ public class TimesheetProjectTimeBySelfieResponse
 
 /// <summary>
 /// One timesheet user for the mobile app, as
-/// <c>get-user-project-details-mobile</c> returns it: who they are, and for
+/// <c>Timesheet-Get-user-timelog-mobile</c> returns it: who they are, and for
 /// every live project assignment in the organisation, one entry per day with
 /// activity - the day's latest selfie check-in / check-out and its logged
 /// hours.
