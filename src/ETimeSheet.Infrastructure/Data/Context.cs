@@ -460,6 +460,13 @@ public class Context : DbContext
     /// </summary>
     public DbSet<TimesheetUserLeaveApplySaveDetail> spc_AddEditTimesheetUserLeaveApply { get; set; } = null!;
 
+    /// <summary>
+    /// Result set of <c>dbo.spc_GetTimesheetUserProjectDetailsMobile</c> - one
+    /// user's live assignments in one organisation, with a row per selfie
+    /// session and per day of logged hours, told apart by RowType.
+    /// </summary>
+    public DbSet<TimesheetUserProjectDetailsMobileDetail> spc_GetTimesheetUserProjectDetailsMobile { get; set; } = null!;
+
     // dbo.spc_GetUsersTaskList has NO DbSet, deliberately. It returns two
     // result sets and EF Core materialises only the first, so
     // TimeLogRepository.GetUserTaskListByUserIdAsync runs it on this context's
@@ -1315,6 +1322,31 @@ public class Context : DbContext
             application.Property(row => row.ApprovedBy).HasColumnName("ApprovedBy");
             application.Property(row => row.RejectedDate).HasColumnName("RejectedDate").HasColumnType("datetime");
             application.Property(row => row.RejectedBy).HasColumnName("RejectedBy");
+        });
+
+        modelBuilder.Entity<TimesheetUserProjectDetailsMobileDetail>(details =>
+        {
+            details.HasNoKey();
+            details.ToView(null);
+
+            // Assignment, Attendance and TimeLog rows in one set, told apart
+            // by RowType; the procedure aliases every column to the name bound here.
+            details.Property(row => row.RowType).HasColumnName("RowType");
+            details.Property(row => row.UserId).HasColumnName("UserID");
+            details.Property(row => row.Name).HasColumnName("Name");
+            details.Property(row => row.Email).HasColumnName("Email");
+            details.Property(row => row.OrganizationId).HasColumnName("OrganizationID");
+            details.Property(row => row.OrganizationName).HasColumnName("OrganizationName");
+            details.Property(row => row.TimesheetUserProjectSetupId).HasColumnName("TimesheetUserProjectSetupID");
+            details.Property(row => row.ProjectId).HasColumnName("ProjectID");
+            details.Property(row => row.ProjectName).HasColumnName("ProjectName");
+            details.Property(row => row.AttendanceId).HasColumnName("AttendanceID");
+            details.Property(row => row.CheckInDateTimeUtc).HasColumnName("CheckInDateTimeUTC").HasColumnType("datetime2(0)");
+            details.Property(row => row.CheckInSelfiePath).HasColumnName("CheckInSelfiePath");
+            details.Property(row => row.CheckOutDateTimeUtc).HasColumnName("CheckOutDateTimeUTC").HasColumnType("datetime2(0)");
+            details.Property(row => row.CheckOutSelfiePath).HasColumnName("CheckOutSelfiePath");
+            details.Property(row => row.TimeLogDate).HasColumnName("TimeLogDate").HasColumnType("date");
+            details.Property(row => row.TimeLogHours).HasColumnName("TimeLogHours");
         });
     }
 }

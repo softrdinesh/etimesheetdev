@@ -1071,4 +1071,24 @@ public interface ITimesheetProjectRepository
         TimesheetUserSelfieAttendance attendance,
         TimesheetProjectTimeLog? timeLog,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// One user's projects in one organisation for the mobile app via
+    /// <c>spc_GetTimesheetUserProjectDetailsMobile</c>: an <c>Assignment</c>
+    /// row per live assignment, an <c>Attendance</c> row per selfie session
+    /// checked in from <paramref name="fromUtc"/> (inclusive) to
+    /// <paramref name="toUtc"/> (exclusive), and a <c>TimeLog</c> row per date
+    /// of logged hours from <paramref name="fromDate"/> to
+    /// <paramref name="toDate"/> (inclusive). Every optional filter left null
+    /// is not applied. Empty when the user has no live assignment there.
+    /// </summary>
+    Task<IReadOnlyList<TimesheetUserProjectDetailsMobileDetail>> GetTimesheetUserProjectDetailsMobileAsync(
+        int userId,
+        int organizationId,
+        int? projectId,
+        DateTime? fromDate,
+        DateTime? toDate,
+        DateTime? fromUtc,
+        DateTime? toUtc,
+        CancellationToken cancellationToken = default);
 }

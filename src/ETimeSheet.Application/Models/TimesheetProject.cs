@@ -3553,3 +3553,118 @@ public class TimesheetProjectTimeBySelfieResponse
     /// </summary>
     public TimesheetProjectTimeLogResponse? TimeLog { get; set; }
 }
+
+/// <summary>
+/// One timesheet user for the mobile app, as
+/// <c>get-user-project-details-mobile</c> returns it: who they are, and for
+/// every live project assignment in the organisation, one entry per day with
+/// activity - the day's latest selfie check-in / check-out and its logged
+/// hours.
+/// </summary>
+public class TimesheetUserProjectDetailsMobileResponse
+{
+    /// <example>149</example>
+    public int UserId { get; set; }
+
+    public string? Name { get; set; }
+
+    /// <summary>As stored: upper case.</summary>
+    public string? Email { get; set; }
+
+    /// <summary>The organisation asked for - <c>dbo.TimesheetProject.OrganizationID</c>.</summary>
+    /// <example>3</example>
+    public int? OrganizationId { get; set; }
+
+    public string? OrganizationName { get; set; }
+
+    /// <summary>
+    /// One entry per project per day with a check-in or logged hours, ordered
+    /// by project name, then newest day first. A project with no activity in
+    /// the range has a single entry with no day. Never null.
+    /// </summary>
+    public List<TimesheetUserProjectMobileResponse> Projects { get; set; } = new();
+}
+
+/// <summary>
+/// One project-day of <see cref="TimesheetUserProjectDetailsMobileResponse"/>:
+/// the user's latest selfie session on the project that day, and the hours
+/// logged on it that day.
+/// </summary>
+public class TimesheetUserProjectMobileResponse
+{
+    /// <example>12</example>
+    public int? ProjectId { get; set; }
+
+    public string? ProjectName { get; set; }
+
+    /// <summary>
+    /// When the user checked in on this project on <see cref="TimeLogDate"/>,
+    /// in UTC - the latest check-in when there were several. Null when they
+    /// did not check in that day.
+    /// </summary>
+    public DateTime? CheckInDateTimeUtc { get; set; }
+
+    /// <summary>The check-in selfie's link - a pre-signed URL. Null with no check-in.</summary>
+    public string? CheckInSelfiePath { get; set; }
+
+    /// <summary>When that session was checked out, in UTC. Null while it is open, or with no check-in.</summary>
+    public DateTime? CheckOutDateTimeUtc { get; set; }
+
+    /// <summary>The check-out selfie's link - a pre-signed URL. Null until checked out.</summary>
+    public string? CheckOutSelfiePath { get; set; }
+
+    /// <summary>
+    /// The day, in the user's time zone. Null only on the single entry of a
+    /// project with no check-in and no logged hours in the range.
+    /// </summary>
+    /// <example>2026-11-19</example>
+    public DateTime? TimeLogDate { get; set; }
+
+    /// <summary>
+    /// The user's whole hours logged on this project on <see cref="TimeLogDate"/>,
+    /// summed over every entry. 0 when none.
+    /// </summary>
+    /// <example>8</example>
+    public int TimeLogHours { get; set; }
+}
+
+/// <summary>
+/// One row of <c>dbo.spc_GetTimesheetUserProjectDetailsMobile</c>: the user
+/// and one assignment, and - by <see cref="RowType"/> - nothing more
+/// (<c>Assignment</c>), one selfie session (<c>Attendance</c>) or one day's
+/// logged hours (<c>TimeLog</c>).
+/// </summary>
+public class TimesheetUserProjectDetailsMobileDetail
+{
+    public string RowType { get; set; } = string.Empty;
+
+    public int UserId { get; set; }
+
+    public string? Name { get; set; }
+
+    public string? Email { get; set; }
+
+    public int? OrganizationId { get; set; }
+
+    public string? OrganizationName { get; set; }
+
+    public int TimesheetUserProjectSetupId { get; set; }
+
+    public int? ProjectId { get; set; }
+
+    public string? ProjectName { get; set; }
+
+    public long? AttendanceId { get; set; }
+
+    public DateTime? CheckInDateTimeUtc { get; set; }
+
+    public string? CheckInSelfiePath { get; set; }
+
+    public DateTime? CheckOutDateTimeUtc { get; set; }
+
+    public string? CheckOutSelfiePath { get; set; }
+
+    public DateTime? TimeLogDate { get; set; }
+
+    public int? TimeLogHours { get; set; }
+}
