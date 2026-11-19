@@ -1353,4 +1353,82 @@ public class TimesheetProjectController : ControllerBase
     }
 
     #endregion
+
+    #region Project Time By Selfie
+
+    /// <summary>
+    /// Checks a user in on a project by selfie. The selfie is uploaded and a
+    /// session is opened in <c>dbo.TimesheetUserSelfieAttendance</c>, at the
+    /// server's time. <b>Nothing is written to the time log</b> - that happens
+    /// at check-out.
+    /// <para>
+    /// Today, in the user's time zone, is first checked against the same rules
+    /// as <c>add-edit-timesheet-project-time-log</c> - the user is on the
+    /// project, time logging is enabled, it is not a weekend day, holiday or
+    /// leave, and the period is not submitted or approved - so a day that
+    /// cannot take time is refused now rather than after a day's work.
+    /// </para>
+    /// <para>
+    /// A user already checked in today, and not yet checked out, cannot check
+    /// in again.
+    /// </para>
+    /// <para>
+    /// Sent as <c>multipart/form-data</c>: <c>userId</c>, <c>projectId</c>, the
+    /// <c>selfie</c> image, and optionally <c>latitude</c> and <c>longitude</c>.
+    /// </para>
+    /// </summary>
+    /// <response code="200">The session opened.</response>
+    /// <response code="400">The payload failed validation, the user is not on the project, today cannot take time, or the user is already checked in today.</response>
+    /// <response code="502">The selfie could not be uploaded to the document service; nothing was saved.</response>
+    [HttpPost("time-sheet-project-check-in-by-selfie")]
+    [Consumes("multipart/form-data")]
+    [ProducesResponseType(typeof(ApiResponse<TimesheetProjectTimeBySelfieResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status502BadGateway)]
+    public async Task<IActionResult> TimeSheetProjectCheckInBySelfie(
+        [FromForm] TimesheetProjectSelfieCheckInRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await _timesheetProjectService.CheckInProjectTimeBySelfieAsync(request, cancellationToken);
+        return Ok(ApiResponse.Ok(result, "Checked in."));
+    }
+
+    /// <summary>
+    /// Checks a user out by selfie and logs the time. The session the user
+    /// checked in <b>today</b> (in their time zone) is closed with its length
+    /// in minutes, and that length, <b>rounded to the nearest whole hour</b>,
+    /// is added as a new entry to <c>dbo.TimesheetProjectTimeLog</c> on today's
+    /// date - exactly as an entry added by
+    /// <c>add-edit-timesheet-project-time-log</c>, with the same rules and the
+    /// same sheet code, so it is submitted, approved and rejected with the
+    /// rest of the sheet. A session under 30 minutes closes with no entry.
+    /// The session and the entry are saved together.
+    /// <para>
+    /// <b>No check-in today, no check-out:</b> a user who has not checked in
+    /// today, or has already checked out, gets an error. <c>projectId</c> must
+    /// be the project checked in on.
+    /// </para>
+    /// <para>
+    /// Sent as <c>multipart/form-data</c>: <c>userId</c>, <c>projectId</c>, the
+    /// <c>selfie</c> image, and optionally <c>latitude</c>, <c>longitude</c>
+    /// and <c>description</c> - the time log entry's description.
+    /// </para>
+    /// </summary>
+    /// <response code="200">The closed session, and the time log entry it wrote.</response>
+    /// <response code="400">The payload failed validation, the user has not checked in today, checked in on another project, or today can no longer take time.</response>
+    /// <response code="502">The selfie could not be uploaded to the document service; nothing was saved.</response>
+    [HttpPost("time-sheet-project-check-out-by-selfie")]
+    [Consumes("multipart/form-data")]
+    [ProducesResponseType(typeof(ApiResponse<TimesheetProjectTimeBySelfieResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status502BadGateway)]
+    public async Task<IActionResult> TimeSheetProjectCheckOutBySelfie(
+        [FromForm] TimesheetProjectSelfieCheckOutRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await _timesheetProjectService.CheckOutProjectTimeBySelfieAsync(request, cancellationToken);
+        return Ok(ApiResponse.Ok(result, "Checked out."));
+    }
+
+    #endregion
 }

@@ -57,7 +57,7 @@ public class SheetSubmissionService : ISheetSubmissionService
 
         if (await _sheetSubmissionRepository.ExistsAsync(sheetCode, cancellationToken))
         {
-            throw new ConflictException($"Timesheet '{sheetCode}' has already been submitted.");
+            throw new ConflictException("This timesheet has already been submitted.");
         }
 
         var totalMinutes = await _sheetSubmissionRepository.GetSavedMinutesAsync(sheetCode, request.UserId, cancellationToken);
@@ -65,7 +65,7 @@ public class SheetSubmissionService : ISheetSubmissionService
         if (totalMinutes is null)
         {
             throw new BusinessException(
-                $"User '{request.UserId}' has no saved time logged on timesheet '{sheetCode}'.");
+                "There is no saved time on this timesheet to submit.");
         }
 
         var now = _dateTimeProvider.UtcNow;
@@ -106,7 +106,7 @@ public class SheetSubmissionService : ISheetSubmissionService
         var sheetCode = request.SheetCode!.Trim();
 
         var submission = await _sheetSubmissionRepository.GetForUpdateAsync(sheetCode, cancellationToken)
-            ?? throw new NotFoundException($"Timesheet '{sheetCode}' has not been submitted.");
+            ?? throw new NotFoundException("This timesheet has not been submitted yet, so it cannot be reviewed.");
 
         // A sheet can be reviewed any number of times - rejected, then approved
         // later, or the other way round. The row holds only the LATEST decision:

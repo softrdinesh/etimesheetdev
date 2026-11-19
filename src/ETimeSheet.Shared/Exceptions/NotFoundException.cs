@@ -13,8 +13,14 @@ public class NotFoundException : AppException
     }
 
     /// <summary>
-    /// Builds a message that names the resource without leaking anything else about it.
+    /// Builds a message, fit to show a user as it is, that names the kind of
+    /// resource and nothing else about it.
+    /// <para>
+    /// <paramref name="key"/> is deliberately left out of the message: an id
+    /// means nothing on screen. It stays on the signature so a call site still
+    /// says which record it looked for.
+    /// </para>
     /// </summary>
     public static NotFoundException For(string resourceName, object key) =>
-        new($"{resourceName} '{key}' was not found.");
+        new($"The {resourceName.ToLowerInvariant()} was not found. It may have been removed - please refresh and try again.");
 }

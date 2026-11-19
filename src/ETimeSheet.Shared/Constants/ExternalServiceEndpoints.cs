@@ -22,6 +22,21 @@ public static class ExternalServiceEndpoints
         /// <summary><see cref="UpdateDocument"/> with the project code filled in, URL-escaped.</summary>
         public static string UpdateDocumentFor(string projectCode) =>
             UpdateDocument.Replace("{projectcode}", Uri.EscapeDataString(projectCode), StringComparison.Ordinal);
+
+        /// <summary>
+        /// Uploads one user picture: <c>multipart/form-data</c> with a single
+        /// part named <c>file</c>. <c>{projectID}</c> is the timesheet project
+        /// the picture is taken on. Answers <c>{ "success", "message", "path" }</c>,
+        /// where <c>path</c> is a pre-signed S3 URL.
+        /// </summary>
+        public const string UploadUserPicture = "/api/Upload/Uploaduserpic/{projectID}";
+
+        /// <summary><see cref="UploadUserPicture"/> with the project id filled in.</summary>
+        public static string UploadUserPictureFor(int projectId) =>
+            UploadUserPicture.Replace(
+                "{projectID}",
+                projectId.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                StringComparison.Ordinal);
     }
 }
 

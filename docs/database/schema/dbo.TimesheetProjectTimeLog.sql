@@ -8,6 +8,13 @@
               longer belongs to a submission.
     Revised:  2026-10-23 - APPLIED by the owner: IsRemoteLog int NULL added as
               the last column.
+    Revised:  2026-11-18 - NOT YET APPLIED - the owner runs it by hand:
+              IsLoggedFromMobile int NULL and AttendanceID int NULL added after
+              IsRemoteLog. Change this line to "APPLIED" once it has been run.
+              For a table that already exists, the change is:
+                  ALTER TABLE dbo.TimesheetProjectTimeLog
+                      ADD IsLoggedFromMobile int NULL,
+                          AttendanceID       int NULL;
 
     A user's time on one project for one calendar day: the whole hours worked
     and a description. Since 2026-10-27 a day may hold SEVERAL rows: the API
@@ -48,6 +55,16 @@
         (remote) or 0, or leaves it NULL when the log does not say. One value
         per row: an edit that sends it replaces that row's, and an edit that
         leaves it out keeps it.
+      - IsLoggedFromMobile is an int, nullable, used as a flag: 1 = the
+        time was logged from the mobile app, 0 = not. NULL on every row
+        written before the column existed and on rows written by
+        add-edit-timesheet-project-time-log; 1 on rows written by
+        time-sheet-project-check-out-by-selfie. No endpoint returns it.
+      - AttendanceID is the dbo.TimesheetUserSelfieAttendance session the time was
+        logged against, NULL when there is none. No foreign key. Note that
+        dbo.TimesheetUserSelfieAttendance.AttendanceID is bigint, so this int column
+        cannot hold an id past 2,147,483,647. Written only by
+        time-sheet-project-check-out-by-selfie; no endpoint returns it.
       - IsDelete is an int, NOT NULL - not a bit. 1 = deleted, 0 = live.
       - CreateDate, UpdateDate and DeletedDate are plain datetime.
 
@@ -77,6 +94,8 @@ CREATE TABLE dbo.TimesheetProjectTimeLog
     DeletedDate                  datetime        NULL,
     DeletedBy                    int             NULL,
     IsRemoteLog                  int             NULL,
+    IsLoggedFromMobile           int             NULL,       -- 1 = logged from mobile, 0 = not
+    AttendanceID                 int             NULL,       -- dbo.TimesheetUserSelfieAttendance.AttendanceID
     CONSTRAINT PK_TimesheetProjectTimeLog
         PRIMARY KEY CLUSTERED (TimesheetProjectTimeLogID)
 );

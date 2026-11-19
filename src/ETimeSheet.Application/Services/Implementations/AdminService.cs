@@ -440,7 +440,7 @@ public class AdminService : IAdminService
                 cancellationToken))
         {
             throw new ConflictException(
-                $"Organization '{request.OrganizationId}' already has a role named '{roleName}'.");
+                $"A role named '{roleName}' already exists in your organization.");
         }
 
         // Only an edit can come back empty: the role it names does not exist,
@@ -677,7 +677,7 @@ public class AdminService : IAdminService
                 request.OrganizationId,
                 cancellationToken)
             ?? throw new NotFoundException(
-                $"Role '{request.RoleId}' was not found in organization '{request.OrganizationId}'.");
+                "The role was not found. It may have been removed - please refresh and try again.");
 
         // A soft delete, never a DELETE statement: the row stays, and the
         // entity's query filter and both role procedures stop returning it.
@@ -837,7 +837,7 @@ public class AdminService : IAdminService
                 request.OrganizationId,
                 cancellationToken)
             ?? throw new NotFoundException(
-                $"Project category '{request.CategoryId}' was not found in organization '{request.OrganizationId}'.");
+                "The project category was not found. It may have been removed - please refresh and try again.");
 
         // A soft delete, never a DELETE statement: the row stays, and the
         // entity's query filter and both category procedures stop returning it.

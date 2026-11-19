@@ -66,6 +66,10 @@ public class TimesheetProjectTimeLogConfiguration : IEntityTypeConfiguration<Tim
             .HasColumnName("IsRemoteLog")
             .HasConversion<int?>();
 
+        builder.Property(timeLog => timeLog.IsLoggedFromMobile).HasColumnName("IsLoggedFromMobile");
+
+        builder.Property(timeLog => timeLog.AttendanceId).HasColumnName("AttendanceID");
+
         builder.HasQueryFilter(timeLog => timeLog.IsDelete != 1);
     }
 }

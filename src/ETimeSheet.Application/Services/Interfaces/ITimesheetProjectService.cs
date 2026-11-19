@@ -810,4 +810,48 @@ public interface ITimesheetProjectService
     Task<TimesheetUserLeaveApplyResponse> UpdateUserLeaveApplyStatusAsync(
         TimesheetUserLeaveApplyStatusUpdateRequest request,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Checks a user in on a project by selfie: the selfie is uploaded and a
+    /// session is opened in <c>dbo.TimesheetUserSelfieAttendance</c>. Nothing
+    /// is written to the time log. Today is first held to the same rules as
+    /// <see cref="SaveProjectTimeLogAsync"/>, so a day that cannot take time
+    /// is refused at check-in.
+    /// </summary>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.ValidationException">
+    /// A field fails its rule, the user is not on the project, or today is
+    /// outside the project's dates.
+    /// </exception>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.BusinessException">
+    /// The user is already checked in today, or time cannot be logged today -
+    /// time logging disabled, leave, a weekend day or holiday, or a submitted
+    /// or approved period.
+    /// </exception>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.ExternalServiceException">
+    /// The selfie could not be uploaded; nothing was saved.
+    /// </exception>
+    Task<TimesheetProjectTimeBySelfieResponse> CheckInProjectTimeBySelfieAsync(
+        TimesheetProjectSelfieCheckInRequest request,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Checks a user out by selfie: closes the session they checked in today,
+    /// with its length in minutes, and adds that length, rounded to the
+    /// nearest whole hour, as a new entry in <c>dbo.TimesheetProjectTimeLog</c>
+    /// under the same rules as <see cref="SaveProjectTimeLogAsync"/>. The
+    /// session and the entry are saved together.
+    /// </summary>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.ValidationException">
+    /// A field fails its rule, or the user is no longer on the project.
+    /// </exception>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.BusinessException">
+    /// The user has not checked in today, checked in on another project, or
+    /// time can no longer be logged today.
+    /// </exception>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.ExternalServiceException">
+    /// The selfie could not be uploaded; nothing was saved.
+    /// </exception>
+    Task<TimesheetProjectTimeBySelfieResponse> CheckOutProjectTimeBySelfieAsync(
+        TimesheetProjectSelfieCheckOutRequest request,
+        CancellationToken cancellationToken = default);
 }

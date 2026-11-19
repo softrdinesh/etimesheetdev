@@ -586,4 +586,30 @@ internal static class TimesheetProjectMappings
         RejectedDate = application.RejectedDate,
         RejectedBy = application.RejectedBy,
     };
+
+    /// <summary>
+    /// Projects a selfie attendance session, and the time log its check-out
+    /// wrote if any, to the selfie response.
+    /// </summary>
+    internal static TimesheetProjectTimeBySelfieResponse ToTimeBySelfieResponse(
+        this TimesheetUserSelfieAttendance attendance,
+        string action,
+        TimesheetProjectTimeLogResponse? timeLog) => new()
+    {
+        AttendanceId = attendance.AttendanceId,
+        Action = action,
+        UserId = attendance.UserId,
+        ProjectId = attendance.ProjectId,
+        OrganizationId = attendance.OrganizationId,
+        CheckInDateTimeUtc = attendance.CheckInDateTimeUtc,
+        CheckInSelfiePath = attendance.CheckInSelfiePath,
+        CheckInLatitude = attendance.CheckInLatitude,
+        CheckInLongitude = attendance.CheckInLongitude,
+        CheckOutDateTimeUtc = attendance.CheckOutDateTimeUtc,
+        CheckOutSelfiePath = attendance.CheckOutSelfiePath,
+        CheckOutLatitude = attendance.CheckOutLatitude,
+        CheckOutLongitude = attendance.CheckOutLongitude,
+        LoggedMinutes = attendance.LoggedMinutes,
+        TimeLog = timeLog,
+    };
 }

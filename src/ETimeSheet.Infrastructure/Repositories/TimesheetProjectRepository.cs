@@ -1401,4 +1401,34 @@ public class TimesheetProjectRepository : ITimesheetProjectRepository
                 PeriodEndDate = submission.PeriodEndDate
             })
             .ToListAsync(cancellationToken);
+
+    public async Task<TimesheetUserSelfieAttendance?> GetOpenSelfieAttendanceForUpdateAsync(
+        int userId,
+        CancellationToken cancellationToken = default) =>
+        await _db.TimesheetUserSelfieAttendance
+            .Where(attendance => attendance.UserId == userId && attendance.CheckOutDateTimeUtc == null)
+            .OrderByDescending(attendance => attendance.CheckInDateTimeUtc)
+            .ThenByDescending(attendance => attendance.AttendanceId)
+            .FirstOrDefaultAsync(cancellationToken);
+
+    public async Task<TimesheetUserSelfieAttendance> SaveSelfieAttendanceAsync(
+        TimesheetUserSelfieAttendance attendance,
+        TimesheetProjectTimeLog? timeLog,
+        CancellationToken cancellationToken = default)
+    {
+        if (attendance.AttendanceId == 0)
+        {
+            await _db.TimesheetUserSelfieAttendance.AddAsync(attendance, cancellationToken);
+        }
+
+        if (timeLog is not null)
+        {
+            await _db.TimesheetProjectTimeLog.AddAsync(timeLog, cancellationToken);
+        }
+
+        // One SaveChanges is one transaction: both rows, or neither.
+        await _db.SaveChangesAsync(cancellationToken);
+
+        return attendance;
+    }
 }

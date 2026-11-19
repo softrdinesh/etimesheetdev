@@ -4,7 +4,7 @@ Every endpoint the API exposes today, with its purpose, input payload, success
 response and failure responses — each with a worked example.
 
 Generated from the code on branch `develop` (last brought up to date
-2026-11-15). If you change a
+2026-11-19). If you change a
 controller, DTO or validator, change this file with it.
 
 ---
@@ -93,6 +93,9 @@ controller, DTO or validator, change this file with it.
   - [Add / Edit User Leave Apply](#66-add--edit-user-leave-apply)
   - [Remove User Leave Apply](#67-remove-user-leave-apply)
   - [Approve / Reject User Leave Apply](#68-approve--reject-user-leave-apply)
+  - [Time logged by selfie](#time-logged-by-selfie)
+  - [Check In by Selfie](#69-check-in-by-selfie)
+  - [Check Out by Selfie](#70-check-out-by-selfie)
 - [Health endpoints](#health-endpoints)
 - [Background jobs](#background-jobs)
 - [Enumerations](#enumerations)
@@ -244,12 +247,20 @@ service stops at the first thing it cannot accept.
 Note the difference: shape failures fill `errors[]`, rule failures put a single
 sentence in `message` and leave `errors[]` empty.
 
+**Every message is written to be shown to the user as it is.** Since
+2026-11-19 no message carries a record id or a sheet code — not
+`Project '45' …` or `Timesheet 'PSHT0004' …`, but `The selected project …` and
+`This timesheet …`. Values a user recognises and can act on — an email address,
+a role name, a date, a time, a number of days — are still quoted. A client can
+put `message` (and each `errors[]` entry after its `Field: ` prefix) straight
+on screen.
+
 **Not found (404)** — only ever from a write naming a row that is not there:
 
 ```json
 {
   "success": false,
-  "message": "Timesheet setup '4242' was not found.",
+  "message": "The timesheet setup was not found. It may have been removed - please refresh and try again.",
   "data": null,
   "errors": []
 }
@@ -260,7 +271,7 @@ sentence in `message` and leave `errors[]` empty.
 ```json
 {
   "success": false,
-  "message": "This overlaps time log 8812, which already covers 09:00 to 12:30 that day.",
+  "message": "This overlaps another time entry that already covers 09:00 to 12:30 that day.",
   "data": null,
   "errors": []
 }
@@ -804,9 +815,9 @@ A time failure arrives on its own, from the service:
 
 | Rule | Example message |
 |---|---|
-| Edit names someone else's entry | `Time log '8931' does not belong to user '102', so it cannot be edited as theirs.` |
-| No setup for the user | `User '4242' has no timesheet setup, so there are no limits to check this entry against. An administrator has to create one before they can log time.` |
-| Sheet already submitted | `Timesheet 'SHT0007' has already been submitted, so its time can no longer be added to or changed.` |
+| Edit names someone else's entry | `This time entry belongs to another user, so it cannot be edited.` |
+| No setup for the user | `This user's timesheet setup has not been created yet, so time cannot be logged. Please ask an administrator to set it up.` |
+| Sheet already submitted | `This timesheet has already been submitted, so its time can no longer be added or changed.` |
 | Future date | `Time cannot be logged against 2026-12-01 because it has not happened yet.` |
 | Back-dating cut-off passed | `The cut-off for logging time against an earlier day is 18:00 Asia/Kolkata time, and it is now 19:42 there, so 2026-09-15 is locked.` |
 | Entry starts before a cut-off that has passed | `It is 22:10 Asia/Kolkata time, past the 21:00 cut-off, so time starting before 21:00 can no longer be added or changed. Ask an administrator to record it for you.` |
@@ -840,7 +851,7 @@ soft-deleted one (a deleted entry cannot be edited back to life):
 ```json
 {
   "success": false,
-  "message": "Time log '8931' was not found.",
+  "message": "The time log was not found. It may have been removed - please refresh and try again.",
   "data": null,
   "errors": []
 }
@@ -851,7 +862,7 @@ soft-deleted one (a deleted entry cannot be edited back to life):
 ```json
 {
   "success": false,
-  "message": "This overlaps time log 8812, which already covers 09:00 to 12:30 that day.",
+  "message": "This overlaps another time entry that already covers 09:00 to 12:30 that day.",
   "data": null,
   "errors": []
 }
@@ -1684,7 +1695,7 @@ success:
 ```json
 {
   "success": false,
-  "message": "Timesheet setup '17' was not found.",
+  "message": "The timesheet setup was not found. It may have been removed - please refresh and try again.",
   "data": null,
   "errors": []
 }
@@ -2276,7 +2287,7 @@ Validation runs in **`AdminService`**, not a FluentValidation validator — but 
 **404** — `roleId > 0` names no live role of `organizationId`:
 
 ```json
-{ "success": false, "message": "Role '7' was not found.", "data": null, "errors": [] }
+{ "success": false, "message": "The role was not found. It may have been removed - please refresh and try again.", "data": null, "errors": [] }
 ```
 
 **409** — the organisation already has **another** live role of that name
@@ -2286,7 +2297,7 @@ role's name is free to reuse:
 ```json
 {
   "success": false,
-  "message": "Organization '12' already has a role named 'Project Manager'.",
+  "message": "A role named 'Project Manager' already exists in your organization.",
   "data": null,
   "errors": []
 }
@@ -2346,7 +2357,7 @@ Validated in **`AdminService`**; every failing field is listed at once.
 ```json
 {
   "success": false,
-  "message": "Role '7' was not found in organization '12'.",
+  "message": "The role was not found. It may have been removed - please refresh and try again.",
   "data": null,
   "errors": []
 }
@@ -2521,7 +2532,7 @@ Validation runs in **`AdminService`**, not a FluentValidation validator — but 
 **404** — `categoryId > 0` names no live category of `organizationId`:
 
 ```json
-{ "success": false, "message": "Project category '7' was not found.", "data": null, "errors": [] }
+{ "success": false, "message": "The project category was not found. It may have been removed - please refresh and try again.", "data": null, "errors": [] }
 ```
 
 **500** — unhandled defect, or the procedure has not been created in the
@@ -2581,7 +2592,7 @@ overwritten:
 ```json
 {
   "success": false,
-  "message": "Project category '7' was not found in organization '12'.",
+  "message": "The project category was not found. It may have been removed - please refresh and try again.",
   "data": null,
   "errors": []
 }
@@ -2700,7 +2711,7 @@ does not exist, belongs to someone else, or holds only drafts:
 ```json
 {
   "success": false,
-  "message": "User '5' has no saved time logged on timesheet 'SHT00012'.",
+  "message": "There is no saved time on this timesheet to submit.",
   "data": null,
   "errors": []
 }
@@ -2712,7 +2723,7 @@ does not exist, belongs to someone else, or holds only drafts:
 ```json
 {
   "success": false,
-  "message": "Timesheet 'SHT00012' has already been submitted.",
+  "message": "This timesheet has already been submitted.",
   "data": null,
   "errors": []
 }
@@ -2808,7 +2819,7 @@ approving clears `rejectedBy` / `rejectedDate`, rejecting clears `approvedBy` /
 ```json
 {
   "success": false,
-  "message": "Timesheet 'SHT00012' has not been submitted.",
+  "message": "This timesheet has not been submitted yet, so it cannot be reviewed.",
   "data": null,
   "errors": []
 }
@@ -3307,14 +3318,14 @@ new `clientId`, `clientCode`, `avatar` and currency:
   "success": false,
   "message": "One or more validation errors occurred.",
   "data": null,
-  "errors": ["CountryId: Country '8' has no currency set up, so a client cannot be saved against it."]
+  "errors": ["CountryId: The selected country has no currency set up, so the client cannot be saved. Please choose another country or ask an administrator to add its currency."]
 }
 ```
 
 **404** — `ClientId > 0` names a client that does not exist or is deleted:
 
 ```json
-{ "success": false, "message": "Client '42' was not found.", "data": null, "errors": [] }
+{ "success": false, "message": "The client was not found. It may have been removed - please refresh and try again.", "data": null, "errors": [] }
 ```
 
 **409** — another live client already has that billing email (case-insensitive;
@@ -3384,7 +3395,7 @@ stored procedure.
 success, and the first `DeleteDate` is never overwritten:
 
 ```json
-{ "success": false, "message": "Client '5' was not found.", "data": null, "errors": [] }
+{ "success": false, "message": "The client was not found. It may have been removed - please refresh and try again.", "data": null, "errors": [] }
 ```
 
 **500** — unhandled defect.
@@ -3720,14 +3731,14 @@ checks; a single entry):
   "success": false,
   "message": "One or more validation errors occurred.",
   "data": null,
-  "errors": ["ClientId: Client '5' does not exist or has been removed."]
+  "errors": ["ClientId: The selected client does not exist or has been removed."]
 }
 ```
 
 **404** — `projectId > 0` names no project of `organizationId`:
 
 ```json
-{ "success": false, "message": "Project '4' was not found.", "data": null, "errors": [] }
+{ "success": false, "message": "The project was not found. It may have been removed - please refresh and try again.", "data": null, "errors": [] }
 ```
 
 **500** — unhandled defect, the procedure has not been created in the
@@ -3839,7 +3850,7 @@ A POST rather than an HTTP DELETE, as with
 ```json
 {
   "success": false,
-  "message": "Project '4' was not found in organization '12'.",
+  "message": "The project was not found. It may have been removed - please refresh and try again.",
   "data": null,
   "errors": []
 }
@@ -4022,14 +4033,14 @@ as [Project Budget List](#29-project-budget-list):
   "success": false,
   "message": "One or more validation errors occurred.",
   "data": null,
-  "errors": ["ProjectCategoryId: Project category '9' is not a category of this project's organization."]
+  "errors": ["ProjectCategoryId: The selected project category does not belong to this project's organization."]
 }
 ```
 
 **404** — the project does not exist:
 
 ```json
-{ "success": false, "message": "Project '4' was not found.", "data": null, "errors": [] }
+{ "success": false, "message": "The project was not found. It may have been removed - please refresh and try again.", "data": null, "errors": [] }
 ```
 
 **500** — unhandled defect, or the procedure has not been created in the
@@ -4076,7 +4087,7 @@ budget too; this endpoint removes the budget and keeps the project.
 success:
 
 ```json
-{ "success": false, "message": "Budget '12' was not found.", "data": null, "errors": [] }
+{ "success": false, "message": "The budget was not found. It may have been removed - please refresh and try again.", "data": null, "errors": [] }
 ```
 
 **500** — unhandled defect.
@@ -4128,7 +4139,7 @@ through `dbo.spc_AddEditTimesheetProjectStatus`.
 `Status: Status is required.`, `UserId: UserId is required: the row records who created or last updated it.`
 
 **404** — a `statusId` was sent, but no live status of that organisation has
-it: `Project status '4' was not found.`
+it: `The project status was not found. It may have been removed - please refresh and try again.`
 
 **500** — unhandled defect, or the procedure has not been created in the
 database yet.
@@ -4172,7 +4183,7 @@ Projects already holding the status keep it, and still show its name.
 success:
 
 ```json
-{ "success": false, "message": "Project status '4' was not found.", "data": null, "errors": [] }
+{ "success": false, "message": "The project status was not found. It may have been removed - please refresh and try again.", "data": null, "errors": [] }
 ```
 
 **500** — unhandled defect.
@@ -4294,17 +4305,19 @@ not fail the request**: the account is already created, so the response is
 still `200`, with `welcomeEmailSent: false`, and the reason is logged.
 
 **Default password.** A **new** account is given the password configured as
-`DefaultPassword:Encrypted`, written to `dbo.Signup.Pwd` exactly as configured
-— the API never hashes, encrypts or encodes it, and never reads one back. It
-replaces what `spc_Signup_timesheet_user` writes for itself
-(`HASHBYTES('SHA2_512', @Email)`), as a second statement outside the
-procedure's transaction; if that statement fails the account keeps the
-email-derived password and the failure is logged, but the request still
-answers `200`. **An existing user keeps the password they have** — neither
-this endpoint nor [Edit Timesheet User](#37-edit-timesheet-user) ever changes
-an existing account's password, so adding someone to another project cannot
-lock them out. The password is never in a request, a response or a log line;
-the only place it leaves the API is the welcome email. See gap 94.
+`DefaultPassword:Plain` - the same one the welcome email states. The API
+passes it to `spc_Signup_timesheet_user` as `@Password`, and the procedure
+stores `HASHBYTES('SHA2_512', @Password)` in `dbo.Signup.Pwd` **in the same
+transaction as the insert**, so an account never exists with a different
+password; the API itself never hashes, stores or logs it. **Not live yet:**
+`@Password` is the procedure's 2026-11-15 revision, recorded as DRAFT and not
+yet applied, and until the owner applies it the procedure refuses the call -
+this endpoint answers **500** and no account is created. **An existing user
+keeps the password they have** — neither this endpoint nor
+[Edit Timesheet User](#37-edit-timesheet-user) ever changes an existing
+account's password, so adding someone to another project cannot lock them
+out. The password is never in a request, a response or a log line; the only
+place it leaves the API is the welcome email. See gap 94.
 
 #### Request body — `TimesheetUserCreateRequest` (JSON)
 
@@ -4458,9 +4471,9 @@ after the save. `message` is `User created.` or `User added to the project(s).`
 **400 — validation** (every failure listed): a missing or malformed field from
 the table above, then — once the shape is right — an organisation, country,
 project or role that does not exist. List failures are keyed on the entry that
-failed, e.g. `ProjectDetails[0].ProjectId: Project '45' does not exist in
-organization '12'.`, and a repeated project is
-`ProjectDetails: ProjectDetails names project(s) 45 more than once; each project may appear only once.`
+failed, e.g. `ProjectDetails[0].ProjectId: The selected project does not exist
+in your organization.`, and a repeated project is
+`ProjectDetails: The same project has been selected more than once. Each project may appear only once.`
 
 **409** — `The user with email '…' has been removed.` /
 `The user with email '…' belongs to another organization.`
@@ -4637,12 +4650,12 @@ it. Removed assignments are not in the list.
 
 **400 — validation** (every failure listed): a missing or malformed field from
 the table above, then — once the shape is right — a country, project or role
-that does not exist: `CountryId: Country '99' does not exist.` List failures
+that does not exist: `CountryId: The selected country does not exist.` List failures
 are keyed on the entry that failed, e.g.
-`ProjectDetails[1].ProjectRoleId: Role '22' does not exist in organization '12' or has been removed.`
+`ProjectDetails[1].ProjectRoleId: The selected role does not exist in your organization or has been removed.`
 
 **404** — no user has that id, or the user is removed or belongs to another
-organisation: `Timesheet user '58' was not found.`
+organisation: `The timesheet user was not found. It may have been removed - please refresh and try again.`
 
 **409** — `The email '…' is already used by another user.`
 
@@ -4693,7 +4706,7 @@ before that, or directly in the database, can still be duplicated. The user in
 `DeletedBy is required: a soft delete records who performed it.`
 
 **404** — the user has no live assignment to the project — including one
-removed already: `User '58' is not on project '4'.`
+removed already: `This user is not assigned to the selected project.`
 
 **500** — unhandled defect, or the key column has not been added yet.
 
@@ -5011,12 +5024,12 @@ overwrites `holidayDate`, `description`, `countryId`, `clientId` and
 **400** — every failing field is listed together. Field rules first
 (`HolidayDate: HolidayDate is required.`,
 `Description: Description must be 100 characters or fewer.`), then the
-database checks (`Country '99' does not exist.`,
-`Client '3' does not exist in organization '12' or has been removed.`,
-`Project '4' does not exist in organization '12'.`).
+database checks (`The selected country does not exist.`,
+`The selected client does not exist in your organization or has been removed.`,
+`The selected project does not exist in your organization.`).
 
 **404** — a `timesheetHolidaySetupId` was sent, but no live holiday of that
-organisation has it: `Holiday '5' was not found.`
+organisation has it: `The holiday was not found. It may have been removed - please refresh and try again.`
 
 **500** — unhandled defect, or the procedure has not been created in the
 database yet.
@@ -5057,7 +5070,7 @@ By the API through EF Core; no stored procedure.
 listed when both fail.
 
 **404** — no live holiday with that id belongs to that organisation. Removing
-one twice is **not** a silent success: `Holiday '5' was not found.`
+one twice is **not** a silent success: `The holiday was not found. It may have been removed - please refresh and try again.`
 
 **500** — unhandled defect.
 
@@ -5216,15 +5229,15 @@ Neither rule is enforced by the table — see [Known gaps](#known-gaps) 51.
 
 **400** — every failing field is listed together, e.g.
 `ProjectId: ProjectId is required and must be greater than 0.`,
-`Project '4' does not exist in organization '12'.`
+`The selected project does not exist in your organization.`
 
 **404** — a `timeSheetWeekendSetupId` was sent, but no live setup of that
-organisation has it: `Weekend setup '2' was not found.`
+organisation has it: `The weekend setup was not found. It may have been removed - please refresh and try again.`
 
 **409** — the project already has another live setup:
 
 ```json
-{ "success": false, "message": "Project '4' already has a weekend setup. Edit that one instead.", "data": null, "errors": [] }
+{ "success": false, "message": "This project already has a weekend setup. Please edit the existing one instead.", "data": null, "errors": [] }
 ```
 
 **500** — unhandled defect, or the procedure has not been created in the
@@ -5266,7 +5279,7 @@ given a new setup. By the API through EF Core; no stored procedure.
 when both fail.
 
 **404** — no live setup has that id. Removing one twice is **not** a silent
-success: `Weekend setup '2' was not found.`
+success: `The weekend setup was not found. It may have been removed - please refresh and try again.`
 
 **500** — unhandled defect.
 
@@ -5454,15 +5467,15 @@ again under a lock. The table does not enforce it — see
 (`UserId: UserId is required and must be greater than 0.`,
 `LoginUserId: LoginUserId is required: the row records who created or last updated it.`);
 then the user check:
-`UserId: User '58' is not a live user of organization '12'.`
+`UserId: The selected user is not an active user of your organization.`
 
 **404** — an `assignmentId` was sent, but no setup has it:
-`User access setup '2' was not found.`
+`The user access setup was not found. It may have been removed - please refresh and try again.`
 
 **409** — the user already has another setup:
 
 ```json
-{ "success": false, "message": "User '58' already has a user access setup. Edit that one instead.", "data": null, "errors": [] }
+{ "success": false, "message": "This user already has a user access setup. Please edit the existing one instead.", "data": null, "errors": [] }
 ```
 
 **500** — unhandled defect, or the procedure has not been created in the
@@ -5503,7 +5516,7 @@ API through EF Core; no stored procedure.
 **400** — `assignmentId <= 0`.
 
 **404** — no setup has that id. Removing one twice is **not** a silent
-success: `User access setup '2' was not found.`
+success: `The user access setup was not found. It may have been removed - please refresh and try again.`
 
 **500** — unhandled defect.
 
@@ -5749,6 +5762,12 @@ EF Core; no stored procedure.
 - A period that is **Submitted** or **Approved** cannot be logged on; once
   **Rejected** it can, and the sheet is left as it is until resubmitted.
 - **No timesheet submission is created.**
+- Entries are also added by [Check Out by Selfie](#70-check-out-by-selfie),
+  under exactly these rules. They are ordinary entries: this endpoint can edit
+  them and [Remove Project Time Log](#51-remove-project-time-log) can remove
+  them, and [Project Time Log List](#49-project-time-log-list) returns them
+  with no marker - `IsLoggedFromMobile` and `AttendanceID` are not in any
+  response (see gap 109).
 
 #### Request body — `TimesheetProjectTimeLogSaveRequest` (JSON)
 
@@ -5799,22 +5818,22 @@ Also a 400, one at a time, after the payload passes:
 
 | Cause | Message |
 |---|---|
-| No such project | `ProjectId: Project '12' does not exist.` |
-| Project not set up | `Project '12' needs a start date, a submission frequency and an organization before time can be logged or submitted on it.` |
-| Project still set to every 15 days | `Project '12' is set to submit every 15 days, which is no longer supported: submission periods follow the calendar, and no calendar block is 15 days long. An administrator has to change the project to weekly or monthly before time can be logged or submitted on it.` |
+| No such project | `ProjectId: The selected project does not exist.` |
+| Project not set up | `This project is missing a start date, a submission frequency or an organization. Please ask an administrator to complete the project setup before time can be logged or submitted.` |
+| Project still set to every 15 days | `This project is set to submit timesheets every 15 days, which is no longer supported. Please ask an administrator to change it to weekly or monthly before time can be logged or submitted.` |
 | Date outside the project | `LogDate: LogDate must not be before the project's start date, 2026-10-01.` (or after its end date) |
-| User not on the project | `ProjectId: User '7' is not assigned to project '12'.` |
-| **Time logging turned off on the assignment** | `Time logging is disabled by an administrator on project '12' for user '7', so no time can be logged or changed on it and its timesheets cannot be submitted.` Set by `isTimeLogDisabled` on [Create](#36-create-timesheet-user) / [Edit Timesheet User](#37-edit-timesheet-user) |
-| Editing another user's entry | `Time log '15' does not belong to user '7', so it cannot be changed as theirs.` |
-| Editing an entry of another project | `Time log '15' is on project '9', not '12', so it cannot be moved between projects.` |
-| Period submitted or approved | `Timesheet 'PSHT0004' for 2026-10-19 to 2026-10-25 is submitted, so its time can no longer be added to, changed or removed.` A rejected period is open again |
-| User on approved leave that day | `You are on approved leave on 2026-10-25 (leave 9, 2026-10-24 to 2026-10-26), so no time can be logged that day.` Only **approved** leave ([68](#68-approve--reject-user-leave-apply)) blocks the day; submitted and rejected leave do not |
+| User not on the project | `ProjectId: This user is not assigned to the selected project.` |
+| **Time logging turned off on the assignment** | `Time logging has been disabled by an administrator for this user on this project, so time cannot be logged or changed and timesheets cannot be submitted.` Set by `isTimeLogDisabled` on [Create](#36-create-timesheet-user) / [Edit Timesheet User](#37-edit-timesheet-user) |
+| Editing another user's entry | `This time entry belongs to another user, so it cannot be changed.` |
+| Editing an entry of another project | `This time entry is on a different project, and a time entry cannot be moved from one project to another.` |
+| Period submitted or approved | `The timesheet for 2026-10-19 to 2026-10-25 is submitted, so its time can no longer be added, changed or removed.` A rejected period is open again |
+| User on approved leave that day | `You are on approved leave on 2026-10-25 (leave from 2026-10-24 to 2026-10-26), so no time can be logged that day.` Only **approved** leave ([68](#68-approve--reject-user-leave-apply)) blocks the day; submitted and rejected leave do not |
 | Holiday that day | `2026-10-25 is a holiday (Diwali), so no time can be logged that day.` A holiday ([41](#41-add--edit-holiday)) of the project's organisation counts when each of its country, client and project is empty or matches — the user's country, the project's client, this project |
 | Weekend day | `2026-10-25 is a Sunday, which is a weekend day on this project, so no time can be logged that day.` From `dbo.TimeSheet_Weekend_setup`; a project with no setup there has no weekend |
 | The whole week or month is days off | `2026-10-19 to 2026-10-25 has no working day on this project - every day of it is a weekend day or a holiday - so it has no timesheet.` |
 
 **404** — `timesheetProjectTimeLogId` is greater than 0 but no live entry has
-it: `Time log '15' was not found.` A removed entry is not found either.
+it: `The time log was not found. It may have been removed - please refresh and try again.` A removed entry is not found either.
 
 **500** — unhandled defect.
 
@@ -5851,12 +5870,12 @@ starts a new entry. By the API through EF Core; no stored procedure.
 #### Error responses
 
 **400** — any id `<= 0` (every failure is listed); the entry is another
-user's: `Time log '15' does not belong to user '7', so it cannot be removed as theirs.`;
+user's: `This time entry belongs to another user, so it cannot be removed.`;
 or its period is submitted or approved (the same message as on
 [Add / Edit](#50-add--edit-project-time-log)).
 
 **404** — no live entry has that id. Removing one twice is **not** a silent
-success: `Time log '15' was not found.`
+success: `The time log was not found. It may have been removed - please refresh and try again.`
 
 **500** — unhandled defect.
 
@@ -6051,20 +6070,20 @@ of these, one at a time:
 
 | Cause | Message |
 |---|---|
-| No such project | `ProjectId: Project '12' does not exist.` |
-| Project not set up | `Project '12' needs a start date, a submission frequency and an organization before time can be logged or submitted on it.` |
-| Code is another user's or project's sheet | `Timesheet 'PSHT0004' is not user '7''s timesheet for project '12', so it cannot be submitted as theirs.` |
-| Code matches nothing of this user on this project | `SheetSubmissionCode: SheetSubmissionCode 'PSHT0011' is not a timesheet of user '7' on project '12'.` |
-| `periodDate` not in the code's period | `PeriodDate: PeriodDate 2026-10-12 is not in the period of timesheet 'PSHT0004'.` |
+| No such project | `ProjectId: The selected project does not exist.` |
+| Project not set up | `This project is missing a start date, a submission frequency or an organization. Please ask an administrator to complete the project setup before time can be logged or submitted.` |
+| Code is another user's or project's sheet | `This timesheet belongs to another user or project, so it cannot be submitted.` |
+| Code matches nothing of this user on this project | `SheetSubmissionCode: The selected timesheet was not found for this user and project.` |
+| `periodDate` not in the code's period | `PeriodDate: 2026-10-12 is not within the period of the selected timesheet.` |
 | Date outside the project | `PeriodDate: PeriodDate must not be before the project's start date, 2026-10-01.` (or after its end date) |
 | **Period not yet at its last working day** | `The timesheet for 2026-10-19 to 2026-10-23 can be submitted from 2026-10-23, the period's last working day. Today is 2026-10-21 (Asia/Kolkata).` |
 | **An earlier period has not been submitted** | `The timesheet for 2026-10-12 to 2026-10-16 has not been submitted yet, so the timesheet for 2026-10-19 to 2026-10-23 cannot be submitted yet. Submit that timesheet first - a period with no time on it is submitted as a blank timesheet.` |
-| Project still set to every 15 days | `Project '12' is set to submit every 15 days, which is no longer supported: ...` — as on [Add / Edit Project Time Log](#50-add--edit-project-time-log) |
-| User not on the project (first submit) | `User '7' is not assigned to project '12', so they have no timesheet on it to submit.` A sheet already handed in stays the user's to resubmit even after they are taken off the project |
-| **Time logging turned off on the assignment** | `Time logging is disabled by an administrator on project '12' for user '7', so no time can be logged or changed on it and its timesheets cannot be submitted.` Checked on **every** submit, a resubmit after rejection included |
+| Project still set to every 15 days | `This project is set to submit timesheets every 15 days, which is no longer supported. ...` — as on [Add / Edit Project Time Log](#50-add--edit-project-time-log) |
+| User not on the project (first submit) | `This user is not assigned to the selected project, so there is no timesheet to submit.` A sheet already handed in stays the user's to resubmit even after they are taken off the project |
+| **Time logging turned off on the assignment** | `Time logging has been disabled by an administrator for this user on this project, so time cannot be logged or changed and timesheets cannot be submitted.` Checked on **every** submit, a resubmit after rejection included |
 
 **409** — the period is already submitted or approved:
-`Timesheet 'PSHT0004' is already Submitted.`
+`This timesheet is already submitted.`
 
 **500** — unhandled defect.
 
@@ -6121,15 +6140,15 @@ anyone else gets a **403**.
 **403** — `addedBy` is not the project's timesheet approver:
 
 ```json
-{ "success": false, "message": "User '3' is not the timesheet approver of project '12', so cannot approve or reject its timesheets.", "data": null, "errors": [] }
+{ "success": false, "message": "You are not the timesheet approver for this project, so you cannot approve or reject its timesheets.", "data": null, "errors": [] }
 ```
 
-**404** — no live sheet has that id: `Timesheet '11' was not found.`
+**404** — no live sheet has that id: `The timesheet was not found. It may have been removed - please refresh and try again.`
 
 **409** — the sheet is not Submitted:
 
 ```json
-{ "success": false, "message": "Timesheet 'PSHT0011' is Approved, so it cannot be approved or rejected; only a submitted timesheet can.", "data": null, "errors": [] }
+{ "success": false, "message": "This timesheet is approved, so it cannot be approved or rejected. Only a submitted timesheet can be.", "data": null, "errors": [] }
 ```
 
 **500** — unhandled defect, or the tables have not been created in the
@@ -6300,16 +6319,16 @@ flags false, a project not in the organisation, or an approver who is not a
 live user of it.
 
 **404** — an id was sent, but no live setup of the organisation has it:
-`Approver setup '3' was not found.`
+`The approver setup was not found. It may have been removed - please refresh and try again.`
 
 **409** — an area this save claims already has a live approver. The message
 names each one held:
 
 ```json
-{ "success": false, "message": "Project '5' already has a timesheet approver. Edit that setup instead.", "data": null, "errors": [] }
+{ "success": false, "message": "The selected project already has a timesheet approver. Edit that setup instead.", "data": null, "errors": [] }
 ```
 
-`Organization '12' already has a leave approver. Edit that setup instead.` is
+`Your organization already has a leave approver. Edit that setup instead.` is
 the leave form; both sentences appear together when both areas are held.
 
 **500** — unhandled defect, or the procedure has not been created in the
@@ -6351,7 +6370,7 @@ approver. By the API through EF Core; no stored procedure.
 **400** — `timesheetApproverSetupId` or `deletedBy` `<= 0`.
 
 **404** — no live setup has that id. Removing one twice is **not** a silent
-success: `Approver setup '1' was not found.`
+success: `The approver setup was not found. It may have been removed - please refresh and try again.`
 
 **500** — unhandled defect.
 
@@ -6548,7 +6567,7 @@ different ones. They are set by
 
 **404** — the user has no live project assignment, which includes a user id
 that does not exist, a deleted user, and a live user who is on no project:
-`Timesheet user '149' was not found.`
+`The timesheet user was not found. It may have been removed - please refresh and try again.`
 
 **500** — unhandled defect, or the procedure has not been created in the
 database yet.
@@ -6658,7 +6677,7 @@ message `Leave type saved.`
 missing or out-of-range `noOfLeaveAllocated`.
 
 **404** — an id was sent, but no live leave type of the organisation has it:
-`Leave type '3' was not found.`
+`The leave type was not found. It may have been removed - please refresh and try again.`
 
 **500** — unhandled defect, or the procedure has not been created in the
 database yet.
@@ -6699,7 +6718,7 @@ stored procedure.
 **400** — `leaveTypeId`, `organizationId` or `deletedBy` `<= 0`.
 
 **404** — no live leave type of the organisation has that id. Removing one
-twice is **not** a silent success: `Leave type '3' was not found.`
+twice is **not** a silent success: `The leave type was not found. It may have been removed - please refresh and try again.`
 
 **500** — unhandled defect.
 
@@ -6839,12 +6858,12 @@ out-of-range `balanceLeave` (edit), a user who is not a live user of the
 organisation, or a leave type that is not a live leave type of it.
 
 **404** — edit only: no live assignment of the organisation has the id:
-`Leave assignment '4' was not found.`
+`The leave assignment was not found. It may have been removed - please refresh and try again.`
 
 **409** — the user already holds the leave type:
 
 ```json
-{ "success": false, "message": "User '58' already has leave type '3' assigned. Edit that assignment instead.", "data": null, "errors": [] }
+{ "success": false, "message": "This user already has the selected leave type assigned. Please edit the existing assignment instead.", "data": null, "errors": [] }
 ```
 
 **500** — unhandled defect, or the procedure has not been created in the
@@ -6888,7 +6907,7 @@ By the API through EF Core; no stored procedure.
 `<= 0`.
 
 **404** — no live assignment of the organisation has that id. Removing one
-twice is **not** a silent success: `Leave assignment '4' was not found.`
+twice is **not** a silent success: `The leave assignment was not found. It may have been removed - please refresh and try again.`
 
 **500** — unhandled defect.
 
@@ -7050,11 +7069,11 @@ or reversed dates, dates more than 99 days apart, a user, leave type or assignme
 that does not exist); or, on its own, an approved application:
 
 ```json
-{ "success": false, "message": "Leave application '9' is approved, so it can no longer be changed.", "data": null, "errors": [] }
+{ "success": false, "message": "This leave application has already been approved, so it can no longer be changed.", "data": null, "errors": [] }
 ```
 
 **404** — an id was sent, but no application of this user in the organisation
-has it: `Leave application '9' was not found.`
+has it: `The leave application was not found. It may have been removed - please refresh and try again.`
 
 **500** — unhandled defect, or the procedure has not been created in the
 database yet (or `dbo.TimesheetLeaveStatus_Lookup` has no `Submitted` row —
@@ -7108,7 +7127,7 @@ would take the balance past `99.99` — which the column cannot hold — is a
 or the balance would pass `99.99`.
 
 **404** — no application of the organisation has that id. Removing one twice
-is **not** a silent success: `Leave application '9' was not found.`
+is **not** a silent success: `The leave application was not found. It may have been removed - please refresh and try again.`
 
 **500** — unhandled defect.
 
@@ -7181,19 +7200,347 @@ is not Approved or Rejected, a rejection with no `approverComments`); or, on
 approval, a balance smaller than `noOfDays`:
 
 ```json
-{ "success": false, "message": "Leave application '9' is for 2 day(s), but the user's balance is 1.5.", "data": null, "errors": [] }
+{ "success": false, "message": "This leave application is for 2 day(s), but the user's leave balance is only 1.5.", "data": null, "errors": [] }
 ```
 
 **403** — `addedBy` is not a leave approver of the organisation:
-`User '3' is not a leave approver of organization '12'.`
+`You are not a leave approver of your organization, so you cannot approve or reject leave.`
 
 **404** — no application of the organisation has that id.
 
 **409** — the application is not submitted:
-`Leave application '9' is not submitted, so it cannot be approved or rejected.`
+`This leave application is not in submitted status, so it cannot be approved or rejected.`
 
 **500** — unhandled defect, or the list procedure (65) has not been created
 yet — the decision is saved before the read-back.
+
+---
+
+### Time logged by selfie
+
+The mobile app's way to log time on a project: a selfie when the work starts,
+another when it ends. The two calls write one row of
+`dbo.TimesheetUserSelfieAttendance` - a **session** - and the check-out turns
+its length into an ordinary entry on the project time log, exactly as
+[Add / Edit Project Time Log](#50-add--edit-project-time-log) would. From
+there the entry follows the normal flow: it is on the period's sheet,
+submitted, approved and rejected with it.
+
+| Step | Endpoint | Writes |
+|---|---|---|
+| Start of work | [69. Check In by Selfie](#69-check-in-by-selfie) | A new session: check-in time, selfie, location. **Nothing on the time log** |
+| End of work | [70. Check Out by Selfie](#70-check-out-by-selfie) | Closes that session (check-out time, selfie, location, `loggedMinutes`) **and** adds a `dbo.TimesheetProjectTimeLog` entry, in one transaction |
+
+- **Times are the server's**, taken when the selfie arrives. The client sends
+  none, so a device clock cannot move them.
+- **"Today" is the user's day**, in the time zone of their timesheet setup
+  (`dbo.TimesheetMasterSetup.TimeZone`; UTC when they have none) - the same
+  zone the project timesheet rules use.
+- **One session a day, same-day only.** A user checked in today cannot check
+  in again until they check out; a check-out needs a check-in **today**, on
+  the same project. A session from an earlier day is never closed (gap 106).
+- **Hours are whole hours**, rounded to the nearest: `loggedMinutes` 449 logs
+  7, 450 logs 8, and under 30 minutes logs nothing (gap 107).
+- **Both selfies go to the document service** -
+  `POST {EmailService:BaseUrl}/api/Upload/Uploaduserpic/{projectId}`,
+  `multipart/form-data` with one part named `file`, filed under the
+  timesheet project's id. It answers
+  `{ "success": true, "message": "File uploaded", "path": "https://…" }`, and
+  `path` is stored as the selfie's path. `success: false`, no `path`, or a
+  `path` longer than 500 characters is a **502**, and nothing is saved. The
+  path is a **pre-signed S3 URL that expires after 48 hours** (gap 105), and it
+  is never written to a log.
+- **The rules are checked before the upload**, so a refused call leaves no file
+  behind.
+
+> **Not live until the owner applies the schema** - see gap 104. Until then
+> both endpoints, and every other endpoint on the project time log, answer
+> **500**.
+
+#### The `TimesheetProjectTimeBySelfieResponse` shape
+
+Both endpoints answer with the session after the call. Properties are written
+in this order, every one of them every time.
+
+| Field | Type | Notes |
+|---|---|---|
+| `attendanceId` | long | The session, `dbo.TimesheetUserSelfieAttendance.AttendanceID` (`bigint`) |
+| `action` | string | `CheckIn` or `CheckOut` - which of the two this call did |
+| `userId` | int | |
+| `projectId` | int | |
+| `organizationId` | int | The project's organisation |
+| `checkInDateTimeUtc` | datetime | When the session was checked in, UTC (gap 110) |
+| `checkInSelfiePath` | string | Where the check-in selfie is stored - a pre-signed URL |
+| `checkInLatitude` | string \| null | As sent at check-in |
+| `checkInLongitude` | string \| null | As sent at check-in |
+| `checkOutDateTimeUtc` | datetime \| null | When it was checked out, UTC. `null` after a check-in |
+| `checkOutSelfiePath` | string \| null | Where the check-out selfie is stored. `null` after a check-in |
+| `checkOutLatitude` | string \| null | As sent at check-out |
+| `checkOutLongitude` | string \| null | As sent at check-out |
+| `loggedMinutes` | int \| null | The session's length in whole minutes. `null` after a check-in |
+| `timeLog` | object \| null | The entry the check-out wrote - a `TimesheetProjectTimeLogResponse`, exactly as [50](#50-add--edit-project-time-log) returns one. `null` after a check-in, and after a check-out under 30 minutes |
+
+---
+
+### 69. Check In by Selfie
+
+`POST /api/v1/TimesheetProject/time-sheet-project-check-in-by-selfie`
+
+**Purpose** — Start a session: upload the user's selfie and open a row in
+`dbo.TimesheetUserSelfieAttendance` on a project, stamped with the server's
+time. **Nothing is written to the time log** - that is the check-out's job.
+
+**Sent as `multipart/form-data`, not JSON** — a JSON body is refused with
+`415 Unsupported Media Type`.
+
+Before anything is uploaded, **today** is held to the same rules as
+[Add / Edit Project Time Log](#50-add--edit-project-time-log), so a day that
+could never take the time is refused now rather than after a day's work: the
+project exists and is set up for submission, today is within its dates, the
+user is assigned to it with time logging on, today is not a weekend day, a
+holiday or the user's approved leave, and today's period is not submitted or
+approved.
+
+#### Form fields — `TimesheetProjectSelfieCheckInRequest`
+
+| Field | Type | Required | Rules | Notes |
+|---|---|---|---|---|
+| `UserId` | int | yes | `> 0` | Whose session it is; also written to `CreatedBy`. **Temporary** - it comes from the token once authentication is on |
+| `ProjectId` | int | yes | `> 0` | A project the user is assigned to. Also the `{projectId}` the selfie is filed under |
+| `Selfie` | file | yes | not empty; content type `image/*` | |
+| `Latitude` | string | no | `<= 500` | Stored as text, as sent; blank is `null` |
+| `Longitude` | string | no | `<= 500` | Stored as text, as sent; blank is `null` |
+
+Field names are case-insensitive.
+
+#### Example request
+
+```bash
+curl -X POST 'http://localhost:5041/api/v1/TimesheetProject/time-sheet-project-check-in-by-selfie' \
+  -H 'accept: application/json' \
+  -F 'UserId=7' \
+  -F 'ProjectId=12' \
+  -F 'Selfie=@selfie.jpg;type=image/jpeg' \
+  -F 'Latitude=23.022505' \
+  -F 'Longitude=72.571365'
+```
+
+#### Success response — `200 OK`
+
+`data` is a [`TimesheetProjectTimeBySelfieResponse`](#the-timesheetprojecttimebyselfieresponse-shape)
+with `action` `CheckIn`; message `Checked in.`
+
+```json
+{
+  "success": true,
+  "message": "Checked in.",
+  "data": {
+    "attendanceId": 1001,
+    "action": "CheckIn",
+    "userId": 7,
+    "projectId": 12,
+    "organizationId": 3,
+    "checkInDateTimeUtc": "2026-11-19T03:35:12.4810000Z",
+    "checkInSelfiePath": "https://ppmdocs.s3.ap-south-1.amazonaws.com/12/9768ed70-…_selfie.jpg?X-Amz-Expires=172800&…",
+    "checkInLatitude": "23.022505",
+    "checkInLongitude": "72.571365",
+    "checkOutDateTimeUtc": null,
+    "checkOutSelfiePath": null,
+    "checkOutLatitude": null,
+    "checkOutLongitude": null,
+    "loggedMinutes": null,
+    "timeLog": null
+  },
+  "errors": []
+}
+```
+
+#### Error responses
+
+**400 — validation** (every payload failure together, in `errors[]`):
+
+```json
+{
+  "success": false,
+  "message": "One or more validation errors occurred.",
+  "data": null,
+  "errors": [
+    "ProjectId: ProjectId is required and must be greater than 0.",
+    "Selfie: Selfie must be an image."
+  ]
+}
+```
+
+| Case | Message |
+|---|---|
+| `UserId` missing or `<= 0` | `UserId: UserId is required and must be greater than 0.` |
+| `ProjectId` missing or `<= 0` | `ProjectId: ProjectId is required and must be greater than 0.` |
+| No selfie, or an empty file | `Selfie: Selfie is required and must not be an empty file.` |
+| Not an image | `Selfie: Selfie must be an image.` |
+| Coordinates too long | `Latitude: Latitude must be at most 500 characters.` (and `Longitude`) |
+| No such project | `ProjectId: The selected project does not exist.` |
+| User not on the project | `ProjectId: This user is not assigned to the selected project.` |
+| Today before the project starts / after it ends | `LogDate: LogDate must not be before the project's start date, 2026-12-01.` - keyed `LogDate`, the day the session would be logged on |
+
+**400 — business rule** (one sentence in `message`):
+
+| Case | Message |
+|---|---|
+| **Already checked in today** | `You checked in today at 09:05 and have not checked out yet. Please check out before checking in again.` - the time is in the user's time zone |
+| Time logging turned off on the assignment | `Time logging has been disabled by an administrator for this user on this project, so time cannot be logged or changed and timesheets cannot be submitted.` |
+| Approved leave today | `You are on approved leave on 2026-11-19 (leave from 2026-11-18 to 2026-11-20), so no time can be logged that day.` |
+| Weekend day or holiday | `2026-11-21 is a Saturday, which is a weekend day on this project, so no time can be logged that day.` |
+| Today's period submitted or approved | `The timesheet for 2026-11-16 to 2026-11-20 is submitted, so its time can no longer be added, changed or removed.` |
+| Project not set up for submission | `This project is missing a start date, a submission frequency or an organization. Please ask an administrator to complete the project setup before time can be logged or submitted.` |
+
+**415** — the body was not `multipart/form-data`.
+
+**502** — the selfie could not be uploaded, and nothing was saved:
+`The document service could not be reached.`,
+`The document service refused the picture (500 Internal Server Error).`,
+`The document service did not accept the picture, or did not say where it was stored.`,
+or a returned path too long for the column.
+
+**500** — the schema is not applied yet (gap 104), or an unhandled defect.
+
+---
+
+### 70. Check Out by Selfie
+
+`POST /api/v1/TimesheetProject/time-sheet-project-check-out-by-selfie`
+
+**Purpose** — End today's session and log its time: upload the user's selfie,
+close the session they checked in **today**, and add its length as a new entry
+on `dbo.TimesheetProjectTimeLog`. **Only this endpoint writes the time log.**
+
+**Sent as `multipart/form-data`, not JSON** — a JSON body is refused with
+`415 Unsupported Media Type`.
+
+What it does, in order:
+
+1. Finds the user's open session checked in **today**, in their time zone.
+   None - never checked in today, or already checked out - is a **400**. It
+   must be on `ProjectId`.
+2. `loggedMinutes` = whole minutes from check-in to now. `hoursLogged` = that,
+   rounded to the nearest whole hour.
+3. If `hoursLogged` is above 0, holds today to **the same rules as**
+   [Add / Edit Project Time Log](#50-add--edit-project-time-log) once more -
+   the period may have been submitted, or time logging turned off, since
+   check-in - and builds a **new** entry for today exactly as that endpoint
+   adds one: `hoursLogged`, `description`, and the period's **sheet code**
+   ([periods and sheet codes](#project-timesheets-periods-and-sheet-codes)).
+   The entry also gets `IsLoggedFromMobile = 1` and the session's
+   `AttendanceID`, which no endpoint returns.
+4. Uploads the selfie.
+5. Saves the closed session and the entry **in one transaction** - both, or
+   neither.
+
+Under 30 minutes the session closes with `loggedMinutes` and **no** entry;
+`timeLog` is `null`. Hours are not capped, as on 50.
+
+#### Form fields — `TimesheetProjectSelfieCheckOutRequest`
+
+| Field | Type | Required | Rules | Notes |
+|---|---|---|---|---|
+| `UserId` | int | yes | `> 0` | Also written to `UpdatedBy` and the entry's `CreatedBy`. **Temporary** - it comes from the token once authentication is on |
+| `ProjectId` | int | yes | `> 0` | The project of today's check-in |
+| `Selfie` | file | yes | not empty; content type `image/*` | |
+| `Latitude` | string | no | `<= 500` | Stored as text, as sent |
+| `Longitude` | string | no | `<= 500` | Stored as text, as sent |
+| `Description` | string | no | any length | The time log entry's description; blank is `null` |
+
+#### Example request
+
+```bash
+curl -X POST 'http://localhost:5041/api/v1/TimesheetProject/time-sheet-project-check-out-by-selfie' \
+  -H 'accept: application/json' \
+  -F 'UserId=7' \
+  -F 'ProjectId=12' \
+  -F 'Selfie=@selfie.jpg;type=image/jpeg' \
+  -F 'Latitude=23.022611' \
+  -F 'Longitude=72.571402' \
+  -F 'Description=Site visit'
+```
+
+#### Success response — `200 OK`
+
+`data` is a [`TimesheetProjectTimeBySelfieResponse`](#the-timesheetprojecttimebyselfieresponse-shape)
+with `action` `CheckOut`; message `Checked out.`
+
+```json
+{
+  "success": true,
+  "message": "Checked out.",
+  "data": {
+    "attendanceId": 1001,
+    "action": "CheckOut",
+    "userId": 7,
+    "projectId": 12,
+    "organizationId": 3,
+    "checkInDateTimeUtc": "2026-11-19T03:35:12",
+    "checkInSelfiePath": "https://ppmdocs.s3.ap-south-1.amazonaws.com/12/9768ed70-…_selfie.jpg?X-Amz-Expires=172800&…",
+    "checkInLatitude": "23.022505",
+    "checkInLongitude": "72.571365",
+    "checkOutDateTimeUtc": "2026-11-19T11:41:47.0920000Z",
+    "checkOutSelfiePath": "https://ppmdocs.s3.ap-south-1.amazonaws.com/12/0c1f5a2e-…_selfie.jpg?X-Amz-Expires=172800&…",
+    "checkOutLatitude": "23.022611",
+    "checkOutLongitude": "72.571402",
+    "loggedMinutes": 486,
+    "timeLog": {
+      "timesheetProjectTimeLogId": 431,
+      "userId": 7,
+      "projectId": 12,
+      "organizationId": 3,
+      "sheetSubmissionCode": "PSHT0021",
+      "periodStartDate": "2026-11-16T00:00:00",
+      "periodEndDate": "2026-11-20T00:00:00",
+      "statusId": 0,
+      "statusName": "Pending",
+      "logDate": "2026-11-19T00:00:00",
+      "hoursLogged": 8,
+      "isRemoteLog": null,
+      "description": "Site visit",
+      "createDate": "2026-11-19T11:41:47.0920000Z",
+      "createdBy": 7,
+      "updateDate": null,
+      "updatedBy": null
+    }
+  },
+  "errors": []
+}
+```
+
+486 minutes is 8 h 6 min, logged as **8** hours.
+
+#### Error responses
+
+**400 — validation**: the same payload failures as
+[69](#69-check-in-by-selfie), and - when the session is long enough to log -
+`ProjectId: The selected project does not exist.`,
+`ProjectId: This user is not assigned to the selected project.` or a `LogDate`
+outside the project's dates.
+
+**400 — business rule**:
+
+| Case | Message |
+|---|---|
+| **No check-in today** (or already checked out) | `You have not checked in today (2026-11-19), so you cannot check out. Check in first.` |
+| Checked in on another project | `You checked in on a different project. Please check out on the same project you checked in on.` |
+| Time logging turned off since check-in | `Time logging has been disabled by an administrator for this user on this project, so time cannot be logged or changed and timesheets cannot be submitted.` |
+| Today's period submitted since check-in | `The timesheet for 2026-11-16 to 2026-11-20 is submitted, so its time can no longer be added, changed or removed.` |
+| Leave, weekend day, holiday, project setup | As on [69](#69-check-in-by-selfie) |
+| Session id beyond the time log's `int` column | `Your time could not be logged because of a system limit. Please contact support.` |
+
+A check-out refused by a rule **leaves the session open**: the user can check
+out later the same day once the cause is fixed; after midnight it can no
+longer be closed (gap 106).
+
+**415** — the body was not `multipart/form-data`.
+
+**502** — the selfie could not be uploaded; the session stays open and nothing
+is logged. Messages as on [69](#69-check-in-by-selfie).
+
+**500** — the schema is not applied yet (gap 104), or an unhandled defect.
 
 ---
 
@@ -7243,7 +7590,7 @@ not scheduled; changes take effect on the next restart.
 | 1 | `SendEmail` | Sends every queued email in `dbo.EmailQueue` that is still due an attempt | Nothing an endpoint returns. Every email in this reference — welcome, submission, leave apply, reminders — is sent by this job |
 | 2 | `TimeLogReminderEmailQueue` | Queues a time-log reminder for every user due one, from their `needToSendReminder` / `reminderTimeBeforeCutoff` setup | Nothing an endpoint returns |
 | 3 | `TimesheetReminderEmailQueue` | Queues a timesheet submission reminder for every user due one | Nothing an endpoint returns |
-| 4 | `ApproverReminderEmailQueue` | Once a day, queues one reminder per project that still has a Submitted sheet for a period that has ended, to that project's timesheet approver. **It repeats daily until every one of that period's sheets is approved or rejected**, so a sheet submitted late is chased too; a project with several periods waiting is reminded about its oldest | Nothing an endpoint returns |
+| 4 | `ApproverReminderEmailQueue` | Once a day, queues one reminder per project that still has a Submitted sheet for a period that has ended, to that project's timesheet approver. **It repeats daily until every one of that period's sheets is approved or rejected**, so a sheet submitted late is chased too; a project with several periods waiting is reminded about its oldest. Each user's **expected** time in the email is their assignment's `Max_log_hour_day` (on `dbo.Timesheet_Users_Project_setup`, so per user **and** project) times every day of the period - weekends and holidays are not taken off - and is shown as unknown when the assignment has no cap or a cap of 0 | Nothing an endpoint returns |
 | 5 | `AutoApproveProjectSheet` | Once a day, approves every project sheet that has sat `Submitted` longer than its project's `autoApproveInDays`, counting whole days from `submittedDate` | **A sheet's `statusId` becomes `2` (Approved) with no call to [Approve / Reject Project Timesheet](#54-approve--reject-project-timesheet).** `approvedBy` is the configured `AutoApprove:ApprovedByUserId`, and `isAutoApprove` is `1` — the only way to tell it apart from a human approval. An audit row is written as for any approval |
 
 A project with `autoApproveInDays` `null` **or** `0` is never picked up: the
@@ -7409,6 +7756,8 @@ authentication is off.
 | 66 | Add / Edit User Leave Apply | POST | `/api/v1/TimesheetProject/add-edit-timesheet-user-leave-apply` | Apply for leave (Submitted, emails the leave approvers) or edit a not-approved application | `TimesheetUserLeaveApplySaveRequest` | `TimesheetUserLeaveApplyResponse` | 400, 404, 500 |
 | 67 | Remove User Leave Apply | POST | `/api/v1/TimesheetProject/remove-timesheet-user-leave-apply` | Hard-delete a leave application; an approved one's days go back to the balance | `TimesheetUserLeaveApplyDeleteRequest` | `null` | 400, 404, 500 |
 | 68 | Approve / Reject User Leave Apply | POST | `/api/v1/TimesheetProject/update-timesheet-user-leave-apply-status` | Approve (takes the days from the balance) or reject a submitted application; leave approvers of the organisation only | `TimesheetUserLeaveApplyStatusUpdateRequest` | `TimesheetUserLeaveApplyResponse` | 400, 403, 404, 409, 500 |
+| 69 | Check In by Selfie | POST | `/api/v1/TimesheetProject/time-sheet-project-check-in-by-selfie` | Upload a selfie and open today's attendance session on a project; nothing is logged yet | `TimesheetProjectSelfieCheckInRequest` (form) | `TimesheetProjectTimeBySelfieResponse` | 400, 415, 500, 502 |
+| 70 | Check Out by Selfie | POST | `/api/v1/TimesheetProject/time-sheet-project-check-out-by-selfie` | Upload a selfie, close today's session and log its time to the project time log | `TimesheetProjectSelfieCheckOutRequest` (form) | `TimesheetProjectTimeBySelfieResponse` | 400, 415, 500, 502 |
 | — | Health | GET | `/health`, `/health/live`, `/health/ready` | Liveness / readiness | — | *(unenveloped)* | 503 |
 
 ---
@@ -7824,29 +8173,26 @@ Documented so nobody has to rediscover them:
     answers **500**, not 400. Closing this needs the owner to relax the
     constraint to `>= 0`.
 94. **Every account the API creates shares one password, and it is in
-    configuration in the clear.** `DefaultPassword:Encrypted` (written to
-    `dbo.Signup.Pwd`) and `DefaultPassword:Plain` (mailed to the user) are two
-    spellings of one password in `appsettings.json`, which is committed.
-    Anyone who can read the repository, the deployed config or a copy of a
-    welcome email can sign in as any account created since, until its owner
-    changes their password — and nothing requires them to. The values belong
-    in `dotnet user-secrets` locally and in the deployment's environment
-    (`DefaultPassword__Encrypted` / `DefaultPassword__Plain`), with
-    placeholders committed. A per-user generated password, a one-time link, or
-    the user choosing their own on first sign-in would close this properly.
-95. **Nothing checks that the two halves of the default password match.** The
-    API stores `Encrypted` and mails `Plain` without ever encrypting,
-    verifying or comparing anything, so a configuration where they are not the
-    same password creates accounts whose owners cannot sign in, with no error
-    anywhere. Only a real sign-in attempt reveals it.
-96. **The default password is written outside the procedure's transaction.**
-    `spc_Signup_timesheet_user` commits the account with its own
-    email-derived `Pwd`, and the API overwrites it immediately afterwards. A
-    failure in between leaves an account whose password is the SHA2_512 of its
-    email — which anyone who knows the address can derive — and the welcome
-    email will still have told the user a different password. The failure is
-    logged; the request answers `200`. Closing this needs the owner to add a
-    `@Pwd` parameter to the procedure.
+    configuration in the clear.** `DefaultPassword:Plain` - hashed into
+    `dbo.Signup.Pwd` by the procedure and mailed to the user - sits in
+    `appsettings.json`, which is committed. Anyone who can read the
+    repository, the deployed config or a copy of a welcome email can sign in
+    as any account created since, until its owner changes their password —
+    and nothing requires them to. The value belongs in `dotnet user-secrets`
+    locally and in the deployment's environment (`DefaultPassword__Plain`),
+    with a placeholder committed. A per-user generated password, a one-time
+    link, or the user choosing their own on first sign-in would close this
+    properly.
+95. *(Resolved 2026-11-15 - there is one configured value now,
+    `DefaultPassword:Plain`; `DefaultPassword:Encrypted` is gone.)* **Nothing
+    checked that the two halves of the default password matched.**
+96. *(Resolved 2026-11-15, once the procedure revision is applied - see 94's
+    section.)* **The default password was written outside the procedure's
+    transaction.** The procedure now hashes `@Password` itself, inside the
+    insert's transaction. What remains is that SQL Server hashes `nvarchar`
+    and `varchar` input differently: `@Password` is `nvarchar(50)`, so the
+    login must hash the typed password as `nvarchar` too, or no new account
+    can sign in. The owner is to confirm this before applying the revision.
 97. **Sheets submitted before calendar periods are not re-cut.** Periods used
     to be counted from the project's start date; a sheet already in
     `dbo.TimesheetProjectSubmission` keeps the `PeriodStartDate` /
@@ -7902,3 +8248,39 @@ Documented so nobody has to rediscover them:
     field existed cannot silently unblock anyone. The asymmetry is
     deliberate; the other fields describe what was agreed, this one is an
     administrator's switch.
+104. **The selfie table and the two new time-log columns are not in the
+    database yet.** `dbo.TimesheetUserSelfieAttendance` and
+    `dbo.TimesheetProjectTimeLog.IsLoggedFromMobile` / `.AttendanceID` are
+    recorded as NOT YET APPLIED. The time-log mapping already names the two
+    columns, so **until the owner applies them every endpoint that reads or
+    writes `dbo.TimesheetProjectTimeLog` answers 500** (`Invalid column
+    name`) - 49, 50, 51, 52, 53 and both selfie endpoints - not only 69 and 70.
+105. **A stored selfie link stops working after 48 hours.** The document
+    service answers with a pre-signed S3 URL (`X-Amz-Expires=172800`), and
+    that URL is what `checkInSelfiePath` / `checkOutSelfiePath` hold. Opening
+    one later answers *access denied*. Storing the object key and signing a
+    fresh URL when the photo is viewed would close this; it needs the
+    document service to return or accept the key.
+106. **A session not checked out the same day is never closed, and its time
+    is never logged.** Check-out takes only a session checked in **today**
+    (the user's time zone), and nothing - no job, no endpoint - closes an
+    older one. It does not block the next day's check-in; it simply stays
+    open with no time on the time log.
+107. **Selfie time is rounded to the nearest whole hour.** The time log holds
+    whole hours, so 7 h 29 min logs 7 and 7 h 30 min logs 8; under 30 minutes
+    closes the session with **no** entry. `loggedMinutes` keeps the exact
+    length, so the two can disagree by up to 29 minutes.
+108. **One open session per user per day is the API's rule only.** No
+    constraint backs it, so two check-ins arriving together can both
+    succeed; the later is then the one check-out closes, and the earlier stays
+    open (106).
+109. **A selfie entry looks like any other on the time log.**
+    `IsLoggedFromMobile` and `AttendanceID` are written by check-out but no
+    endpoint returns them, so [49](#49-project-time-log-list) cannot tell a
+    selfie entry from a typed one, and [50](#50-add--edit-project-time-log)
+    can change its hours away from the session's `loggedMinutes`.
+110. **Selfie times are UTC, but not always marked so.** A time the call
+    itself stamped carries a trailing `Z` and fractional seconds; one read
+    back from the database (`checkInDateTimeUtc` on a check-out) has neither,
+    because the `datetime2(0)` columns keep whole seconds and no zone. Treat
+    every one of them as UTC.

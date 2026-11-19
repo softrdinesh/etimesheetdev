@@ -136,8 +136,8 @@ public class TimeLogService : ITimeLogService
 
         var setup = await _adminRepository.GetByUserIdAsync(request.UserId, cancellationToken)
             ?? throw new BusinessException(
-                $"User '{request.UserId}' has no timesheet setup, so there are no limits to check this " +
-                "entry against. An administrator has to create one before they can log time.");
+                "This user's timesheet setup has not been created yet, so time cannot be logged. Please ask an " +
+                "administrator to set it up.");
 
         // Every rule below that asks "what time is it?" reads this clock and not
         // the server's. The employee's setup names their time zone, and a
@@ -221,8 +221,7 @@ public class TimeLogService : ITimeLogService
         if (original.UserId != request.UserId)
         {
             throw new BusinessException(
-                $"Time log '{request.TimeLogId}' does not belong to user '{request.UserId}', so it " +
-                "cannot be edited as theirs.");
+                "This time entry belongs to another user, so it cannot be edited.");
         }
 
         return original;
@@ -279,8 +278,7 @@ public class TimeLogService : ITimeLogService
         }
 
         throw new BusinessException(
-            $"Timesheet '{sheetCode}' has already been submitted, so its time can no longer be " +
-            "added to or changed.");
+            "This timesheet has already been submitted, so its time can no longer be added or changed.");
     }
 
     private async Task<TimeLog> AddTimeLogAsync(
@@ -525,8 +523,7 @@ public class TimeLogService : ITimeLogService
         if (code.Length > SheetCodeMaximumLength)
         {
             throw new BusinessException(
-                $"The sheet code sequence has run out of room: '{code}' is longer than the " +
-                $"{SheetCodeMaximumLength} characters dbo.TimeLog.SheetCode can hold.");
+                "A new timesheet number could not be generated. Please contact support.");
         }
 
         return code;
@@ -733,8 +730,8 @@ public class TimeLogService : ITimeLogService
             if (startsAt < span.EndsAt && span.StartsAt < endsAt)
             {
                 throw new ConflictException(
-                    $"This overlaps time log {entry.SheetId}, which already covers " +
-                    $"{span.StartsAt:HH\\:mm} to {span.EndsAt:HH\\:mm} that day.");
+                    $"This overlaps another time entry that already covers {span.StartsAt:HH\\:mm} to " +
+                    $"{span.EndsAt:HH\\:mm} that day.");
             }
         }
     }

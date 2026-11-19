@@ -27,4 +27,23 @@ public interface IDocumentUploader
         string fileName,
         string? contentType,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Uploads a user's picture - a selfie - to the service's
+    /// <c>Uploaduserpic</c> endpoint, filed under <paramref name="projectId"/>.
+    /// </summary>
+    /// <returns>
+    /// The <c>path</c> the service returned: a pre-signed URL to the stored
+    /// file, which is what the caller saves.
+    /// </returns>
+    /// <exception cref="ETimeSheet.Shared.Exceptions.ExternalServiceException">
+    /// The service could not be reached, did not answer in time, answered with
+    /// an error, or answered without a usable path.
+    /// </exception>
+    Task<string> UploadUserPictureAsync(
+        int projectId,
+        Stream content,
+        string fileName,
+        string? contentType,
+        CancellationToken cancellationToken = default);
 }
